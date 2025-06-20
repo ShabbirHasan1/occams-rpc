@@ -7,7 +7,7 @@ use std::{
     task::*,
 };
 
-use super::task::*;
+use super::client_task::*;
 use crate::error::*;
 use crossfire::{SendError, channel::LockedWaker, mpsc};
 use rustc_hash::FxHashMap;
@@ -25,16 +25,16 @@ macro_rules! retry_with_err {
     };
 }
 
-pub struct RpcClientTaskItem<T: RpcClientTask + Send + Unpin> {
+pub struct RpcClientTaskItem<T: RpcClientTask> {
     pub task: Option<T>,
     _upstream: Option<WaitGroupGuard>,
 }
 
-pub struct DelayTasksBatch<T: RpcClientTask + Send + Unpin> {
+pub struct DelayTasksBatch<T: RpcClientTask> {
     tasks: FxHashMap<u64, RpcClientTaskItem<T>>,
 }
 
-pub struct RpcClientTaskNotifier<T: RpcClientTask + Send + Unpin> {
+pub struct RpcClientTaskTimer<T: RpcClientTask> {
     server_id: u64,
     client_id: u64,
     pending_tasks_recv: mpsc::RxFuture<RpcClientTaskItem<T>, mpsc::SharedFutureBoth>,
@@ -52,7 +52,7 @@ pub struct RpcClientTaskNotifier<T: RpcClientTask + Send + Unpin> {
     reg_stopped_flag: AtomicBool,
 }
 
-impl<T: RpcClientTask + Send + Unpin> RpcClientTaskNotifier<T> {
+impl<T: RpcClientTask> RpcClientTaskTimer<T> {
     pub fn new(server_id: u64, client_id: u64, task_timeout: usize, mut thresholds: usize) -> Self {
         if thresholds == 0 {
             thresholds = 500;
@@ -237,15 +237,15 @@ impl<T: RpcClientTask + Send + Unpin> RpcClientTaskNotifier<T> {
 
 struct WaitRegTaskFuture<'a, T>
 where
-    T: RpcClientTask + Send + Unpin,
+    T: RpcClientTask,
 {
-    noti: &'a mut RpcClientTaskNotifier<T>,
+    noti: &'a mut RpcClientTaskTimer<T>,
     target_seq: u64,
 }
 
 impl<'a, T> Future for WaitRegTaskFuture<'a, T>
 where
-    T: RpcClientTask + Send + Unpin,
+    T: RpcClientTask,
 {
     type Output = Result<(), ()>;
 

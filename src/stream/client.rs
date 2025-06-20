@@ -11,8 +11,8 @@ use std::{
     task::{Context, Poll},
 };
 
-use super::{notifier::*, proto::*, task::*, throttler::*};
-use crate::{UnifyBufStream, UnifyStream};
+use super::{client_timer::*, proto::*, throttler::*};
+use crate::net::{UnifyBufStream, UnifyStream};
 use crate::{config::*, error::*};
 use bytes::BytesMut;
 use captains_log::LogFilter;
@@ -23,6 +23,8 @@ use nix::errno::Errno;
 use sync_utils::{time::DelayedTime, waitgroup::WaitGroupGuard};
 use tokio::time::{Duration, Instant, Interval, interval_at, sleep};
 use zerocopy::AsBytes;
+
+use super::client_task::{RetryTaskInfo, RpcClientTask};
 
 macro_rules! retry_with_err {
     ($self:expr, $t:expr, $err:expr) => {
@@ -36,20 +38,20 @@ macro_rules! retry_with_err {
 }
 
 /// RpcClient represents a client-side connection. connection will close on dropped
-pub struct RpcClient<T: RpcClientTask + Send + Unpin + 'static> {
+pub struct RpcClient<T: RpcClientTask> {
     close_h: Option<mpsc::TxUnbounded<()>>,
     inner: Arc<RpcClientInner<T>>,
 }
 
 impl<T> RpcClient<T>
 where
-    T: RpcClientTask + Send + Unpin + 'static,
+    T: RpcClientTask,
 {
     /// timeout_setting: only use read_timeout/write_timeout
     pub fn new(
-        server_id: u64, client_id: u64, stream: UnifyStream, config: RPCConfig,
+        server_id: u64, client_id: u64, stream: UnifyStream, config: RpcConfig,
         retry_tx: Option<mpsc::TxUnbounded<Option<RetryTaskInfo<T>>>>,
-        last_resp_ts: Option<Arc<AtomicU64>>, logger: Option<Arc<LogFilter>>,
+        last_resp_ts: Option<Arc<AtomicU64>>, logger: Arc<LogFilter>,
     ) -> Self {
         let (_close_tx, _close_rx) = mpsc::unbounded_future::<()>();
         Self {
@@ -67,7 +69,7 @@ where
         }
     }
 
-    pub fn start_receiver(&self) {
+    pub fn start(&self) {
         let inner = self.inner.clone();
         tokio::spawn(async move {
             inner.receive_loop().await;
@@ -131,19 +133,19 @@ where
 
 impl<T> Drop for RpcClient<T>
 where
-    T: RpcClientTask + Send + Unpin + 'static,
+    T: RpcClientTask,
 {
     fn drop(&mut self) {
         self.close_h.take();
-        let notifier = self.inner.get_notifier_mut();
-        notifier.stop_reg_task();
+        let timer = self.inner.get_timer_mut();
+        timer.stop_reg_task();
         self.inner.closed.store(true, Ordering::Release);
     }
 }
 
 impl<T> fmt::Debug for RpcClient<T>
 where
-    T: RpcClientTask + Send + Unpin + 'static,
+    T: RpcClientTask,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.inner.fmt(f)
@@ -152,7 +154,7 @@ where
 
 struct RpcClientInner<T>
 where
-    T: RpcClientTask + Send + Unpin + 'static,
+    T: RpcClientTask,
 {
     server_id: u64,
     client_id: u64,
@@ -160,9 +162,9 @@ where
     timeout: TimeoutSetting,
     seq: AtomicU64,
     retry_task_sender: Option<mpsc::TxUnbounded<Option<RetryTaskInfo<T>>>>,
-    close_h: mpsc::RxUnbounded<()>, // When RpcClient(sender) dropped, receiver will be notifier
+    close_h: mpsc::RxUnbounded<()>, // When RpcClient(sender) dropped, receiver will be timer
     closed: AtomicBool,             // flag set by either sender or receive on there exit
-    notifier: UnsafeCell<RpcClientTaskNotifier<T>>,
+    timer: UnsafeCell<RpcClientTaskTimer<T>>,
     has_err: AtomicBool,
     resp_buf: UnsafeCell<BytesMut>,
     throttler: Option<Throttler>,
@@ -170,13 +172,13 @@ where
     logger: Arc<LogFilter>,
 }
 
-unsafe impl<T> Send for RpcClientInner<T> where T: RpcClientTask + Send + Unpin + 'static {}
+unsafe impl<T> Send for RpcClientInner<T> where T: RpcClientTask {}
 
-unsafe impl<T> Sync for RpcClientInner<T> where T: RpcClientTask + Send + Unpin + 'static {}
+unsafe impl<T> Sync for RpcClientInner<T> where T: RpcClientTask {}
 
 impl<T> fmt::Debug for RpcClientInner<T>
 where
-    T: RpcClientTask + Send + Unpin + 'static,
+    T: RpcClientTask,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "rpc client {}:{}", self.server_id, self.client_id)
@@ -185,19 +187,14 @@ where
 
 impl<T> RpcClientInner<T>
 where
-    T: RpcClientTask + Send + Unpin + 'static,
+    T: RpcClientTask,
 {
     pub fn new(
         server_id: u64, client_id: u64, stream: UnifyStream,
         retry_tx: Option<mpsc::TxUnbounded<Option<RetryTaskInfo<T>>>>,
-        close_h: mpsc::RxUnbounded<()>, config: RPCConfig, last_resp_ts: Option<Arc<AtomicU64>>,
-        mut logger: Option<Arc<LogFilter>>,
+        close_h: mpsc::RxUnbounded<()>, config: RpcConfig, last_resp_ts: Option<Arc<AtomicU64>>,
+        logger: Arc<LogFilter>,
     ) -> Self {
-        if let None = logger {
-            logger = Some(Arc::new(LogFilter::new()));
-            logger.as_mut().unwrap().set_level(log::Level::Trace);
-        }
-
         let mut client_inner = Self {
             server_id,
             client_id,
@@ -207,7 +204,7 @@ where
             closed: AtomicBool::new(false),
             seq: AtomicU64::new(1),
             timeout: config.timeout,
-            notifier: UnsafeCell::new(RpcClientTaskNotifier::new(
+            timer: UnsafeCell::new(RpcClientTaskTimer::new(
                 server_id,
                 client_id,
                 config.timeout.task_timeout,
@@ -217,7 +214,7 @@ where
             throttler: None,
             last_resp_ts,
             has_err: AtomicBool::new(false),
-            logger: logger.unwrap(),
+            logger,
         };
 
         if config.thresholds > 0 {
@@ -241,8 +238,8 @@ where
     }
 
     #[inline(always)]
-    fn get_notifier_mut(&self) -> &mut RpcClientTaskNotifier<T> {
-        unsafe { std::mem::transmute(self.notifier.get()) }
+    fn get_timer_mut(&self) -> &mut RpcClientTaskTimer<T> {
+        unsafe { std::mem::transmute(self.timer.get()) }
     }
 
     #[inline(always)]
@@ -260,8 +257,8 @@ where
 
     /// Directly work on the socket steam, when failed
     async fn send_task(&self, mut task: T, need_flush: bool) -> Result<(), RpcError> {
-        let notifier = self.get_notifier_mut();
-        notifier.pending_task_count_ref().fetch_add(1, Ordering::SeqCst);
+        let timer = self.get_timer_mut();
+        timer.pending_task_count_ref().fetch_add(1, Ordering::SeqCst);
         if self.closed.load(Ordering::Acquire) {
             logger_warn!(
                 self.logger,
@@ -271,18 +268,18 @@ where
                 RPC_ERR_CLOSED,
             );
             retry_with_err!(self, task, RPC_ERR_CLOSED);
-            notifier.pending_task_count_ref().fetch_sub(1, Ordering::SeqCst); // rollback
+            timer.pending_task_count_ref().fetch_sub(1, Ordering::SeqCst); // rollback
             return Err(RPC_ERR_COMM);
         }
 
         match self.send_request(&mut task, need_flush).await {
             Err(e) => {
                 logger_warn!(self.logger, "{:?} sending task {} failed: {:?}", self, task, e);
-                notifier.pending_task_count_ref().fetch_sub(1, Ordering::SeqCst); // rollback
+                timer.pending_task_count_ref().fetch_sub(1, Ordering::SeqCst); // rollback
                 retry_with_err!(self, task, e.clone());
                 self.closed.store(true, Ordering::Release);
                 self.has_err.store(true, Ordering::Release);
-                notifier.stop_reg_task();
+                timer.stop_reg_task();
                 return Err(e);
             }
             Ok(_) => {
@@ -292,7 +289,7 @@ where
                 if let Some(throttler) = self.throttler.as_ref() {
                     wg = Some(throttler.add_task());
                 }
-                notifier.reg_task(task, wg).await;
+                timer.reg_task(task, wg).await;
                 return Ok(());
             }
         }
@@ -306,8 +303,8 @@ where
             logger_warn!(self.logger, "{:?} flush_req flush err: {:?}", self, r);
             self.closed.store(true, Ordering::Release);
             self.has_err.store(true, Ordering::Release);
-            let notifier = self.get_notifier_mut();
-            notifier.stop_reg_task();
+            let timer = self.get_timer_mut();
+            timer.stop_reg_task();
 
             return Err(RPC_ERR_COMM);
         }
@@ -451,10 +448,10 @@ where
     async fn _recv_resp_body(&self, resp_head: &RespHead) -> Result<(), RpcError> {
         let reader = self.get_stream_mut();
         let read_timeout = self.timeout.read_timeout;
-        let notifier = self.get_notifier_mut();
+        let timer = self.get_timer_mut();
         let blob_len = resp_head.blob_len;
         let read_buf = self.get_resp_buf(resp_head.msg_len as usize);
-        if let Some(mut task_item) = notifier.take_task(resp_head.seq).await {
+        if let Some(mut task_item) = timer.take_task(resp_head.seq).await {
             let mut task = task_item.task.take().unwrap();
             if resp_head.flag > 0 {
                 return self._recv_error(resp_head, task).await;
@@ -499,7 +496,7 @@ where
             return Ok(());
         } else {
             let seq = resp_head.seq;
-            logger_debug!(self.logger, "{:?} notifier take_task(seq={}) return None", self, seq);
+            logger_debug!(self.logger, "{:?} timer take_task(seq={}) return None", self, seq);
             let mut data_len = 0;
             if resp_head.flag == 0 {
                 data_len += resp_head.msg_len + resp_head.blob_len;
@@ -517,9 +514,9 @@ where
 
         'HeaderLoop: loop {
             if self.closed.load(Ordering::Acquire) {
-                let notifier = self.get_notifier_mut();
+                let timer = self.get_timer_mut();
                 // ensure task receive on normal exit
-                if notifier.check_pending_tasks_empty() || self.has_err.load(Ordering::Acquire) {
+                if timer.check_pending_tasks_empty() || self.has_err.load(Ordering::Acquire) {
                     return Err(RPC_ERR_CLOSED);
                 }
 
@@ -587,14 +584,14 @@ where
                 Err(e) => {
                     logger_debug!(self.logger, "{:?} receive_loop error: {:?}", self, e);
                     self.closed.store(true, Ordering::Release);
-                    let notifier = self.get_notifier_mut();
-                    notifier.clean_pending_tasks(self.retry_task_sender.as_ref());
+                    let timer = self.get_timer_mut();
+                    timer.clean_pending_tasks(self.retry_task_sender.as_ref());
                     // If pending_task_count > 0 means some tasks may still remain in the pending chan
-                    while notifier.pending_task_count_ref().load(Ordering::SeqCst) > 0 {
+                    while timer.pending_task_count_ref().load(Ordering::SeqCst) > 0 {
                         // After the 'closed' flag has taken effect,
                         // pending_task_count will not keep growing,
                         // so there is no need to sleep here.
-                        notifier.clean_pending_tasks(self.retry_task_sender.as_ref());
+                        timer.clean_pending_tasks(self.retry_task_sender.as_ref());
                         sleep(Duration::from_secs(1)).await;
                     }
                     return;
@@ -613,8 +610,8 @@ where
                 throttler.get_inflight_tasks_count()
             );
         }
-        let notifier = self.get_notifier_mut();
-        notifier.adjust_task_queue(self.retry_task_sender.as_ref());
+        let timer = self.get_timer_mut();
+        timer.adjust_task_queue(self.retry_task_sender.as_ref());
         return;
     }
 
@@ -661,17 +658,17 @@ where
 
 impl<T> Drop for RpcClientInner<T>
 where
-    T: RpcClientTask + Send + Unpin + 'static,
+    T: RpcClientTask,
 {
     fn drop(&mut self) {
-        let notifier = self.get_notifier_mut();
-        notifier.clean_pending_tasks(self.retry_task_sender.as_ref());
+        let timer = self.get_timer_mut();
+        timer.clean_pending_tasks(self.retry_task_sender.as_ref());
     }
 }
 
 struct ReciverTimerFuture<'a, T, F>
 where
-    T: RpcClientTask + Send + Unpin + 'static,
+    T: RpcClientTask,
     F: Future<Output = Result<(), RpcError>> + Unpin,
 {
     client: &'a RpcClientInner<T>,
@@ -681,7 +678,7 @@ where
 
 impl<'a, T, F> ReciverTimerFuture<'a, T, F>
 where
-    T: RpcClientTask + Send + Unpin + 'static,
+    T: RpcClientTask,
     F: Future<Output = Result<(), RpcError>> + Unpin,
 {
     fn new(
@@ -696,7 +693,7 @@ where
 // Err(e) when connection error
 impl<'a, T, F> Future for ReciverTimerFuture<'a, T, F>
 where
-    T: RpcClientTask + Send + Unpin,
+    T: RpcClientTask,
     F: Future<Output = Result<(), RpcError>> + Unpin,
 {
     type Output = Result<(), RpcError>;
@@ -712,7 +709,7 @@ where
             // wait us, just exit
             return Poll::Ready(Err(RPC_ERR_CLOSED));
         }
-        _self.client.get_notifier_mut().poll_sent_task(ctx);
+        _self.client.get_timer_mut().poll_sent_task(ctx);
         // Even if receive future has block, we should poll_sent_task in order to detect timeout event
         if let Poll::Ready(r) = _self.recv_future.as_mut().poll(ctx) {
             return Poll::Ready(r);
