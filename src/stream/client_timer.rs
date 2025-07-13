@@ -9,7 +9,7 @@ use std::{
 
 use super::client_task::*;
 use crate::error::*;
-use crossfire::{SendError, channel::LockedWaker, mpsc};
+use crossfire::{stream::AsyncStream, *};
 use rustc_hash::FxHashMap;
 use sync_utils::waitgroup::WaitGroupGuard;
 
@@ -37,13 +37,12 @@ pub struct DelayTasksBatch<T: RpcClientTask> {
 pub struct RpcClientTaskTimer<T: RpcClientTask> {
     server_id: u64,
     client_id: u64,
-    pending_tasks_recv: mpsc::RxFuture<RpcClientTaskItem<T>, mpsc::SharedFutureBoth>,
-    pending_tasks_sender: mpsc::TxFuture<RpcClientTaskItem<T>, mpsc::SharedFutureBoth>,
+    pending_tasks_recv: AsyncStream<RpcClientTaskItem<T>>,
+    pending_tasks_sender: MAsyncTx<RpcClientTaskItem<T>>,
     pending_task_count: AtomicU64,
 
     sent_tasks: FxHashMap<u64, RpcClientTaskItem<T>>, // sent_tasks of the current second
     delay_tasks_queue: VecDeque<DelayTasksBatch<T>>,  // sent_tasks of past seconds
-    sent_task_waker: Option<LockedWaker>,
 
     min_delay_seq: u64,
     task_timeout: usize, // in seconds
@@ -57,15 +56,14 @@ impl<T: RpcClientTask> RpcClientTaskTimer<T> {
         if thresholds == 0 {
             thresholds = 500;
         }
-        let (pending_tx, pending_rx) = mpsc::bounded_future_both(thresholds * 2);
+        let (pending_tx, pending_rx) = mpsc::bounded_async(thresholds * 2);
         Self {
             server_id,
             client_id,
-            pending_tasks_recv: pending_rx,
+            pending_tasks_recv: pending_rx.into_stream(),
             pending_tasks_sender: pending_tx,
             pending_task_count: AtomicU64::new(0),
             sent_tasks: FxHashMap::default(),
-            sent_task_waker: None,
             min_delay_seq: 0,
             task_timeout,
             delay_tasks_queue: VecDeque::with_capacity(task_timeout),
@@ -78,9 +76,7 @@ impl<T: RpcClientTask> RpcClientTaskTimer<T> {
         &self.pending_task_count
     }
 
-    pub fn clean_pending_tasks(
-        &mut self, retry_tx: Option<&mpsc::TxUnbounded<Option<RetryTaskInfo<T>>>>,
-    ) {
+    pub fn clean_pending_tasks(&mut self, retry_tx: Option<&MTx<Option<RetryTaskInfo<T>>>>) {
         loop {
             match self.pending_tasks_recv.try_recv() {
                 Ok(task) => {
@@ -177,13 +173,13 @@ impl<T: RpcClientTask> RpcClientTaskTimer<T> {
         let mut got = false;
         // Need to poll_item in order to register waker
         loop {
-            match self.pending_tasks_recv.poll_item(ctx, &mut self.sent_task_waker) {
-                Ok(_task) => {
+            match self.pending_tasks_recv.poll_item(ctx) {
+                Poll::Ready(Some(_task)) => {
                     self.got_pending_task(_task);
                     got = true;
                     continue;
                 }
-                Err(_e) => break, // empty or disconnect
+                _ => break, // empty or disconnect
             }
         }
         got
@@ -199,9 +195,7 @@ impl<T: RpcClientTask> RpcClientTaskTimer<T> {
         self.sent_tasks.insert(task_seq, task_item);
     }
 
-    pub fn adjust_task_queue(
-        &mut self, retry_tx: Option<&mpsc::TxUnbounded<Option<RetryTaskInfo<T>>>>,
-    ) {
+    pub fn adjust_task_queue(&mut self, retry_tx: Option<&MTx<Option<RetryTaskInfo<T>>>>) {
         // 1. move wait_confirmed to overtime
         let mut tasks_batch_in_second = FxHashMap::default();
         swap(&mut self.sent_tasks, &mut tasks_batch_in_second);

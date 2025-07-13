@@ -10,7 +10,7 @@ use std::{
 
 use crate::net::{UnifyBufStream, UnifyListener, UnifyStream};
 use bytes::BytesMut;
-use crossfire::mpsc::{RxUnbounded, TxUnbounded, unbounded_future};
+use crossfire::*;
 use futures::{
     FutureExt,
     future::{AbortHandle, Abortable},
@@ -150,7 +150,7 @@ where
 
 /// A writer channel to send reponse. Can be clone anywhere.
 #[derive(Clone)]
-pub struct RpcSvrRespWriter(TxUnbounded<RpcSvrResp>);
+pub struct RpcSvrRespWriter(MTx<RpcSvrResp>);
 
 impl RpcSvrRespWriter {
     #[inline]
@@ -163,7 +163,7 @@ pub struct RpcSvrReader {
     inner: Arc<RpcSvrConnInner>,
     action_buf: BytesMut,
     msg_buf: BytesMut,
-    done_tx: TxUnbounded<RpcSvrResp>,
+    done_tx: MTx<RpcSvrResp>,
 }
 
 impl fmt::Display for RpcSvrReader {
@@ -275,7 +275,7 @@ impl RpcSvrReader {
 
 struct RpcSvrWriter {
     inner: Arc<RpcSvrConnInner>,
-    done_rx: RxUnbounded<RpcSvrResp>,
+    done_rx: AsyncRx<RpcSvrResp>,
 }
 
 impl fmt::Display for RpcSvrWriter {
@@ -386,7 +386,7 @@ impl RpcSvrConnInner {
             conn_ref_count,
             logger,
         });
-        let (done_tx, done_rx) = unbounded_future::<RpcSvrResp>();
+        let (done_tx, done_rx) = mpsc::unbounded_async::<RpcSvrResp>();
         let reader = RpcSvrReader {
             inner: inner.clone(),
             action_buf: BytesMut::with_capacity(128),

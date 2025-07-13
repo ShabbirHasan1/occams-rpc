@@ -1,5 +1,5 @@
 use captains_log::recipe;
-use crossfire::mpsc::*;
+use crossfire::*;
 use display_attr::*;
 use io_engine::buffer::Buffer;
 use log::*;
@@ -67,7 +67,7 @@ pub fn test_task_decoder(
 
 pub struct FileTask {
     common: ClientTaskCommon,
-    sender: TxUnbounded<Self>,
+    sender: MTx<Self>,
     req: FileIOReq,
     action: i32,
     res: Option<Result<(), RpcError>>,
@@ -94,7 +94,7 @@ macro_rules! encode_task_msgp {
 }
 
 impl FileTask {
-    pub fn new(action: i32, sender: TxUnbounded<Self>) -> Self {
+    pub fn new(action: i32, sender: MTx<Self>) -> Self {
         Self {
             common: ClientTaskCommon::default(),
             sender,

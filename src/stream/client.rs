@@ -16,7 +16,7 @@ use crate::net::{UnifyBufStream, UnifyStream};
 use crate::{config::*, error::*};
 use bytes::BytesMut;
 use captains_log::LogFilter;
-use crossfire::{SendError, mpsc};
+use crossfire::*;
 use futures::{future::FutureExt, pin_mut};
 use io_engine::buffer::Buffer;
 use nix::errno::Errno;
@@ -39,7 +39,7 @@ macro_rules! retry_with_err {
 
 /// RpcClient represents a client-side connection. connection will close on dropped
 pub struct RpcClient<T: RpcClientTask> {
-    close_h: Option<mpsc::TxUnbounded<()>>,
+    close_tx: Option<MTx<()>>,
     inner: Arc<RpcClientInner<T>>,
 }
 
@@ -50,12 +50,12 @@ where
     /// timeout_setting: only use read_timeout/write_timeout
     pub fn new(
         server_id: u64, client_id: u64, stream: UnifyStream, config: RpcConfig,
-        retry_tx: Option<mpsc::TxUnbounded<Option<RetryTaskInfo<T>>>>,
-        last_resp_ts: Option<Arc<AtomicU64>>, logger: Arc<LogFilter>,
+        retry_tx: Option<MTx<Option<RetryTaskInfo<T>>>>, last_resp_ts: Option<Arc<AtomicU64>>,
+        logger: Arc<LogFilter>,
     ) -> Self {
-        let (_close_tx, _close_rx) = mpsc::unbounded_future::<()>();
+        let (_close_tx, _close_rx) = mpmc::unbounded_async::<()>();
         Self {
-            close_h: Some(_close_tx),
+            close_tx: Some(_close_tx),
             inner: Arc::new(RpcClientInner::new(
                 server_id,
                 client_id,
@@ -98,8 +98,8 @@ where
         self.inner.has_err.store(true, Ordering::Release);
         let stream = self.inner.get_stream_mut();
         let _ = stream.close().await; // stream close is just shutdown on sending, receiver might not be notified on peer dead
-        if let Some(close_h) = self.close_h.as_ref() {
-            let _ = close_h.send(()); // This equals to RpcClient::drop
+        if let Some(close_tx) = self.close_tx.as_ref() {
+            let _ = close_tx.send(()); // This equals to RpcClient::drop
         }
     }
 
@@ -136,7 +136,7 @@ where
     T: RpcClientTask,
 {
     fn drop(&mut self) {
-        self.close_h.take();
+        self.close_tx.take();
         let timer = self.inner.get_timer_mut();
         timer.stop_reg_task();
         self.inner.closed.store(true, Ordering::Release);
@@ -161,9 +161,9 @@ where
     stream: UnsafeCell<UnifyBufStream>,
     timeout: TimeoutSetting,
     seq: AtomicU64,
-    retry_task_sender: Option<mpsc::TxUnbounded<Option<RetryTaskInfo<T>>>>,
-    close_h: mpsc::RxUnbounded<()>, // When RpcClient(sender) dropped, receiver will be timer
-    closed: AtomicBool,             // flag set by either sender or receive on there exit
+    retry_task_sender: Option<MTx<Option<RetryTaskInfo<T>>>>,
+    close_rx: MAsyncRx<()>, // When RpcClient(sender) dropped, receiver will be timer
+    closed: AtomicBool,     // flag set by either sender or receive on there exit
     timer: UnsafeCell<RpcClientTaskTimer<T>>,
     has_err: AtomicBool,
     resp_buf: UnsafeCell<BytesMut>,
@@ -191,16 +191,15 @@ where
 {
     pub fn new(
         server_id: u64, client_id: u64, stream: UnifyStream,
-        retry_tx: Option<mpsc::TxUnbounded<Option<RetryTaskInfo<T>>>>,
-        close_h: mpsc::RxUnbounded<()>, config: RpcConfig, last_resp_ts: Option<Arc<AtomicU64>>,
-        logger: Arc<LogFilter>,
+        retry_tx: Option<MTx<Option<RetryTaskInfo<T>>>>, close_rx: MAsyncRx<()>, config: RpcConfig,
+        last_resp_ts: Option<Arc<AtomicU64>>, logger: Arc<LogFilter>,
     ) -> Self {
         let mut client_inner = Self {
             server_id,
             client_id,
             stream: UnsafeCell::new(UnifyBufStream::with_capacity(33 * 1024, 33 * 1024, stream)),
             retry_task_sender: retry_tx,
-            close_h,
+            close_rx,
             closed: AtomicBool::new(false),
             seq: AtomicU64::new(1),
             timeout: config.timeout,
@@ -356,7 +355,7 @@ where
         return Ok(());
     }
 
-    // return Ok(false) when close_h has close and nothing more pending resp to receive
+    // return Ok(false) when close_rx has close and nothing more pending resp to receive
     async fn recv_some(&self) -> Result<(), RpcError> {
         for _ in 0i32..20 {
             // Underlayer rpc socket is buffered, might not yeal to runtime
@@ -532,7 +531,7 @@ where
                 break;
             } else {
                 // Block here for new header without timeout
-                let close_f = self.close_h.recv().fuse();
+                let close_f = self.close_rx.recv().fuse();
                 pin_mut!(close_f);
                 let read_header_f = reader.read_exact(&mut resp_head_buf).fuse();
                 pin_mut!(read_header_f);
