@@ -1,7 +1,8 @@
 use super::RpcAction;
 use crate::error::*;
+use io_buffer::Buffer;
 use std::fmt::Display;
-use std::ops::{Deref, DerefMut};
+use std::ops::DerefMut;
 
 #[derive(Debug, Default)]
 pub struct ClientTaskCommon {
@@ -44,13 +45,18 @@ pub trait ClientTaskEncode {
 
     #[inline(always)]
     /// Contain optional extra data to send to server side.
-    fn get_req_ext_buf(&self) -> Option<&[u8]> {
+    fn get_req_blob(&self) -> Option<&[u8]> {
         None
     }
 }
 
 pub trait ClientTaskDecode {
     fn decode_resp(&mut self, buf: &[u8]) -> Result<(), ()>;
+
+    #[inline(always)]
+    fn get_resp_blob_mut(&mut self) -> Option<&mut impl AllocateBuf> {
+        None::<&mut Option<Vec<u8>>>
+    }
 
     /// Get a mut buffer ref for large blob to hold optional extra data response from server
     ///
@@ -61,58 +67,50 @@ pub trait ClientTaskDecode {
     }
 }
 
-///// Macro to impl Deref<Target=ClientTaskCommon> and DerefMut for a struct
-/////
-///// # example:
-/////
-///// ``` rust
-///// use occams_rpc::stream::client_task::*;
-///// pub struct FileTask {
-/////    common: ClientTaskCommon,
-///// }
-///// impl_client_task_common!(FileTask, common);
-///// ```
-//#[macro_export]
-//macro_rules! impl_client_task_common {
-//    ($cls: tt, $common_field: tt) => {
-//        impl std::ops::Deref for $cls {
-//            type Target = ClientTaskCommon;
-//            fn deref(&self) -> &Self::Target {
-//                &self.$common_field
-//            }
-//        }
-//        impl std::ops::DerefMut for $cls {
-//            fn deref_mut(&mut self) -> &mut Self::Target {
-//                &mut self.$common_field
-//            }
-//        }
-//    };
-//}
-//// export macro current level
-////#[allow(unused_imports)]
-//pub use impl_client_task_common;
-//
-//#[macro_export]
-//macro_rules! impl_client_task_encode {
-//    ($cls: tt, $codec: tt, $req_field: tt) => {
-//        impl ClientTaskEncode for $cls {
-//            fn encode_req(&self) -> Option<Vec<u8>> {
-//                $codec::encode(self.$req_field)
-//            }
-//        }
-//    };
-//    ($cls: tt, $codec: tt, $req_field: tt, $blob_field: tt) => {
-//        impl ClientTaskEncode for $cls {
-//            fn encode_req(&self) -> Option<Vec<u8>> {
-//                todo!();
-//            }
-//
-//            fn get_req_ext_buf(&self) -> Option<&u8> {
-//                Some(self.$blob_field.as_ref())
-//            }
-//        }
-//    };
-//}
-//// export macro current level
-//#[allow(unused_imports)]
-//pub use impl_client_task_encode;
+pub trait AllocateBuf {
+    /// Alloc buffer or reserve space inside the Buffer
+    fn reserve<'a>(&'a mut self, _blob_len: i32) -> Option<&'a mut [u8]>;
+}
+
+impl AllocateBuf for Option<Vec<u8>> {
+    #[inline]
+    fn reserve<'a>(&'a mut self, blob_len: i32) -> Option<&'a mut [u8]> {
+        let blob_len = blob_len as usize;
+        if let Some(buf) = self.as_mut() {
+            if buf.len() != blob_len {
+                if buf.capacity() < blob_len {
+                    buf.reserve(blob_len - buf.capacity());
+                }
+                unsafe { buf.set_len(blob_len) };
+            }
+        } else {
+            let mut v = Vec::with_capacity(blob_len);
+            unsafe { v.set_len(blob_len) };
+            self.replace(v);
+        }
+        return self.as_deref_mut();
+    }
+}
+
+impl AllocateBuf for Option<Buffer> {
+    #[inline]
+    fn reserve<'a>(&'a mut self, blob_len: i32) -> Option<&'a mut [u8]> {
+        if let Some(buf) = self.as_mut() {
+            let blob_len = blob_len as usize;
+            if buf.len() != blob_len {
+                if buf.capacity() < blob_len {
+                    return None;
+                }
+                buf.set_len(blob_len);
+            }
+        } else {
+            if let Ok(v) = Buffer::alloc(blob_len) {
+                self.replace(v);
+            } else {
+                // alloc failed
+                return None;
+            }
+        }
+        return self.as_deref_mut();
+    }
+}

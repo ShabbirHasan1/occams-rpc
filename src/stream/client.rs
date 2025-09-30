@@ -18,13 +18,13 @@ use bytes::BytesMut;
 use captains_log::LogFilter;
 use crossfire::*;
 use futures::{future::FutureExt, pin_mut};
-use io_engine::buffer::Buffer;
+use io_buffer::Buffer;
 use nix::errno::Errno;
 use sync_utils::{time::DelayedTime, waitgroup::WaitGroupGuard};
 use tokio::time::{Duration, Instant, Interval, interval_at, sleep};
 use zerocopy::AsBytes;
 
-use super::client_task::{RetryTaskInfo, RpcClientTask};
+use super::client_task::{AllocateBuf, RetryTaskInfo, RpcClientTask};
 
 macro_rules! retry_with_err {
     ($self:expr, $t:expr, $err:expr) => {
@@ -415,7 +415,7 @@ where
 
     async fn _recv_and_dump(&self, l: usize) -> Result<(), RpcError> {
         let reader = self.get_stream_mut();
-        match Buffer::alloc(l) {
+        match Buffer::alloc(l as i32) {
             Err(_) => {
                 self.closed.store(true, Ordering::Release);
                 logger_warn!(self.logger, "{:?} alloc buf failed", self);
@@ -499,7 +499,7 @@ where
             } // When msg_len == 0, read_buf has 0 size
 
             if blob_len > 0 {
-                match task.get_resp_ext_buf_mut(blob_len as i32) {
+                match task.get_resp_blob_mut() {
                     None => {
                         logger_error!(
                             self.logger,
@@ -510,17 +510,28 @@ where
                         task.set_result(Err(RPC_ERR_DECODE));
                         return self._recv_and_dump(blob_len as usize).await;
                     }
-                    Some(ext_buf) => {
-                        // Should ensure ext_buf has len meat blob_len
-                        if let Err(e) = reader.read_exact_timeout(ext_buf, read_timeout).await {
-                            logger_warn!(
+                    Some(blob) => {
+                        if let Some(buf) = blob.reserve(blob_len) {
+                            // Should ensure ext_buf has len meat blob_len
+                            if let Err(e) = reader.read_exact_timeout(buf, read_timeout).await {
+                                logger_warn!(
+                                    self.logger,
+                                    "{:?} rpc client reader read ext_buf err: {:?}",
+                                    self,
+                                    e
+                                );
+                                retry_with_err!(self, task, RPC_ERR_COMM);
+                                return Err(RPC_ERR_COMM);
+                            }
+                        } else {
+                            logger_error!(
                                 self.logger,
-                                "{:?} rpc client reader read ext_buf err: {:?}",
+                                "{:?} rpc client task {} has no ext_buf",
                                 self,
-                                e
+                                task,
                             );
-                            retry_with_err!(self, task, RPC_ERR_COMM);
-                            return Err(RPC_ERR_COMM);
+                            task.set_result(Err(RPC_ERR_DECODE));
+                            return self._recv_and_dump(blob_len as usize).await;
                         }
                     }
                 }
@@ -539,9 +550,9 @@ where
             logger_debug!(self.logger, "{:?} timer take_task(seq={}) return None", self, seq);
             let mut data_len = 0;
             if resp_head.flag == 0 {
-                data_len += resp_head.msg_len + resp_head.blob_len;
+                data_len += resp_head.msg_len + resp_head.blob_len as u32;
             } else if resp_head.flag == RESP_FLAG_HAS_ERR_STRING {
-                data_len += resp_head.blob_len;
+                data_len += resp_head.blob_len as u32;
             }
             return self._recv_and_dump(data_len as usize).await;
         }

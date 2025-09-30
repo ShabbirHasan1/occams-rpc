@@ -1,3 +1,6 @@
+[workspace]
+members = ["occams-rpc-macros"]
+
 [package]
 name = "occams-rpc"
 version = "0.1.0"
@@ -15,6 +18,7 @@ and can change log setting on the fly.
 """
 
 [dependencies]
+occams-rpc-macros = { path = "occams-rpc-macros" }
 log = { version = "0.4", features = ["std", "kv_unstable"] }
 captains-log = "0.4"
 signal-hook = { version = "0" }
@@ -25,7 +29,7 @@ tokio = { version = "1", features = ["net", "io-util", "time", "rt"] }
 async-trait = "0.1"
 futures = "0.3"
 zerocopy = "0.2"
-io-engine = "0"
+io-buffer = "1"
 rustc-hash = "1.1"
 bytes = "1"
 crossfire = "2.0"

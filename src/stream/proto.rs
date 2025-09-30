@@ -67,9 +67,9 @@ impl ReqHead {
             }
         }
         let msg = task.encode_req()?;
-        let ext_buf = task.get_req_ext_buf();
+        let blob = task.get_req_blob();
         let msg_len = msg.len() as u32;
-        let blob_len = if let Some(blob) = ext_buf { blob.len() as u32 } else { 0 };
+        let blob_len = if let Some(blob) = blob { blob.len() as u32 } else { 0 };
         // encode response header
         let header = ReqHead {
             magic: RPC_MAGIC,
@@ -81,7 +81,7 @@ impl ReqHead {
             msg_len,
             blob_len,
         };
-        Ok((header, action_str, msg, ext_buf))
+        Ok((header, action_str, msg, blob))
     }
 
     #[inline(always)]
@@ -185,8 +185,8 @@ pub struct RespHead {
 
     /// Increased ID of request msg in the socket connection (response.seq==request.seq)
     pub seq: u64,
-    /// unstructured msg
-    pub blob_len: u32,
+    /// unstructured msg, only support half of 16Byte, must larger than zero
+    pub blob_len: i32,
 }
 
 pub const RPC_RESP_HEADER_LEN: usize = size_of::<RespHead>();
@@ -198,10 +198,10 @@ impl RespHead {
         match task_resp.res {
             Ok((ref msg, ref blob)) => {
                 let msg_len = if let Some(msg_buf) = msg.as_ref() { msg_buf.len() } else { 0 };
-                let mut blob_len: u32 = 0;
+                let mut blob_len: i32 = 0;
                 let mut blob_o: Option<&[u8]> = None;
                 if let Some(blob_buf) = blob.as_ref() {
-                    blob_len = blob_buf.len() as u32;
+                    blob_len = blob_buf.len() as i32;
                     blob_o = Some(blob_buf.as_ref());
                 }
                 let header = RespHead {
@@ -210,7 +210,7 @@ impl RespHead {
                     flag: 0,
                     seq: task_resp.seq,
                     msg_len: msg_len as u32,
-                    blob_len: blob_len as u32,
+                    blob_len: blob_len as i32,
                 };
                 return (header, msg.as_ref(), blob_o);
             }
@@ -238,7 +238,7 @@ impl RespHead {
             flag: RESP_FLAG_HAS_ERR_STRING,
             seq,
             msg_len: 0,
-            blob_len: error_str.len() as u32,
+            blob_len: error_str.len() as i32,
         };
         return (header, None, Some(error_str));
     }

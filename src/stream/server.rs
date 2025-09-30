@@ -21,7 +21,7 @@ use super::{proto::*, *};
 use crate::config::TimeoutSetting;
 use crate::error::*;
 use captains_log::LogFilter;
-use io_engine::buffer::Buffer;
+use io_buffer::Buffer;
 
 /// A temporary struct to hold data buffer return by RpcSrvReader::recv_req().
 ///
@@ -253,7 +253,7 @@ impl RpcSvrReader {
 
             let mut blob: Option<Buffer> = None;
             if rpc_head.blob_len > 0 {
-                match Buffer::alloc(rpc_head.blob_len as usize) {
+                match Buffer::alloc(rpc_head.blob_len as i32) {
                     Err(_) => return Err(RPC_ERR_ENCODE),
                     Ok(mut ext_buf) => {
                         match reader.read_exact_timeout(&mut ext_buf, read_timeout).await {
