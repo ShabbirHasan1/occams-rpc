@@ -19,7 +19,7 @@ impl Throttler {
 
     #[inline(always)]
     pub async fn throttle(&self) -> bool {
-        let target = self.thresholds.load(Ordering::Acquire);
+        let target = self.thresholds.load(Ordering::Relaxed);
         if target > 0 {
             return self.wg.wait_to(target).await;
         } else {
@@ -35,7 +35,7 @@ impl Throttler {
     #[allow(dead_code)]
     #[inline(always)]
     pub fn set_thresholds(&mut self, thresholds: usize) {
-        self.thresholds.store(thresholds, Ordering::Release);
+        self.thresholds.store(thresholds, Ordering::Relaxed);
     }
 
     #[inline(always)]

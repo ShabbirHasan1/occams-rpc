@@ -142,7 +142,7 @@ impl<T: RpcClientTask> RpcClientTaskTimer<T> {
 
     // stop register.
     pub fn stop_reg_task(&mut self) {
-        self.reg_stopped_flag.store(true, Ordering::Release);
+        self.reg_stopped_flag.store(true, Ordering::SeqCst);
     }
 
     pub async fn take_task(&mut self, seq: u64) -> Option<RpcClientTaskItem<T>> {
@@ -248,7 +248,7 @@ where
         if _self.noti.processed_seq >= _self.target_seq {
             return Poll::Ready(Ok(()));
         }
-        if _self.noti.reg_stopped_flag.load(Ordering::Acquire) {
+        if _self.noti.reg_stopped_flag.load(Ordering::SeqCst) {
             return Poll::Ready(Err(()));
         }
         if _self.noti.poll_sent_task(ctx) {

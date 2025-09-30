@@ -84,18 +84,18 @@ where
 
     #[inline(always)]
     pub fn get_last_resp_ts(&self) -> u64 {
-        if let Some(ts) = self.inner.last_resp_ts.as_ref() { ts.load(Ordering::Acquire) } else { 0 }
+        if let Some(ts) = self.inner.last_resp_ts.as_ref() { ts.load(Ordering::Relaxed) } else { 0 }
     }
 
     /// Since sender and receiver are two threads, might be close on either side
     #[inline(always)]
     pub fn is_closed(&self) -> bool {
-        self.inner.closed.load(Ordering::Acquire)
+        self.inner.closed.load(Ordering::SeqCst)
     }
 
     /// Force the receiver to exit
     pub async fn set_error_and_exit(&self) {
-        self.inner.has_err.store(true, Ordering::Release);
+        self.inner.has_err.store(true, Ordering::SeqCst);
         let stream = self.inner.get_stream_mut();
         let _ = stream.close().await; // stream close is just shutdown on sending, receiver might not be notified on peer dead
         if let Some(close_tx) = self.close_tx.as_ref() {
@@ -120,7 +120,7 @@ where
 
     #[inline(always)]
     pub async fn throttle(&self) -> bool {
-        if self.inner.closed.load(Ordering::Acquire) {
+        if self.inner.closed.load(Ordering::SeqCst) {
             return false;
         }
         if let Some(t) = self.inner.throttler.as_ref() {
@@ -139,7 +139,7 @@ where
         self.close_tx.take();
         let timer = self.inner.get_timer_mut();
         timer.stop_reg_task();
-        self.inner.closed.store(true, Ordering::Release);
+        self.inner.closed.store(true, Ordering::SeqCst);
     }
 }
 
@@ -276,8 +276,8 @@ where
                 logger_warn!(self.logger, "{:?} sending task {} failed: {:?}", self, task, e);
                 timer.pending_task_count_ref().fetch_sub(1, Ordering::SeqCst); // rollback
                 retry_with_err!(self, task, e.clone());
-                self.closed.store(true, Ordering::Release);
-                self.has_err.store(true, Ordering::Release);
+                self.closed.store(true, Ordering::SeqCst);
+                self.has_err.store(true, Ordering::SeqCst);
                 timer.stop_reg_task();
                 return Err(e);
             }
@@ -300,8 +300,8 @@ where
         let r = writer.flush_timeout(self.timeout.write_timeout).await;
         if r.is_err() {
             logger_warn!(self.logger, "{:?} flush_req flush err: {:?}", self, r);
-            self.closed.store(true, Ordering::Release);
-            self.has_err.store(true, Ordering::Release);
+            self.closed.store(true, Ordering::SeqCst);
+            self.has_err.store(true, Ordering::SeqCst);
             let timer = self.get_timer_mut();
             timer.stop_reg_task();
 
@@ -405,7 +405,7 @@ where
                 }
                 Ok(_) => {
                     if let Some(last_resp_ts) = self.last_resp_ts.as_ref() {
-                        last_resp_ts.store(DelayedTime::get(), Ordering::Release);
+                        last_resp_ts.store(DelayedTime::get(), Ordering::Relaxed);
                     }
                 }
             }
@@ -417,7 +417,7 @@ where
         let reader = self.get_stream_mut();
         match Buffer::alloc(l as i32) {
             Err(_) => {
-                self.closed.store(true, Ordering::Release);
+                self.closed.store(true, Ordering::SeqCst);
                 logger_warn!(self.logger, "{:?} alloc buf failed", self);
                 return Err(RPC_ERR_COMM);
             }
@@ -439,7 +439,7 @@ where
             1 => {
                 let rpc_err = RpcError::Posix(Errno::from_raw(resp_head.msg_len as i32));
                 //if self.should_close(err_no) {
-                //    self.closed.store(true, Ordering::Release);
+                //    self.closed.store(true, Ordering::SeqCst);
                 //    retry_with_err!(self, task, rpc_err);
                 //    return Err(RPC_ERR_COMM);
                 //} else {
@@ -451,7 +451,7 @@ where
                 match reader.read_exact_timeout(buf, self.timeout.read_timeout).await {
                     Err(e) => {
                         logger_warn!(self.logger, "{:?} recv buffer error: {:?}", self, e);
-                        self.closed.store(true, Ordering::Release);
+                        self.closed.store(true, Ordering::SeqCst);
                         retry_with_err!(self, task, RPC_ERR_COMM);
                         return Err(RPC_ERR_COMM);
                     }
@@ -492,7 +492,7 @@ where
             }
             if resp_head.msg_len > 0 {
                 if let Err(_) = reader.read_exact_timeout(read_buf, read_timeout).await {
-                    self.closed.store(true, Ordering::Release);
+                    self.closed.store(true, Ordering::SeqCst);
                     retry_with_err!(self, task, RPC_ERR_COMM);
                     return Err(RPC_ERR_COMM);
                 }
@@ -567,7 +567,7 @@ where
             if self.closed.load(Ordering::Acquire) {
                 let timer = self.get_timer_mut();
                 // ensure task receive on normal exit
-                if timer.check_pending_tasks_empty() || self.has_err.load(Ordering::Acquire) {
+                if timer.check_pending_tasks_empty() || self.has_err.load(Ordering::Relaxed) {
                     return Err(RPC_ERR_CLOSED);
                 }
 
@@ -600,7 +600,7 @@ where
                         }
                     },
                     _ = close_f => {
-                        self.closed.store(true, Ordering::Release);
+                        self.closed.store(true, Ordering::SeqCst);
                         continue
                     }
                 }
@@ -634,7 +634,7 @@ where
                 Ok(_) => {}
                 Err(e) => {
                     logger_debug!(self.logger, "{:?} receive_loop error: {:?}", self, e);
-                    self.closed.store(true, Ordering::Release);
+                    self.closed.store(true, Ordering::SeqCst);
                     let timer = self.get_timer_mut();
                     timer.clean_pending_tasks(self.retry_task_sender.as_ref());
                     // If pending_task_count > 0 means some tasks may still remain in the pending chan
@@ -692,13 +692,13 @@ where
         let writer = self.get_stream_mut();
         if let Err(e) = writer.write_timeout(header.as_bytes(), write_timeout).await {
             logger_warn!(self.logger, "{:?} send_ping_req write head {:?}", self, e);
-            self.closed.store(true, Ordering::Release);
+            self.closed.store(true, Ordering::SeqCst);
             return Err(RPC_ERR_COMM);
         }
 
         if let Err(e) = writer.flush_timeout(write_timeout).await {
             logger_warn!(self.logger, "{:?} send_ping_req flush req err: {:?}", self, e);
-            self.closed.store(true, Ordering::Release);
+            self.closed.store(true, Ordering::SeqCst);
             return Err(RPC_ERR_COMM);
         }
 
@@ -755,7 +755,7 @@ where
         while let Poll::Ready(_) = _self.inv.as_mut().poll_tick(ctx) {
             _self.client.time_reach();
         }
-        if _self.client.has_err.load(Ordering::Acquire) {
+        if _self.client.has_err.load(Ordering::Relaxed) {
             // When sentinel detect peer unreachable, recv_some mighe blocked, at least inv will
             // wait us, just exit
             return Poll::Ready(Err(RPC_ERR_CLOSED));
