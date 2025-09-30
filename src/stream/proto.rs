@@ -53,7 +53,7 @@ impl ReqHead {
     #[inline(always)]
     pub fn encode<'a, T>(
         client_id: u64, task: &'a T,
-    ) -> (Self, Option<&'a [u8]>, Option<Vec<u8>>, Option<&'a [u8]>)
+    ) -> Result<(Self, Option<&'a [u8]>, Option<Vec<u8>>, Option<&'a [u8]>), ()>
     where
         T: RpcClientTask,
     {
@@ -66,7 +66,7 @@ impl ReqHead {
                 action_str = Some(s.as_bytes());
             }
         }
-        let msg = task.get_req_msg_buf();
+        let msg = task.encode_req()?;
         let ext_buf = task.get_req_ext_buf();
         let msg_len = if let Some(msg_buf) = msg.as_ref() { msg_buf.len() as u32 } else { 0 };
         let blob_len = if let Some(blob) = ext_buf { blob.len() as u32 } else { 0 };
@@ -81,11 +81,11 @@ impl ReqHead {
             msg_len,
             blob_len,
         };
-        (header, action_str, msg, ext_buf)
+        Ok((header, action_str, msg, ext_buf))
     }
 
     #[inline(always)]
-    pub fn decode(head_buf: &[u8]) -> Result<&Self, RpcError> {
+    pub fn decode_head(head_buf: &[u8]) -> Result<&Self, RpcError> {
         let _head: Option<&Self> = unsafe { transmute(head_buf.as_ptr()) };
         match _head {
             None => {
@@ -244,7 +244,7 @@ impl RespHead {
     }
 
     #[inline(always)]
-    pub fn decode(head_buf: &[u8]) -> Result<&Self, RpcError> {
+    pub fn decode_head(head_buf: &[u8]) -> Result<&Self, RpcError> {
         let _head: Option<&Self> = unsafe { transmute(head_buf.as_ptr()) };
         match _head {
             None => {

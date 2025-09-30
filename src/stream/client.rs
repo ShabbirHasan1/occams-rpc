@@ -314,44 +314,79 @@ where
     async fn send_request(&self, task: &mut T, need_flush: bool) -> Result<(), RpcError> {
         let seq = self.seq_update();
         task.set_seq(seq);
-        let (header, action_str, msg_buf, blob_buf) = ReqHead::encode(self.client_id, task);
-        let writer = self.get_stream_mut();
-        let header_bytes = header.as_bytes();
-        let mut data_len = header_bytes.len();
-        if let Err(e) = writer.write_timeout(header_bytes, self.timeout.write_timeout).await {
-            logger_warn!(self.logger, "{:?} send_req write req header err: {:?}", self, e);
-            return Err(RPC_ERR_COMM);
-        }
-        if let Some(action_s) = action_str {
-            data_len += action_s.len();
-            if let Err(e) = writer.write_timeout(action_s, self.timeout.write_timeout).await {
-                logger_warn!(self.logger, "{:?} send_req write req header err: {:?}", self, e);
-                return Err(RPC_ERR_COMM);
+        match ReqHead::encode(self.client_id, task) {
+            Err(_) => {
+                logger_warn!(self.logger, "{:?} send_req encode req {} err", self, task);
+                return Err(RPC_ERR_ENCODE);
+            }
+            Ok((header, action_str, msg_buf, blob_buf)) => {
+                let writer = self.get_stream_mut();
+                let header_bytes = header.as_bytes();
+                let mut data_len = header_bytes.len();
+                if let Err(e) = writer.write_timeout(header_bytes, self.timeout.write_timeout).await
+                {
+                    logger_warn!(
+                        self.logger,
+                        "{:?} send_req write req {} header err: {:?}",
+                        self,
+                        task,
+                        e
+                    );
+                    return Err(RPC_ERR_COMM);
+                }
+                if let Some(action_s) = action_str {
+                    data_len += action_s.len();
+                    if let Err(e) = writer.write_timeout(action_s, self.timeout.write_timeout).await
+                    {
+                        logger_warn!(
+                            self.logger,
+                            "{:?} send_req write req {} header err: {:?}",
+                            self,
+                            task,
+                            e
+                        );
+                        return Err(RPC_ERR_COMM);
+                    }
+                }
+                if let Some(msg) = msg_buf {
+                    data_len += msg.len();
+                    if let Err(e) =
+                        writer.write_timeout(msg.as_bytes(), self.timeout.write_timeout).await
+                    {
+                        logger_warn!(
+                            self.logger,
+                            "{:?} send_req write req {} header err: {:?}",
+                            self,
+                            task,
+                            e
+                        );
+                        return Err(RPC_ERR_COMM);
+                    }
+                }
+                if let Some(blob) = blob_buf {
+                    data_len += blob.len();
+                    if let Err(e) =
+                        writer.write_timeout(blob.as_bytes(), self.timeout.write_timeout).await
+                    {
+                        logger_warn!(
+                            self.logger,
+                            "{:?} send_req write req {} ext err: {:?}",
+                            self,
+                            task,
+                            e
+                        );
+                        return Err(RPC_ERR_COMM);
+                    }
+                }
+                if need_flush || data_len >= 32 * 1024 {
+                    let r = writer.flush_timeout(self.timeout.write_timeout).await;
+                    if r.is_err() {
+                        logger_warn!(self.logger, "{:?} send_req flush req err: {:?}", self, r);
+                        return Err(RPC_ERR_COMM);
+                    }
+                }
             }
         }
-        if let Some(msg) = msg_buf {
-            data_len += msg.len();
-            if let Err(e) = writer.write_timeout(msg.as_bytes(), self.timeout.write_timeout).await {
-                logger_warn!(self.logger, "{:?} send_req write req header err: {:?}", self, e);
-                return Err(RPC_ERR_COMM);
-            }
-        }
-        if let Some(blob) = blob_buf {
-            data_len += blob.len();
-            if let Err(e) = writer.write_timeout(blob.as_bytes(), self.timeout.write_timeout).await
-            {
-                logger_warn!(self.logger, "{:?} send_req write req ext err: {:?}", self, e);
-                return Err(RPC_ERR_COMM);
-            }
-        }
-        if need_flush || data_len >= 32 * 1024 {
-            let r = writer.flush_timeout(self.timeout.write_timeout).await;
-            if r.is_err() {
-                warn!("{:?} send_req flush req err: {:?}", self, r);
-                return Err(RPC_ERR_COMM);
-            }
-        }
-
         return Ok(());
     }
 
@@ -462,6 +497,7 @@ where
                     return Err(RPC_ERR_COMM);
                 }
             } // When msg_len == 0, read_buf has 0 size
+
             if blob_len > 0 {
                 match task.get_resp_ext_buf_mut(blob_len as i32) {
                     None => {
@@ -491,7 +527,12 @@ where
             }
             logger_debug!(self.logger, "{:?} recv task {} ok", self, task);
             // set result of task, and notify task completed
-            task.set_result(Ok(&read_buf));
+            if let Err(_) = task.decode_resp(read_buf) {
+                logger_warn!(self.logger, "{:?} rpc client reader decode resp err", self,);
+                task.set_result(Err(RPC_ERR_DECODE));
+            } else {
+                task.set_result(Ok(()));
+            }
             return Ok(());
         } else {
             let seq = resp_head.seq;
@@ -554,7 +595,7 @@ where
                 }
             }
         }
-        match RespHead::decode(&resp_head_buf) {
+        match RespHead::decode_head(&resp_head_buf) {
             Err(_e) => {
                 logger_debug!(
                     self.logger,

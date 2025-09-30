@@ -198,9 +198,9 @@ impl RpcSvrReader {
                 }
             }
             let rpc_head: &ReqHead;
-            match ReqHead::decode(&req_header_buf) {
-                Err(_) => {
-                    logger_warn!(inner.logger, "{}: decode_header error", self);
+            match ReqHead::decode_head(&req_header_buf) {
+                Err(e) => {
+                    logger_warn!(inner.logger, "{}: decode_head error, {:?}", self, e);
                     return Err(RPC_ERR_COMM);
                 }
                 Ok(head) => {

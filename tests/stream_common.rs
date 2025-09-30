@@ -21,9 +21,9 @@ pub fn setup() -> Runtime {
 #[derive(Default, Deserialize, Serialize, DisplayAttr)]
 #[display(fmt = "inode={} offset={}", inode, offset)]
 pub struct FileIOReq {
-    #[serde(rename = "i")]
+    #[serde]
     pub inode: u64,
-    #[serde(rename = "o")]
+    #[serde]
     pub offset: i64,
 }
 
