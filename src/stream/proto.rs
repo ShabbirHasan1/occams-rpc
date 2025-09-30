@@ -53,7 +53,7 @@ impl ReqHead {
     #[inline(always)]
     pub fn encode<'a, T>(
         client_id: u64, task: &'a T,
-    ) -> Result<(Self, Option<&'a [u8]>, Option<Vec<u8>>, Option<&'a [u8]>), ()>
+    ) -> Result<(Self, Option<&'a [u8]>, Vec<u8>, Option<&'a [u8]>), ()>
     where
         T: RpcClientTask,
     {
@@ -68,7 +68,7 @@ impl ReqHead {
         }
         let msg = task.encode_req()?;
         let ext_buf = task.get_req_ext_buf();
-        let msg_len = if let Some(msg_buf) = msg.as_ref() { msg_buf.len() as u32 } else { 0 };
+        let msg_len = msg.len() as u32;
         let blob_len = if let Some(blob) = ext_buf { blob.len() as u32 } else { 0 };
         // encode response header
         let header = ReqHead {

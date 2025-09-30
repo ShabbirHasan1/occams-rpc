@@ -20,7 +20,6 @@ impl ClientTaskCommon {
 pub trait RpcClientTask:
     ClientTaskEncode
     + ClientTaskDecode
-    + Deref<Target = ClientTaskCommon>
     + DerefMut<Target = ClientTaskCommon>
     + Send
     + Sync
@@ -41,7 +40,7 @@ pub struct RetryTaskInfo<T: RpcClientTask + Send + Unpin + 'static> {
 
 pub trait ClientTaskEncode {
     /// Return a sererialized msg of the request.
-    fn encode_req(&self) -> Result<Option<Vec<u8>>, ()>;
+    fn encode_req(&self) -> Result<Vec<u8>, ()>;
 
     #[inline(always)]
     /// Contain optional extra data to send to server side.

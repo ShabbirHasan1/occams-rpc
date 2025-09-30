@@ -348,10 +348,10 @@ where
                         return Err(RPC_ERR_COMM);
                     }
                 }
-                if let Some(msg) = msg_buf {
-                    data_len += msg.len();
+                if msg_buf.len() > 0 {
+                    data_len += msg_buf.len();
                     if let Err(e) =
-                        writer.write_timeout(msg.as_bytes(), self.timeout.write_timeout).await
+                        writer.write_timeout(msg_buf.as_bytes(), self.timeout.write_timeout).await
                     {
                         logger_warn!(
                             self.logger,
