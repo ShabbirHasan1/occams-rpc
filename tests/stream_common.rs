@@ -1,13 +1,14 @@
 use captains_log::recipe;
 use crossfire::*;
 use display_attr::*;
-use io_engine::buffer::Buffer;
+use io_buffer::Buffer;
 use log::*;
-use nix::errno::Errno;
+use occams_rpc::codec::MsgpCodec;
 use occams_rpc::stream::client::*;
 use occams_rpc::stream::client_task::*;
 use occams_rpc::stream::*;
 use occams_rpc::*;
+use occams_rpc_macros::*;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use tokio::runtime::{Builder, Runtime};
@@ -21,17 +22,14 @@ pub fn setup() -> Runtime {
 #[derive(Default, Deserialize, Serialize, DisplayAttr)]
 #[display(fmt = "inode={} offset={}", inode, offset)]
 pub struct FileIOReq {
-    #[serde]
     pub inode: u64,
-    #[serde]
     pub offset: i64,
 }
 
-#[derive(Default, Deserialize, Serialize, DisplayAttr)]
-#[display(fmt = "ret={}", ret)]
+#[derive(Default, Deserialize, Serialize, DisplayAttr, Debug)]
+#[display(fmt = "read_size={}", read_size)]
 pub struct FileIOResp {
-    #[serde(rename = "r")]
-    pub ret: i64, // read or write ret
+    pub read_size: u64,
 }
 
 macro_rules! unwrap_msg {
@@ -65,10 +63,15 @@ pub fn test_task_decoder(
     unwrap_msg!(seq, action, msg, FileIOReq)
 }
 
+#[client_task]
 pub struct FileTask {
+    #[field(common)]
     common: ClientTaskCommon,
     sender: MTx<Self>,
+    #[field(req)]
     req: FileIOReq,
+    #[field(resp)]
+    resp: Option<FileIOResp>,
     action: i32,
     res: Option<Result<(), RpcError>>,
 }
@@ -79,20 +82,6 @@ impl fmt::Display for FileTask {
     }
 }
 
-macro_rules! encode_task_msgp {
-    ($req: expr) => {{
-        match rmp_serde::encode::to_vec_named(&$req) {
-            Ok(msg) => {
-                return Some(msg);
-            }
-            Err(e) => {
-                println!("{} encode error: {}", $req, e);
-                return None;
-            }
-        }
-    }};
-}
-
 impl FileTask {
     pub fn new(action: i32, sender: MTx<Self>) -> Self {
         Self {
@@ -101,31 +90,17 @@ impl FileTask {
             action,
             res: None,
             req: FileIOReq { inode: 1, offset: 0 },
+            resp: None,
         }
-    }
-}
-
-impl_client_task_common!(FileTask, common);
-impl_client_task_encode!(FileTask, req);
-
-impl ClientTaskDecode for FileTask {
-    fn set_result(mut self, res: Result<&[u8], RpcError>) {
-        debug!("client recv result {} {:?}", self, res);
-        match res {
-            Ok(_) => {
-                self.res = Some(Ok(()));
-            }
-            Err(e) => {
-                self.res = Some(Err(e));
-            }
-        }
-        let sender = self.sender.clone();
-        sender.send(self);
     }
 }
 
 impl RpcClientTask for FileTask {
-    fn action(&self) -> RpcAction {
+    fn action<'a>(&'a self) -> RpcAction<'a> {
         return RpcAction::Num(self.action);
+    }
+
+    fn set_result(self, _res: Result<(), RpcError>) {
+        // mock implementation
     }
 }
