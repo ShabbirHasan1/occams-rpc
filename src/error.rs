@@ -1,4 +1,3 @@
-use nix::errno::Errno;
 use std::fmt;
 
 // All "rpc_" prefix error is internal error of RpcError::Rpc()
@@ -22,17 +21,17 @@ pub const RPC_ERR_DECODE: RpcError = RpcError::Rpc(ERR_DECODE);
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RpcError {
-    Posix(Errno),
     Rpc(&'static str),
-    Remote(String),
+    Text(String),
+    Num(u32),
 }
 
 impl fmt::Display for RpcError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Posix(e) => write!(f, "{}", e.desc()),
-            Self::Rpc(s) => write!(f, "error: {}", s),
-            Self::Remote(s) => write!(f, "Remote error: {}", s),
+            Self::Num(no) => write!(f, "errno {}", no),
+            Self::Text(s) => write!(f, "{}", s),
+            Self::Rpc(s) => write!(f, "{}", s),
         }
     }
 }

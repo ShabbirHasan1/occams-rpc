@@ -216,21 +216,21 @@ impl RespHead {
                 };
                 return (header, msg.as_ref(), blob_o);
             }
-            Err(RpcError::Posix(errno)) => {
+            Err(RpcError::Rpc(s)) => {
+                error_str = s.as_bytes();
+            }
+            Err(RpcError::Num(errno)) => {
                 let header = RespHead {
                     magic: RPC_MAGIC,
                     ver: 1,
                     flag: RESP_FLAG_HAS_ERRNO,
                     seq: task_resp.seq,
-                    msg_len: errno as u32,
+                    msg_len: errno,
                     blob_len: 0,
                 };
                 return (header, None, None);
             }
-            Err(RpcError::Rpc(s)) => {
-                error_str = s.as_bytes();
-            }
-            Err(RpcError::Remote(ref s)) => {
+            Err(RpcError::Text(ref s)) => {
                 error_str = s.as_bytes();
             }
         }

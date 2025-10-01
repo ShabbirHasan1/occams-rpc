@@ -20,7 +20,6 @@ use captains_log::LogFilter;
 use crossfire::*;
 use futures::{future::FutureExt, pin_mut};
 use io_buffer::Buffer;
-use nix::errno::Errno;
 use sync_utils::{time::DelayedTime, waitgroup::WaitGroupGuard};
 use tokio::time::{Duration, Instant, Interval, interval_at, sleep};
 use zerocopy::AsBytes;
@@ -461,7 +460,7 @@ where
         let reader = self.get_stream_mut();
         match resp_head.flag {
             1 => {
-                let rpc_err = RpcError::Posix(Errno::from_raw(resp_head.msg_len as i32));
+                let rpc_err = RpcError::Num(resp_head.msg_len as u32);
                 //if self.should_close(err_no) {
                 //    self.closed.store(true, Ordering::SeqCst);
                 //    retry_with_err!(self, task, rpc_err);
@@ -491,7 +490,7 @@ where
                                 retry_with_err!(self, task, RPC_ERR_DECODE);
                             }
                             Ok(s) => {
-                                let rpc_err = RpcError::Remote(s.to_string());
+                                let rpc_err = RpcError::Text(s.to_string());
                                 retry_with_err!(self, task, rpc_err);
                             }
                         }
