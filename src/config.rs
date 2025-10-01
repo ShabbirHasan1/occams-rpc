@@ -22,6 +22,8 @@ pub struct TimeoutSetting {
     pub write_timeout: Duration,
     /// Socket idle time to be close.
     pub idle_timeout: Duration,
+    /// connect timeout
+    pub connect_timeout: Duration,
 }
 
 impl Default for TimeoutSetting {
@@ -31,6 +33,7 @@ impl Default for TimeoutSetting {
             read_timeout: Duration::from_secs(5),
             write_timeout: Duration::from_secs(5),
             idle_timeout: Duration::from_secs(120),
+            connect_timeout: Duration::from_secs(10),
         }
     }
 }

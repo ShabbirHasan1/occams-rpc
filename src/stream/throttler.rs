@@ -13,7 +13,7 @@ impl Throttler {
     }
 
     #[inline(always)]
-    pub(crate) fn nearly_full(&self) -> bool {
+    pub fn nearly_full(&self) -> bool {
         self.wg.left() + 1 > self.thresholds.load(Ordering::Acquire)
     }
 
@@ -28,7 +28,7 @@ impl Throttler {
     }
 
     #[inline(always)]
-    pub(crate) fn add_task(&self) -> WaitGroupGuard {
+    pub fn add_task(&self) -> WaitGroupGuard {
         self.wg.add_guard()
     }
 
@@ -39,7 +39,7 @@ impl Throttler {
     }
 
     #[inline(always)]
-    pub(crate) fn get_inflight_tasks_count(&self) -> usize {
+    pub fn get_inflight_tasks_count(&self) -> usize {
         self.wg.left()
     }
 }

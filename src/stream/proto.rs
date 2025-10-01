@@ -1,4 +1,5 @@
-use super::{RpcAction, client::RpcClientTask, server::RpcSvrResp};
+use super::{RpcAction, client::RpcClientTask};
+//use super::server::RpcSvrResp;
 use crate::codec::Codec;
 use crate::error::*;
 use std::fmt;
@@ -194,6 +195,7 @@ pub struct RespHead {
 pub const RPC_RESP_HEADER_LEN: usize = size_of::<RespHead>();
 
 impl RespHead {
+    /*
     pub fn encode<'a>(task_resp: &'a RpcSvrResp) -> (Self, Option<&'a Vec<u8>>, Option<&'a [u8]>) {
         let error_str: &[u8];
         let seq = task_resp.seq;
@@ -244,6 +246,7 @@ impl RespHead {
         };
         return (header, None, Some(error_str));
     }
+    */
 
     #[inline(always)]
     pub fn decode_head(head_buf: &[u8]) -> Result<&Self, RpcError> {

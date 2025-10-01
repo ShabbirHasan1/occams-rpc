@@ -3,7 +3,7 @@ use std::fmt::Display;
 
 /// The codec is immutable, if need changing (like setting up cipher), should have inner
 /// mutablilty
-pub trait Codec: Default + Sized + 'static {
+pub trait Codec: Default + Send + Sync + Sized + 'static {
     fn encode<T: Serialize + Display>(&self, task: &T) -> Result<Vec<u8>, ()>;
 
     fn decode<'a, T: Deserialize<'a>>(&self, buf: &'a [u8]) -> Result<T, ()>;

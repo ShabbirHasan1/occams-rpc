@@ -39,6 +39,9 @@ pub struct RpcClientTaskTimer<F: ClientFactory> {
     reg_stopped_flag: AtomicBool,
 }
 
+unsafe impl<T: ClientFactory> Send for RpcClientTaskTimer<T> {}
+unsafe impl<T: ClientFactory> Sync for RpcClientTaskTimer<T> {}
+
 impl<F: ClientFactory> RpcClientTaskTimer<F> {
     pub fn new(server_id: u64, client_id: u64, task_timeout: usize, mut thresholds: usize) -> Self {
         if thresholds == 0 {

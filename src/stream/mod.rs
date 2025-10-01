@@ -2,10 +2,10 @@
 
 pub mod client;
 mod client_impl;
-mod client_timer;
+pub mod client_timer;
 pub mod proto;
-pub mod server;
-mod throttler;
+//pub mod server;
+pub mod throttler;
 
 #[derive(Debug, Clone, Copy)]
 pub enum RpcAction<'a> {
