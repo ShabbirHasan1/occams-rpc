@@ -33,8 +33,7 @@ pub struct RpcClient<F: ClientFactory> {
 impl<F: ClientFactory> RpcClient<F> {
     /// timeout_setting: only use read_timeout/write_timeout
     pub fn new(
-        factory: Arc<F>, server_id: u64, client_id: u64, stream: UnifyStream, config: RpcConfig,
-        last_resp_ts: Option<Arc<AtomicU64>>,
+        factory: Arc<F>, server_id: u64, stream: UnifyStream, last_resp_ts: Option<Arc<AtomicU64>>,
     ) -> Self {
         let (_close_tx, _close_rx) = mpmc::unbounded_async::<()>();
         Self {
@@ -42,10 +41,8 @@ impl<F: ClientFactory> RpcClient<F> {
             inner: Arc::new(RpcClientInner::new(
                 factory,
                 server_id,
-                client_id,
                 stream,
                 _close_rx,
-                config,
                 last_resp_ts,
             )),
         }
@@ -163,9 +160,12 @@ impl<F: ClientFactory> fmt::Debug for RpcClientInner<F> {
 
 impl<F: ClientFactory> RpcClientInner<F> {
     pub fn new(
-        factory: Arc<F>, server_id: u64, client_id: u64, stream: UnifyStream,
-        close_rx: MAsyncRx<()>, config: RpcConfig, last_resp_ts: Option<Arc<AtomicU64>>,
+        factory: Arc<F>, server_id: u64, stream: UnifyStream, close_rx: MAsyncRx<()>,
+        last_resp_ts: Option<Arc<AtomicU64>>,
     ) -> Self {
+        let config = factory.get_config();
+        let client_id = factory.get_client_id();
+        let thresholds = config.thresholds;
         let mut client_inner = Self {
             server_id,
             client_id,
@@ -178,7 +178,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
                 server_id,
                 client_id,
                 config.timeout.task_timeout,
-                config.thresholds,
+                thresholds,
             )),
             resp_buf: UnsafeCell::new(BytesMut::with_capacity(512)),
             throttler: None,
@@ -188,17 +188,16 @@ impl<F: ClientFactory> RpcClientInner<F> {
             factory,
             codec: F::Codec::default(),
         };
-
-        if config.thresholds > 0 {
+        if thresholds > 0 {
             logger_trace!(
                 client_inner.logger,
                 "{:?} throttler is set to {}",
                 client_inner,
-                config.thresholds,
+                thresholds,
             );
-            client_inner.throttler = Some(Throttler::new(config.thresholds));
+            client_inner.throttler = Some(Throttler::new(thresholds));
         } else {
-            logger_trace!(client_inner.logger, "{:?} throttler is disabled", client_inner,);
+            logger_trace!(client_inner.logger, "{:?} throttler is disabled", client_inner);
         }
 
         client_inner

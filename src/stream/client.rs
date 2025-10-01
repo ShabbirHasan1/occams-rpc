@@ -1,6 +1,7 @@
 use super::{RpcAction, TaskCommon};
 use crate::buffer::AllocateBuf;
 use crate::codec::Codec;
+use crate::config::RpcConfig;
 use crate::error::*;
 use captains_log::LogFilter;
 use std::fmt::Display;
@@ -20,6 +21,10 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
     fn error_handle(&self, task: Self::Task, err: RpcError) {
         task.set_result(Err(err));
     }
+
+    fn get_client_id(&self) -> u64;
+
+    fn get_config(&self) -> &RpcConfig;
 }
 
 pub trait RpcClientTask:
