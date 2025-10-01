@@ -7,23 +7,11 @@ use std::{
     task::*,
 };
 
-use super::client_task::*;
+use super::client::*;
 use crate::error::*;
 use crossfire::{stream::AsyncStream, *};
 use rustc_hash::FxHashMap;
 use sync_utils::waitgroup::WaitGroupGuard;
-
-macro_rules! retry_with_err {
-    ($sender:expr, $t:expr, $err:expr) => {
-        if let Some(sender) = $sender.as_ref() {
-            let retry_task = RetryTaskInfo { task: $t, task_err: $err.clone() };
-            if let Err(SendError(rt)) = sender.send(Some(retry_task)) {
-                // TODO FIXME
-                rt.unwrap().task.set_result(Err($err));
-            }
-        }
-    };
-}
 
 pub struct RpcClientTaskItem<T: RpcClientTask> {
     pub task: Option<T>,
@@ -34,15 +22,15 @@ pub struct DelayTasksBatch<T: RpcClientTask> {
     tasks: FxHashMap<u64, RpcClientTaskItem<T>>,
 }
 
-pub struct RpcClientTaskTimer<T: RpcClientTask> {
+pub struct RpcClientTaskTimer<F: ClientFactory> {
     server_id: u64,
     client_id: u64,
-    pending_tasks_recv: AsyncStream<RpcClientTaskItem<T>>,
-    pending_tasks_sender: MAsyncTx<RpcClientTaskItem<T>>,
+    pending_tasks_recv: AsyncStream<RpcClientTaskItem<F::Task>>,
+    pending_tasks_sender: MAsyncTx<RpcClientTaskItem<F::Task>>,
     pending_task_count: AtomicU64,
 
-    sent_tasks: FxHashMap<u64, RpcClientTaskItem<T>>, // sent_tasks of the current second
-    delay_tasks_queue: VecDeque<DelayTasksBatch<T>>,  // sent_tasks of past seconds
+    sent_tasks: FxHashMap<u64, RpcClientTaskItem<F::Task>>, // sent_tasks of the current second
+    delay_tasks_queue: VecDeque<DelayTasksBatch<F::Task>>,  // sent_tasks of past seconds
 
     min_delay_seq: u64,
     task_timeout: usize, // in seconds
@@ -51,7 +39,7 @@ pub struct RpcClientTaskTimer<T: RpcClientTask> {
     reg_stopped_flag: AtomicBool,
 }
 
-impl<T: RpcClientTask> RpcClientTaskTimer<T> {
+impl<F: ClientFactory> RpcClientTaskTimer<F> {
     pub fn new(server_id: u64, client_id: u64, task_timeout: usize, mut thresholds: usize) -> Self {
         if thresholds == 0 {
             thresholds = 500;
@@ -76,7 +64,7 @@ impl<T: RpcClientTask> RpcClientTaskTimer<T> {
         &self.pending_task_count
     }
 
-    pub fn clean_pending_tasks(&mut self, retry_tx: Option<&MTx<Option<RetryTaskInfo<T>>>>) {
+    pub fn clean_pending_tasks(&mut self, factory: &F) {
         loop {
             match self.pending_tasks_recv.try_recv() {
                 Ok(task) => {
@@ -94,7 +82,7 @@ impl<T: RpcClientTask> RpcClientTaskTimer<T> {
         for key in task_seqs {
             let mut task_item = self.sent_tasks.remove(&key).unwrap();
             let task = task_item.task.take().unwrap();
-            retry_with_err!(retry_tx, task, RPC_ERR_CLOSED);
+            factory.error_handle(task, RPC_ERR_CLOSED);
         }
         for tasks_batch_in_second in self.delay_tasks_queue.iter_mut() {
             let mut task_seqs: Vec<u64> = Vec::with_capacity(tasks_batch_in_second.tasks.len());
@@ -104,7 +92,7 @@ impl<T: RpcClientTask> RpcClientTaskTimer<T> {
             for key in task_seqs {
                 let mut task_item = tasks_batch_in_second.tasks.remove(&key).unwrap();
                 let task = task_item.task.take().unwrap();
-                retry_with_err!(retry_tx, task, RPC_ERR_CLOSED);
+                factory.error_handle(task, RPC_ERR_CLOSED);
             }
         }
     }
@@ -133,7 +121,7 @@ impl<T: RpcClientTask> RpcClientTaskTimer<T> {
 
     // register noti for task.
     #[inline(always)]
-    pub async fn reg_task(&self, task: T, wg: Option<WaitGroupGuard>) {
+    pub async fn reg_task(&self, task: F::Task, wg: Option<WaitGroupGuard>) {
         let _ = self
             .pending_tasks_sender
             .send(RpcClientTaskItem { task: Some(task), _upstream: wg })
@@ -145,7 +133,7 @@ impl<T: RpcClientTask> RpcClientTaskTimer<T> {
         self.reg_stopped_flag.store(true, Ordering::SeqCst);
     }
 
-    pub async fn take_task(&mut self, seq: u64) -> Option<RpcClientTaskItem<T>> {
+    pub async fn take_task(&mut self, seq: u64) -> Option<RpcClientTaskItem<F::Task>> {
         // ping resp won't readh here
         if seq < self.min_delay_seq {
             return None; // Task is already timeouted by us
@@ -187,7 +175,7 @@ impl<T: RpcClientTask> RpcClientTaskTimer<T> {
 
     // return None if task is store in sent_tasks
     #[inline]
-    fn got_pending_task(&mut self, task_item: RpcClientTaskItem<T>) {
+    fn got_pending_task(&mut self, task_item: RpcClientTaskItem<F::Task>) {
         self.pending_task_count.fetch_sub(1, Ordering::SeqCst);
         let t = task_item.task.as_ref().unwrap();
         let task_seq = t.seq();
@@ -195,7 +183,7 @@ impl<T: RpcClientTask> RpcClientTaskTimer<T> {
         self.sent_tasks.insert(task_seq, task_item);
     }
 
-    pub fn adjust_task_queue(&mut self, retry_tx: Option<&MTx<Option<RetryTaskInfo<T>>>>) {
+    pub fn adjust_task_queue(&mut self, factory: &F) {
         // 1. move wait_confirmed to overtime
         let mut tasks_batch_in_second = FxHashMap::default();
         swap(&mut self.sent_tasks, &mut tasks_batch_in_second);
@@ -221,7 +209,7 @@ impl<T: RpcClientTask> RpcClientTaskTimer<T> {
                         "task {} is timeout on client={}:{}",
                         _task, self.server_id, self.client_id
                     );
-                    retry_with_err!(retry_tx, _task, RpcError::Rpc(ERR_TIMEOUT));
+                    factory.error_handle(_task, RpcError::Rpc(ERR_TIMEOUT));
                 }
                 self.min_delay_seq = min_seq;
             }
@@ -229,17 +217,17 @@ impl<T: RpcClientTask> RpcClientTaskTimer<T> {
     }
 }
 
-struct WaitRegTaskFuture<'a, T>
+struct WaitRegTaskFuture<'a, F>
 where
-    T: RpcClientTask,
+    F: ClientFactory,
 {
-    noti: &'a mut RpcClientTaskTimer<T>,
+    noti: &'a mut RpcClientTaskTimer<F>,
     target_seq: u64,
 }
 
-impl<'a, T> Future for WaitRegTaskFuture<'a, T>
+impl<'a, F> Future for WaitRegTaskFuture<'a, F>
 where
-    T: RpcClientTask,
+    F: ClientFactory,
 {
     type Output = Result<(), ()>;
 

@@ -1,7 +1,7 @@
 // low level of rpc
 
 pub mod client;
-pub mod client_task;
+mod client_impl;
 mod client_timer;
 pub mod proto;
 pub mod server;
@@ -11,4 +11,18 @@ mod throttler;
 pub enum RpcAction<'a> {
     Str(&'a str),
     Num(i32),
+}
+
+#[derive(Debug, Default)]
+pub struct TaskCommon {
+    pub seq: u64,
+}
+
+impl TaskCommon {
+    pub fn seq(&self) -> u64 {
+        self.seq
+    }
+    pub fn set_seq(&mut self, seq: u64) {
+        self.seq = seq;
+    }
 }

@@ -86,7 +86,7 @@ pub fn client_task(
 
     let get_resp_blob_mut_body = if let Some((resp_blob_field_name, _)) = &resp_blob_field {
         quote! {
-            fn get_resp_blob_mut(&mut self) -> Option<&mut impl occams_rpc::stream::client_task::AllocateBuf> {
+            fn get_resp_blob_mut(&mut self) -> Option<&mut impl occams_rpc::buffer::AllocateBuf> {
                 Some(&mut self.#resp_blob_field_name)
             }
         }
@@ -136,7 +136,7 @@ pub fn client_task(
 /// #[client_task]
 /// pub struct FileTaskWrongResp {
 ///     #[field(common)]
-///     common: occams_rpc::stream::client_task::ClientTaskCommon,
+///     common: occams_rpc::stream::TaskCommon,
 ///     #[field(req)]
 ///     req: (),
 ///     #[field(resp)]
@@ -152,7 +152,7 @@ fn test_resp_not_option() {}
 /// #[client_task]
 /// pub struct FileTaskNoReq {
 ///     #[field(common)]
-///     common: occams_rpc::stream::client_task::ClientTaskCommon,
+///     common: occams_rpc::stream::TaskCommon,
 ///     #[field(resp)]
 ///     resp: Option<()>,
 /// }
@@ -166,7 +166,7 @@ fn test_missing_req() {}
 /// #[client_task]
 /// pub struct FileTaskNoResp {
 ///     #[field(common)]
-///     common: occams_rpc::stream::client_task::ClientTaskCommon,
+///     common: occams_rpc::stream::TaskCommon,
 ///     #[field(req)]
 ///     req: (),
 /// }
