@@ -1,35 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{
-    parse::{Parse, ParseStream, Result},
-    parse_macro_input, DeriveInput, Fields, Ident, Meta, NestedMeta, Path, Type,
-};
-
-#[derive(Default)]
-struct ClientTaskAttribute {
-    codec: Option<Path>,
-}
-
-impl Parse for ClientTaskAttribute {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let mut attribute: ClientTaskAttribute = Default::default();
-        if input.is_empty() {
-            return Ok(attribute);
-        }
-
-        let ident: Ident = input.parse()?;
-        if ident != "codec" {
-            return Err(syn::Error::new(ident.span(), "expected `codec`"));
-        }
-
-        let _: syn::Token![=] = input.parse()?;
-
-        let path: Path = input.parse()?;
-        attribute.codec = Some(path);
-
-        Ok(attribute)
-    }
-}
+use syn::{parse_macro_input, DeriveInput, Fields, Ident, Meta, NestedMeta, Type};
 
 fn check_option_inner_type(ty: &syn::Type) -> bool {
     if let syn::Type::Path(syn::TypePath { qself: None, path }) = ty {
@@ -51,14 +22,10 @@ fn check_option_inner_type(ty: &syn::Type) -> bool {
 
 #[proc_macro_attribute]
 pub fn client_task(
-    attrs: proc_macro::TokenStream, input: proc_macro::TokenStream,
+    _attrs: proc_macro::TokenStream, input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let mut ast = parse_macro_input!(input as DeriveInput);
-    let attribute = parse_macro_input!(attrs as ClientTaskAttribute);
     let struct_name = &ast.ident;
-    let codec =
-        attribute.codec.unwrap_or_else(|| syn::parse_str("occams_rpc::codec::MsgpCodec").unwrap());
-
     let mut common_field: Option<(Ident, Type)> = None;
     let mut req_field: Option<Ident> = None;
     let mut resp_field: Option<(Ident, Type)> = None;
@@ -144,18 +111,16 @@ pub fn client_task(
         }
 
         impl ClientTaskEncode for #struct_name {
-            fn encode_req(&self) -> Result<Vec<u8>, ()> {
-                use occams_rpc::codec::Codec;
-                <#codec>::encode(&self.#req_field_name)
+            fn encode_req<C: occams_rpc::codec::Codec>(&self, codec: &C) -> Result<Vec<u8>, ()> {
+                codec.encode(&self.#req_field_name)
             }
 
             #get_req_blob_body
         }
 
         impl ClientTaskDecode for #struct_name {
-            fn decode_resp(&mut self, buffer: &[u8]) -> Result<(), ()> {
-                use occams_rpc::codec::Codec;
-                let resp = <#codec>::decode(buffer)?;
+            fn decode_resp<C: occams_rpc::codec::Codec>(&mut self, codec: &C, buffer: &[u8]) -> Result<(), ()> {
+                let resp = codec.decode(buffer)?;
                 self.#resp_field_name = Some(resp);
                 Ok(())
             }

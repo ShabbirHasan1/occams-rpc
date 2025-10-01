@@ -12,6 +12,7 @@ use std::{
 };
 
 use super::{client_timer::*, proto::*, throttler::*};
+use crate::codec::Codec;
 use crate::net::{UnifyBufStream, UnifyStream};
 use crate::{config::*, error::*};
 use bytes::BytesMut;
@@ -38,14 +39,15 @@ macro_rules! retry_with_err {
 }
 
 /// RpcClient represents a client-side connection. connection will close on dropped
-pub struct RpcClient<T: RpcClientTask> {
+pub struct RpcClient<T: RpcClientTask, C: Codec> {
     close_tx: Option<MTx<()>>,
-    inner: Arc<RpcClientInner<T>>,
+    inner: Arc<RpcClientInner<T, C>>,
 }
 
-impl<T> RpcClient<T>
+impl<T, C> RpcClient<T, C>
 where
     T: RpcClientTask,
+    C: Codec,
 {
     /// timeout_setting: only use read_timeout/write_timeout
     pub fn new(
@@ -74,6 +76,11 @@ where
         tokio::spawn(async move {
             inner.receive_loop().await;
         });
+    }
+
+    #[inline]
+    pub fn get_codec(&self) -> &C {
+        &self.inner.codec
     }
 
     /// Should be call in sender thread
@@ -131,9 +138,10 @@ where
     }
 }
 
-impl<T> Drop for RpcClient<T>
+impl<T, C> Drop for RpcClient<T, C>
 where
     T: RpcClientTask,
+    C: Codec,
 {
     fn drop(&mut self) {
         self.close_tx.take();
@@ -143,18 +151,20 @@ where
     }
 }
 
-impl<T> fmt::Debug for RpcClient<T>
+impl<T, C> fmt::Debug for RpcClient<T, C>
 where
     T: RpcClientTask,
+    C: Codec,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.inner.fmt(f)
     }
 }
 
-struct RpcClientInner<T>
+struct RpcClientInner<T, C>
 where
     T: RpcClientTask,
+    C: Codec,
 {
     server_id: u64,
     client_id: u64,
@@ -170,24 +180,37 @@ where
     throttler: Option<Throttler>,
     last_resp_ts: Option<Arc<AtomicU64>>,
     logger: Arc<LogFilter>,
+    codec: C,
 }
 
-unsafe impl<T> Send for RpcClientInner<T> where T: RpcClientTask {}
-
-unsafe impl<T> Sync for RpcClientInner<T> where T: RpcClientTask {}
-
-impl<T> fmt::Debug for RpcClientInner<T>
+unsafe impl<T, C> Send for RpcClientInner<T, C>
 where
     T: RpcClientTask,
+    C: Codec,
+{
+}
+
+unsafe impl<T, C> Sync for RpcClientInner<T, C>
+where
+    T: RpcClientTask,
+    C: Codec,
+{
+}
+
+impl<T, C> fmt::Debug for RpcClientInner<T, C>
+where
+    T: RpcClientTask,
+    C: Codec,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "rpc client {}:{}", self.server_id, self.client_id)
     }
 }
 
-impl<T> RpcClientInner<T>
+impl<T, C> RpcClientInner<T, C>
 where
     T: RpcClientTask,
+    C: Codec,
 {
     pub fn new(
         server_id: u64, client_id: u64, stream: UnifyStream,
@@ -214,6 +237,7 @@ where
             last_resp_ts,
             has_err: AtomicBool::new(false),
             logger,
+            codec: Default::default(),
         };
 
         if config.thresholds > 0 {
@@ -314,7 +338,7 @@ where
     async fn send_request(&self, task: &mut T, need_flush: bool) -> Result<(), RpcError> {
         let seq = self.seq_update();
         task.set_seq(seq);
-        match ReqHead::encode(self.client_id, task) {
+        match ReqHead::encode(&self.codec, self.client_id, task) {
             Err(_) => {
                 logger_warn!(self.logger, "{:?} send_req encode req {} err", self, task);
                 return Err(RPC_ERR_ENCODE);
@@ -538,7 +562,7 @@ where
             }
             logger_debug!(self.logger, "{:?} recv task {} ok", self, task);
             // set result of task, and notify task completed
-            if let Err(_) = task.decode_resp(read_buf) {
+            if let Err(_) = task.decode_resp(&self.codec, read_buf) {
                 logger_warn!(self.logger, "{:?} rpc client reader decode resp err", self,);
                 task.set_result(Err(RPC_ERR_DECODE));
             } else {
@@ -707,9 +731,10 @@ where
     }
 }
 
-impl<T> Drop for RpcClientInner<T>
+impl<T, C> Drop for RpcClientInner<T, C>
 where
     T: RpcClientTask,
+    C: Codec,
 {
     fn drop(&mut self) {
         let timer = self.get_timer_mut();
@@ -717,23 +742,25 @@ where
     }
 }
 
-struct ReciverTimerFuture<'a, T, F>
+struct ReciverTimerFuture<'a, T, C, F>
 where
     T: RpcClientTask,
+    C: Codec,
     F: Future<Output = Result<(), RpcError>> + Unpin,
 {
-    client: &'a RpcClientInner<T>,
+    client: &'a RpcClientInner<T, C>,
     inv: &'a mut Pin<Box<Interval>>,
     recv_future: Pin<&'a mut F>,
 }
 
-impl<'a, T, F> ReciverTimerFuture<'a, T, F>
+impl<'a, T, C, F> ReciverTimerFuture<'a, T, C, F>
 where
     T: RpcClientTask,
+    C: Codec,
     F: Future<Output = Result<(), RpcError>> + Unpin,
 {
     fn new(
-        client: &'a RpcClientInner<T>, inv: &'a mut Pin<Box<Interval>>, recv_future: &'a mut F,
+        client: &'a RpcClientInner<T, C>, inv: &'a mut Pin<Box<Interval>>, recv_future: &'a mut F,
     ) -> Self {
         Self { inv, client, recv_future: Pin::new(recv_future) }
     }
@@ -742,9 +769,10 @@ where
 // Return Ok(true) to indicate Ok
 // Return Ok(false) when client sender has close normally
 // Err(e) when connection error
-impl<'a, T, F> Future for ReciverTimerFuture<'a, T, F>
+impl<'a, T, C, F> Future for ReciverTimerFuture<'a, T, C, F>
 where
     T: RpcClientTask,
+    C: Codec,
     F: Future<Output = Result<(), RpcError>> + Unpin,
 {
     type Output = Result<(), RpcError>;

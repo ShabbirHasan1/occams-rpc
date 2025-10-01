@@ -1,15 +1,16 @@
 use super::RpcAction;
+use crate::codec::Codec;
 use crate::error::*;
 use io_buffer::Buffer;
 use std::fmt::Display;
 use std::ops::DerefMut;
 
 #[derive(Debug, Default)]
-pub struct ClientTaskCommon {
+pub struct TaskCommon {
     pub seq: u64,
 }
 
-impl ClientTaskCommon {
+impl TaskCommon {
     pub fn seq(&self) -> u64 {
         self.seq
     }
@@ -21,7 +22,7 @@ impl ClientTaskCommon {
 pub trait RpcClientTask:
     ClientTaskEncode
     + ClientTaskDecode
-    + DerefMut<Target = ClientTaskCommon>
+    + DerefMut<Target = TaskCommon>
     + Send
     + Sync
     + Sized
@@ -41,7 +42,7 @@ pub struct RetryTaskInfo<T: RpcClientTask + Send + Unpin + 'static> {
 
 pub trait ClientTaskEncode {
     /// Return a sererialized msg of the request.
-    fn encode_req(&self) -> Result<Vec<u8>, ()>;
+    fn encode_req<C: Codec>(&self, codec: &C) -> Result<Vec<u8>, ()>;
 
     #[inline(always)]
     /// Contain optional extra data to send to server side.
@@ -51,7 +52,7 @@ pub trait ClientTaskEncode {
 }
 
 pub trait ClientTaskDecode {
-    fn decode_resp(&mut self, buf: &[u8]) -> Result<(), ()>;
+    fn decode_resp<C: Codec>(&mut self, codec: &C, buf: &[u8]) -> Result<(), ()>;
 
     #[inline(always)]
     fn get_resp_blob_mut(&mut self) -> Option<&mut impl AllocateBuf> {

@@ -1,4 +1,5 @@
 use super::{RpcAction, client_task::RpcClientTask, server::RpcSvrResp};
+use crate::codec::Codec;
 use crate::error::*;
 use std::fmt;
 use std::mem::{size_of, transmute};
@@ -51,11 +52,12 @@ pub const RPC_REQ_HEADER_LEN: usize = size_of::<ReqHead>();
 
 impl ReqHead {
     #[inline(always)]
-    pub fn encode<'a, T>(
-        client_id: u64, task: &'a T,
+    pub fn encode<'a, T, C>(
+        codec: &C, client_id: u64, task: &'a T,
     ) -> Result<(Self, Option<&'a [u8]>, Vec<u8>, Option<&'a [u8]>), ()>
     where
         T: RpcClientTask,
+        C: Codec,
     {
         let action_flag: u32;
         let mut action_str: Option<&'a [u8]> = None;
@@ -66,7 +68,7 @@ impl ReqHead {
                 action_str = Some(s.as_bytes());
             }
         }
-        let msg = task.encode_req()?;
+        let msg = task.encode_req(codec)?;
         let blob = task.get_req_blob();
         let msg_len = msg.len() as u32;
         let blob_len = if let Some(blob) = blob { blob.len() as u32 } else { 0 };
