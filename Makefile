@@ -45,6 +45,7 @@ bench:
 .PHONY: build
 build: init
 	cargo build
+	cargo build -p occams_rpc_tcp
 
 .DEFAULT_GOAL = build
 

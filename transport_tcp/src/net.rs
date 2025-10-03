@@ -1,33 +1,34 @@
 use nix::errno::Errno;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::str::FromStr;
 use std::{
     fmt, fs, io,
-    net::{AddrParseError, IpAddr, SocketAddr, ToSocketAddrs},
+    net::{AddrParseError, IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
-    pin::Pin,
     str,
-    task::*,
-    time::Duration,
 };
 
 use log::*;
-use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufStream, ReadBuf},
-    net::{TcpListener, TcpStream, UnixListener, UnixStream},
-    time::timeout,
-};
-
-/// Unify behavior of tcp & unix socket listener
-pub enum UnifyListener {
-    Tcp(TcpListener),
-    Unix(UnixListener),
-}
+use occams_rpc::io::{AsyncRead, AsyncWrite};
+use occams_rpc::runtime::{AsyncFdTrait, AsyncIO};
 
 /// Unify behavior of tcp & unix ddr
 pub enum UnifyAddr {
     Socket(SocketAddr),
     Path(PathBuf),
+}
+
+/// Unify behavior of tcp & unix stream
+pub enum UnifyStream<IO: AsyncIO> {
+    Tcp(IO::AsyncFd<TcpStream>),
+    Unix(IO::AsyncFd<UnixStream>),
+}
+
+/// Unify behavior of tcp & unix socket listener
+pub enum UnifyListener<IO: AsyncIO> {
+    Tcp(IO::AsyncFd<TcpListener>),
+    Unix(IO::AsyncFd<UnixListener>),
 }
 
 impl std::fmt::Display for UnifyAddr {
@@ -97,19 +98,14 @@ impl std::cmp::PartialEq<str> for UnifyAddr {
     }
 }
 
-const ZERO_TIME: Duration = Duration::from_secs(0);
-
-/// Unify behavior of tcp & unix stream
-pub enum UnifyStream {
-    Tcp(TcpStream),
-    Unix(UnixStream),
-}
-
-impl UnifyListener {
-    pub async fn bind(addr: &UnifyAddr) -> io::Result<Self> {
+impl<IO: AsyncIO> UnifyListener<IO> {
+    pub fn bind(addr: &UnifyAddr) -> io::Result<Self> {
         match addr {
-            UnifyAddr::Socket(_addr) => match TcpListener::bind(_addr).await {
-                Ok(l) => Ok(UnifyListener::Tcp(l)),
+            UnifyAddr::Socket(_addr) => match TcpListener::bind(_addr) {
+                Ok(l) => {
+                    l.set_nonblocking(true).expect("non_blocking");
+                    return Ok(UnifyListener::Tcp(IO::to_async_fd_rd(l)?));
+                }
                 Err(e) => Err(e),
             },
             UnifyAddr::Path(path) => {
@@ -135,8 +131,10 @@ impl UnifyListener {
                         if let Err(e) = fs::set_permissions(path, fs::Permissions::from_mode(0o666))
                         {
                             error!("cannot get metadata of {:?}: {:?}", path.to_str(), e);
+                            return Err(e);
                         }
-                        Ok(UnifyListener::Unix(l))
+                        l.set_nonblocking(true).expect("non_blocking");
+                        return Ok(UnifyListener::Unix(IO::to_async_fd_rd(l)?));
                     }
                     Err(e) => Err(e),
                 }
@@ -145,54 +143,27 @@ impl UnifyListener {
     }
 
     #[inline]
-    pub async fn accept(&mut self) -> io::Result<UnifyStream> {
+    pub async fn accept(&mut self) -> io::Result<UnifyStream<IO>> {
         match self {
-            UnifyListener::Tcp(l) => match l.accept().await {
-                Ok((tcpsock, _)) => return Ok(UnifyStream::Tcp(tcpsock)),
+            UnifyListener::Tcp(l) => match l.async_read(|_l| _l.accept()).await {
+                Ok((stream, _)) => {
+                    stream.set_nonblocking(true).expect("non_blocking");
+                    return Ok(UnifyStream::Tcp(IO::to_async_fd_rw(stream)?));
+                }
                 Err(e) => return Err(e),
             },
-            UnifyListener::Unix(l) => match l.accept().await {
-                Ok((unixsock, _)) => return Ok(UnifyStream::Unix(unixsock)),
+            UnifyListener::Unix(l) => match l.async_read(|_l| _l.accept()).await {
+                Ok((stream, _)) => {
+                    stream.set_nonblocking(true).expect("non_blocking");
+                    return Ok(UnifyStream::Unix(IO::to_async_fd_rw(stream)?));
+                }
                 Err(e) => return Err(e),
             },
         }
-    }
-
-    #[inline]
-    pub fn poll_accept(&self, ctx: &mut Context) -> Poll<io::Result<(UnifyStream, UnifyAddr)>> {
-        match self {
-            UnifyListener::Tcp(l) => {
-                if let Poll::Ready(r) = l.poll_accept(ctx) {
-                    match r {
-                        Ok((socker, addr)) => {
-                            return Poll::Ready(Ok((
-                                UnifyStream::Tcp(socker),
-                                UnifyAddr::Socket(addr),
-                            )));
-                        }
-                        Err(e) => return Poll::Ready(Err(e)),
-                    }
-                }
-            }
-            UnifyListener::Unix(l) => {
-                if let Poll::Ready(r) = l.poll_accept(ctx) {
-                    match r {
-                        Ok((socker, addr)) => {
-                            let addr = UnifyAddr::Path(
-                                addr.as_pathname().unwrap_or(Path::new("")).to_path_buf(),
-                            );
-                            return Poll::Ready(Ok((UnifyStream::Unix(socker), addr)));
-                        }
-                        Err(e) => return Poll::Ready(Err(e)),
-                    }
-                }
-            }
-        }
-        Poll::Pending
     }
 }
 
-impl std::fmt::Display for UnifyListener {
+impl<IO: AsyncIO> std::fmt::Display for UnifyListener<IO> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Tcp(l) => match l.local_addr() {
@@ -215,111 +186,18 @@ impl std::fmt::Display for UnifyListener {
     }
 }
 
-impl UnifyStream {
-    #[inline(always)]
-    pub async fn connect(addr: &UnifyAddr) -> io::Result<Self> {
-        match addr {
-            UnifyAddr::Socket(_addr) => match TcpStream::connect(_addr).await {
-                Ok(stream) => Ok(UnifyStream::Tcp(stream)),
-                Err(e) => Err(e),
-            },
-            UnifyAddr::Path(path) => match UnixStream::connect(path).await {
-                Ok(stream) => Ok(UnifyStream::Unix(stream)),
-                Err(e) => Err(e),
-            },
-        }
-    }
-
-    #[inline(always)]
-    pub async fn connect_timeout(addr: &UnifyAddr, connect_timeout: Duration) -> io::Result<Self> {
-        if connect_timeout == ZERO_TIME {
-            UnifyStream::connect(addr).await
-        } else {
-            match addr {
-                UnifyAddr::Socket(_addr) => {
-                    match timeout(connect_timeout, TcpStream::connect(_addr)).await {
-                        Ok(connect_result) => match connect_result {
-                            Ok(stream) => Ok(UnifyStream::Tcp(stream)),
-                            Err(e) => Err(e),
-                        },
-                        Err(e) => Err(e.into()),
-                    }
-                }
-                UnifyAddr::Path(path) => {
-                    match timeout(connect_timeout, UnixStream::connect(path)).await {
-                        Ok(connect_result) => match connect_result {
-                            Ok(stream) => Ok(UnifyStream::Unix(stream)),
-                            Err(e) => Err(e),
-                        },
-                        Err(e) => Err(e.into()),
-                    }
-                }
-            }
-        }
-    }
-
-    pub async fn close(&mut self) -> io::Result<()> {
+impl<IO: AsyncIO> UnifyStream<IO> {
+    pub async fn shutdown_write(&mut self) -> io::Result<()> {
         match self {
-            UnifyStream::Tcp(l) => l.shutdown().await,
-            UnifyStream::Unix(l) => l.shutdown().await,
-        }
-    }
-
-    #[inline(always)]
-    pub async fn read_exact_timeout(
-        &mut self, dst: &mut [u8], read_timeout: Duration,
-    ) -> io::Result<usize> {
-        if read_timeout == ZERO_TIME {
-            return self.read_exact(dst).await;
-        } else {
-            match timeout(read_timeout, self.read_exact(dst)).await {
-                Ok(o) => match o {
-                    Ok(l) => return Ok(l),
-                    Err(e2) => return Err(e2),
-                },
-                Err(e) => {
-                    return Err(e.into());
-                }
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub async fn write_timeout(&mut self, dst: &[u8], write_timeout: Duration) -> io::Result<()> {
-        if write_timeout == ZERO_TIME {
-            return self.write_all(dst).await;
-        } else {
-            match timeout(write_timeout, self.write_all(dst)).await {
-                Ok(o) => match o {
-                    Ok(_) => return Ok(()),
-                    Err(e2) => return Err(e2),
-                },
-                Err(e) => {
-                    return Err(e.into());
-                }
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub async fn flush_timeout(&mut self, write_timeout: Duration) -> io::Result<()> {
-        if write_timeout == ZERO_TIME {
-            return self.flush().await;
-        } else {
-            match timeout(write_timeout, self.flush()).await {
-                Ok(o) => match o {
-                    Ok(_) => return Ok(()),
-                    Err(e2) => return Err(e2),
-                },
-                Err(e) => {
-                    return Err(e.into());
-                }
+            UnifyStream::Tcp(l) => l.async_write(|_l| _l.shutdown(std::net::Shutdown::Write)).await,
+            UnifyStream::Unix(l) => {
+                l.async_write(|_l| _l.shutdown(std::net::Shutdown::Write)).await
             }
         }
     }
 }
 
-impl std::fmt::Display for UnifyStream {
+impl<IO: AsyncIO> std::fmt::Display for UnifyStream<IO> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Tcp(l) => match l.local_addr() {
@@ -342,180 +220,33 @@ impl std::fmt::Display for UnifyStream {
     }
 }
 
-impl AsyncRead for UnifyStream {
-    #[inline(always)]
-    fn poll_read(
-        self: Pin<&mut Self>, cx: &mut Context, buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        match Pin::get_mut(self) {
-            UnifyStream::Tcp(l) => {
-                return Pin::new(l).poll_read(cx, buf);
-            }
-            UnifyStream::Unix(l) => {
-                return Pin::new(l).poll_read(cx, buf);
-            }
+impl<IO: AsyncIO> AsyncRead for UnifyStream<IO> {
+    async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        use std::io::Read;
+        match self {
+            UnifyStream::Tcp(s) => s.async_read(|mut stream| stream.read(buf)).await,
+            UnifyStream::Unix(s) => s.async_read(|mut stream| stream.read(buf)).await,
         }
     }
 }
 
-impl AsyncWrite for UnifyStream {
-    #[inline(always)]
-    fn poll_write(
-        self: Pin<&mut Self>, cx: &mut Context, buf: &[u8],
-    ) -> Poll<Result<usize, io::Error>> {
-        match Pin::get_mut(self) {
-            UnifyStream::Tcp(l) => {
-                return Pin::new(l).poll_write(cx, buf);
-            }
-            UnifyStream::Unix(l) => {
-                return Pin::new(l).poll_write(cx, buf);
-            }
-        }
-    }
-
-    #[inline(always)]
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), io::Error>> {
-        match Pin::get_mut(self) {
-            UnifyStream::Tcp(l) => {
-                return Pin::new(l).poll_flush(cx);
-            }
-            UnifyStream::Unix(l) => {
-                return Pin::new(l).poll_flush(cx);
-            }
-        }
-    }
-
-    #[inline(always)]
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), io::Error>> {
-        match Pin::get_mut(self) {
-            UnifyStream::Tcp(l) => {
-                return Pin::new(l).poll_shutdown(cx);
-            }
-            UnifyStream::Unix(l) => {
-                return Pin::new(l).poll_shutdown(cx);
-            }
+impl<IO: AsyncIO> AsyncWrite for UnifyStream<IO> {
+    async fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        use std::io::Write;
+        match self {
+            UnifyStream::Tcp(s) => s.async_write(|mut stream| stream.write(buf)).await,
+            UnifyStream::Unix(s) => s.async_write(|mut stream| stream.write(buf)).await,
         }
     }
 }
 
-/// Buffered IO for UnifyStream
-pub struct UnifyBufStream {
-    reader_buf_size: usize,
-    writer_buf_size: usize,
-    buf_stream: BufStream<UnifyStream>,
-}
-
-impl UnifyBufStream {
-    #[inline(always)]
-    pub fn new(unify_stream: UnifyStream) -> Self {
-        Self {
-            reader_buf_size: 8 * 1024,
-            writer_buf_size: 8 * 1024,
-            buf_stream: BufStream::with_capacity(8 * 1024, 8 * 1024, unify_stream),
-        }
-    }
-
-    #[inline(always)]
-    pub fn with_capacity(
-        reader_buf_size: usize, writer_buf_size: usize, unify_stream: UnifyStream,
-    ) -> Self {
-        Self {
-            reader_buf_size,
-            writer_buf_size,
-            buf_stream: BufStream::with_capacity(reader_buf_size, writer_buf_size, unify_stream),
-        }
-    }
-
-    #[inline(always)]
-    pub async fn close(&mut self) -> io::Result<()> {
-        self.buf_stream.shutdown().await
-    }
-
-    #[inline(always)]
-    pub async fn read_exact(&mut self, dst: &mut [u8]) -> Result<usize, io::Error> {
-        self.buf_stream.read_exact(dst).await
-    }
-
-    #[inline(always)]
-    pub async fn read_exact_timeout(
-        &mut self, dst: &mut [u8], read_timeout: Duration,
-    ) -> Result<usize, io::Error> {
-        if read_timeout == ZERO_TIME {
-            return self.buf_stream.read_exact(dst).await;
-        } else {
-            match timeout(read_timeout, self.buf_stream.read_exact(dst)).await {
-                Ok(o) => match o {
-                    Ok(l) => return Ok(l),
-                    Err(e2) => return Err(e2),
-                },
-                Err(e) => {
-                    return Err(e.into());
-                }
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub async fn write_all(&mut self, dst: &[u8]) -> Result<(), io::Error> {
-        self.buf_stream.write_all(dst).await
-    }
-
-    #[inline(always)]
-    pub async fn write_timeout(
-        &mut self, dst: &[u8], write_timeout: Duration,
-    ) -> Result<(), io::Error> {
-        if write_timeout == ZERO_TIME {
-            return self.buf_stream.write_all(dst).await;
-        } else {
-            match timeout(write_timeout, self.buf_stream.write_all(dst)).await {
-                Ok(o) => match o {
-                    Ok(_) => return Ok(()),
-                    Err(e2) => return Err(e2),
-                },
-                Err(e) => {
-                    return Err(e.into());
-                }
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub async fn flush_timeout(&mut self, write_timeout: Duration) -> Result<(), io::Error> {
-        if write_timeout == ZERO_TIME {
-            return self.buf_stream.flush().await;
-        } else {
-            match timeout(write_timeout, self.buf_stream.flush()).await {
-                Ok(o) => match o {
-                    Ok(_) => return Ok(()),
-                    Err(e2) => return Err(e2),
-                },
-                Err(e) => {
-                    return Err(e.into());
-                }
-            }
-        }
-    }
-}
-
-impl std::fmt::Display for UnifyBufStream {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        return write!(
-            f,
-            "UnifyBufStream reader_buf_size:{} writer_buf_size:{}, stream:{:#}",
-            self.reader_buf_size,
-            self.writer_buf_size,
-            self.buf_stream.get_ref()
-        );
-    }
-}
-
-pub async fn listen_on_addr(addr: &str) -> io::Result<UnifyListener> {
+pub fn listen_on_addr<IO: AsyncIO>(addr: &str) -> io::Result<UnifyListener<IO>> {
     match UnifyAddr::from_str(addr) {
         Err(_) => {
             error!("Fail to parse addr {:?}", addr);
             return Err(Errno::EFAULT.into());
         }
-        Ok(listen_addr) => match UnifyListener::bind(&listen_addr).await {
+        Ok(listen_addr) => match UnifyListener::bind(&listen_addr) {
             Ok(listener) => {
                 info!("listen on {:?}", addr);
                 return Ok(listener);

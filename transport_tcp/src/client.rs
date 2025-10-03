@@ -1,20 +1,22 @@
-use crate::net::{UnifyBufStream, UnifyStream};
+use crate::net::{UnifyAddr, UnifyStream};
 use bytes::BytesMut;
 use crossfire::MAsyncRx;
 use io_buffer::Buffer;
 use occams_rpc::buffer::AllocateBuf;
+use occams_rpc::io::{AsyncRead, AsyncWrite, Cancellable, io_with_timeout};
+use occams_rpc::runtime::AsyncIO;
 use occams_rpc::stream::client::{ClientFactory, ClientTaskDecode, ClientTransport, RpcClientTask};
 use occams_rpc::stream::client_timer::RpcClientTaskTimer;
 use occams_rpc::stream::proto;
-use occams_rpc::utils::CancellableRead;
 use occams_rpc::{TimeoutSetting, error::*};
 use std::cell::UnsafeCell;
 use std::mem::transmute;
+use std::str::FromStr;
 use std::time::Duration;
 use std::{fmt, io};
 
-pub struct ClientConn<F: ClientFactory> {
-    stream: UnsafeCell<UnifyBufStream>,
+pub struct TcpClient<F: ClientFactory> {
+    stream: UnsafeCell<UnifyStream<F::IO>>,
     resp_buf: UnsafeCell<BytesMut>,
     logger: F::Logger,
     server_id: u64,
@@ -23,33 +25,18 @@ pub struct ClientConn<F: ClientFactory> {
     write_timeout: Duration,
 }
 
-unsafe impl<F: ClientFactory> Send for ClientConn<F> {}
-unsafe impl<F: ClientFactory> Sync for ClientConn<F> {}
+unsafe impl<F: ClientFactory> Send for TcpClient<F> {}
+unsafe impl<F: ClientFactory> Sync for TcpClient<F> {}
 
-impl<F: ClientFactory> fmt::Debug for ClientConn<F> {
+impl<F: ClientFactory> fmt::Debug for TcpClient<F> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "rpc client {}:{}", self.server_id, self.client_id)
     }
 }
 
-impl<F: ClientFactory> ClientConn<F> {
-    pub fn new(
-        stream: UnifyStream, logger: F::Logger, client_id: u64, server_id: u64,
-        timeout: &TimeoutSetting,
-    ) -> Self {
-        Self {
-            stream: UnsafeCell::new(UnifyBufStream::with_capacity(33 * 1024, 33 * 1024, stream)),
-            resp_buf: UnsafeCell::new(BytesMut::with_capacity(512)),
-            server_id,
-            client_id,
-            write_timeout: timeout.write_timeout,
-            read_timeout: timeout.read_timeout,
-            logger,
-        }
-    }
-
+impl<F: ClientFactory> TcpClient<F> {
     #[inline(always)]
-    fn get_stream_mut(&self) -> &mut UnifyBufStream {
+    fn get_stream_mut(&self) -> &mut UnifyStream<F::IO> {
         unsafe { std::mem::transmute(self.stream.get()) }
     }
 
@@ -69,7 +56,9 @@ impl<F: ClientFactory> ClientConn<F> {
                 return Err(RPC_ERR_COMM);
             }
             Ok(mut buf) => {
-                if let Err(e) = reader.read_exact_timeout(&mut buf, self.read_timeout).await {
+                if let Err(e) =
+                    io_with_timeout!(F::IO, self.read_timeout, reader.read_exact(&mut buf))
+                {
                     logger_warn!(self.logger, "{:?} recv task failed: {:?}", self, e);
                     return Err(RPC_ERR_COMM);
                 }
@@ -95,7 +84,7 @@ impl<F: ClientFactory> ClientConn<F> {
             }
             2 => {
                 let buf = self.get_resp_buf(resp_head.blob_len as usize);
-                match reader.read_exact_timeout(buf, self.read_timeout).await {
+                match io_with_timeout!(F::IO, self.read_timeout, reader.read_exact(buf)) {
                     Err(e) => {
                         logger_warn!(self.logger, "{:?} recv buffer error: {:?}", self, e);
                         factory.error_handle(task, RPC_ERR_COMM);
@@ -140,7 +129,7 @@ impl<F: ClientFactory> ClientConn<F> {
                 return self._recv_error(factory, resp_head, task).await;
             }
             if resp_head.msg_len > 0 {
-                if let Err(_) = reader.read_exact_timeout(read_buf, read_timeout).await {
+                if let Err(_) = io_with_timeout!(F::IO, read_timeout, reader.read_exact(read_buf)) {
                     factory.error_handle(task, RPC_ERR_COMM);
                     return Err(RPC_ERR_COMM);
                 }
@@ -161,7 +150,9 @@ impl<F: ClientFactory> ClientConn<F> {
                     Some(blob) => {
                         if let Some(buf) = blob.reserve(blob_len) {
                             // Should ensure ext_buf has len meat blob_len
-                            if let Err(e) = reader.read_exact_timeout(buf, read_timeout).await {
+                            if let Err(e) =
+                                io_with_timeout!(F::IO, read_timeout, reader.read_exact(buf))
+                            {
                                 logger_warn!(
                                     self.logger,
                                     "{:?} rpc client reader read ext_buf err: {:?}",
@@ -207,7 +198,49 @@ impl<F: ClientFactory> ClientConn<F> {
     }
 }
 
-impl<F: ClientFactory> ClientTransport<F> for ClientConn<F> {
+impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
+    async fn connect(
+        addr: &str, timeout: &TimeoutSetting, client_id: u64, server_id: u64,
+    ) -> Result<Self, RpcError> {
+        let connect_timeout = timeout.connect_timeout;
+        let stream: UnifyStream<F::IO> = {
+            match UnifyAddr::from_str(addr) {
+                Err(e) => {
+                    error!("Cannot parsing addr {}: {:?}", addr, e);
+                    return Err(RPC_ERR_CONNECT);
+                }
+                Ok(UnifyAddr::Socket(_addr)) => {
+                    match F::IO::connect_tcp(&_addr, connect_timeout).await {
+                        Ok(stream) => UnifyStream::Tcp(stream),
+                        Err(e) => {
+                            warn!("Cannot connect addr {}: {:?}", addr, e);
+                            return Err(RPC_ERR_CONNECT);
+                        }
+                    }
+                }
+                Ok(UnifyAddr::Path(_addr)) => {
+                    match F::IO::connect_unix(&_addr, connect_timeout).await {
+                        Ok(stream) => UnifyStream::Unix(stream),
+                        Err(e) => {
+                            warn!("Cannot connect addr {}: {:?}", addr, e);
+                            return Err(RPC_ERR_CONNECT);
+                        }
+                    }
+                }
+            }
+        };
+        let logger = F::new_logger(client_id, server_id);
+        Ok(Self {
+            stream: UnsafeCell::new(stream),
+            resp_buf: UnsafeCell::new(BytesMut::with_capacity(512)),
+            server_id,
+            client_id,
+            write_timeout: timeout.write_timeout,
+            read_timeout: timeout.read_timeout,
+            logger,
+        })
+    }
+
     #[inline(always)]
     fn get_logger(&self) -> &F::Logger {
         &self.logger
@@ -216,18 +249,19 @@ impl<F: ClientFactory> ClientTransport<F> for ClientConn<F> {
     #[inline(always)]
     async fn close(&self) {
         let stream = self.get_stream_mut();
-        let _ = stream.close().await; // stream close is just shutdown on sending, receiver might not be notified on peer dead
+        let _ = stream.shutdown_write().await; // stream close is just shutdown on sending, receiver might not be notified on peer dead
     }
 
     #[inline(always)]
     async fn flush_req(&self) -> Result<(), RpcError> {
-        let writer = self.get_stream_mut();
-        let r = writer.flush_timeout(self.write_timeout).await;
-        if r.is_err() {
-            logger_warn!(self.logger, "{:?} flush_req flush err: {:?}", self, r);
-            return Err(RPC_ERR_COMM);
-        }
-        Ok(())
+        return Ok(());
+        //        let writer = self.get_stream_mut();
+        //        let r = writer.flush_timeout(self.write_timeout).await;
+        //        if r.is_err() {
+        //            logger_warn!(self.logger, "{:?} flush_req flush err: {:?}", self, r);
+        //            return Err(RPC_ERR_COMM);
+        //        }
+        //        Ok(())
     }
 
     #[inline(always)]
@@ -237,22 +271,24 @@ impl<F: ClientFactory> ClientTransport<F> for ClientConn<F> {
     ) -> io::Result<()> {
         let writer = self.get_stream_mut();
         let mut data_len = header.len();
-        writer.write_timeout(header, self.write_timeout).await?;
+        let write_timeout = self.write_timeout;
+        io_with_timeout!(F::IO, write_timeout, writer.write_all(header))?;
         if let Some(action_s) = action_str {
             data_len += action_s.len();
-            writer.write_timeout(action_s, self.write_timeout).await?;
+            io_with_timeout!(F::IO, write_timeout, writer.write_all(action_s))?;
         }
         if msg_buf.len() > 0 {
             data_len += msg_buf.len();
-            writer.write_timeout(msg_buf, self.write_timeout).await?;
+            io_with_timeout!(F::IO, write_timeout, writer.write_all(msg_buf))?;
         }
         if let Some(blob_buf) = blob {
             data_len += blob_buf.len();
-            writer.write_timeout(blob_buf, self.write_timeout).await?;
+            io_with_timeout!(F::IO, write_timeout, writer.write_all(blob_buf))?;
         }
-        if need_flush || data_len >= 32 * 1024 {
-            writer.flush_timeout(self.write_timeout).await?;
-        }
+        // TODO change to buffer writer
+        //if need_flush || data_len >= 32 * 1024 {
+        //    writer.flush_timeout(self.write_timeout).await?;
+        //}
         return Ok(());
     }
 
@@ -267,7 +303,7 @@ impl<F: ClientFactory> ClientTransport<F> for ClientConn<F> {
         if let Some(close_ch) = close_ch {
             let read_header_f = reader.read_exact(&mut resp_head_buf);
             let close_f = close_ch.recv();
-            let res = CancellableRead::new(read_header_f, close_f).await;
+            let res = Cancellable::new(read_header_f, close_f).await;
             match res {
                 Ok(r) => {
                     if let Err(_e) = r {
@@ -285,7 +321,9 @@ impl<F: ClientFactory> ClientTransport<F> for ClientConn<F> {
                 }
             }
         } else {
-            if let Err(e) = reader.read_exact_timeout(&mut resp_head_buf, self.read_timeout).await {
+            if let Err(e) =
+                io_with_timeout!(F::IO, self.read_timeout, reader.read_exact(&mut resp_head_buf))
+            {
                 logger_debug!(self.logger, "{:?} rpc client read resp head err: {:?}", self, e);
                 return Err(RPC_ERR_COMM);
             }

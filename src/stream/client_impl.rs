@@ -11,13 +11,13 @@ use std::{
 };
 
 use crate::error::*;
+use crate::runtime::{AsyncIO, TimeInterval};
 use crate::stream::{client::*, proto, throttler::*};
-use crate::transport::Transport;
 use crate::*;
 use crossfire::*;
 use futures::pin_mut;
+use std::time::Duration;
 use sync_utils::{time::DelayedTime, waitgroup::WaitGroupGuard};
-use tokio::time::{Duration, Instant, Interval, interval_at, sleep};
 use zerocopy::AsBytes;
 
 /// RpcClient represents a client-side connection. connection will close on dropped
@@ -29,15 +29,21 @@ pub struct RpcClient<F: ClientFactory> {
 impl<F: ClientFactory> RpcClient<F> {
     /// timeout_setting: only use read_timeout/write_timeout
     pub fn new(
-        factory: Arc<F>, server_id: u64, stream: <F::Transport as Transport<F>>::Connection,
+        factory: Arc<F>, conn: F::Transport, client_id: u64, server_id: u64,
         last_resp_ts: Option<Arc<AtomicU64>>,
     ) -> Self {
         let (_close_tx, _close_rx) = mpmc::unbounded_async::<()>();
-        let inner =
-            Arc::new(RpcClientInner::new(factory, server_id, stream, _close_rx, last_resp_ts));
+        let inner = Arc::new(RpcClientInner::new(
+            factory,
+            conn,
+            client_id,
+            server_id,
+            _close_rx,
+            last_resp_ts,
+        ));
         logger_debug!(inner.logger(), "{:?} connected", inner);
         let _inner = inner.clone();
-        tokio::spawn(async move {
+        inner.factory.spawn_detach(async move {
             _inner.receive_loop().await;
         });
         Self { close_tx: Some(_close_tx), inner }
@@ -119,7 +125,7 @@ impl<F: ClientFactory> fmt::Debug for RpcClient<F> {
 
 struct RpcClientInner<F: ClientFactory> {
     client_id: u64,
-    conn: <F::Transport as Transport<F>>::Client,
+    conn: F::Transport,
     seq: AtomicU64,
     close_rx: MAsyncRx<()>, // When RpcClient(sender) dropped, receiver will be timer
     closed: AtomicBool,     // flag set by either sender or receive on there exit
@@ -143,22 +149,14 @@ impl<F: ClientFactory> fmt::Debug for RpcClientInner<F> {
 
 impl<F: ClientFactory> RpcClientInner<F> {
     pub fn new(
-        factory: Arc<F>, server_id: u64, stream: <F::Transport as Transport<F>>::Connection,
+        factory: Arc<F>, conn: F::Transport, client_id: u64, server_id: u64,
         close_rx: MAsyncRx<()>, last_resp_ts: Option<Arc<AtomicU64>>,
     ) -> Self {
         let config = factory.get_config();
-        let client_id = factory.get_client_id();
-        let logger = F::new_logger(client_id, server_id);
         let thresholds = config.thresholds;
         let mut client_inner = Self {
             client_id,
-            conn: <F::Transport as Transport<F>>::new_client_conn(
-                stream,
-                logger,
-                client_id,
-                server_id,
-                &config.timeout,
-            ),
+            conn,
             close_rx,
             closed: AtomicBool::new(false),
             seq: AtomicU64::new(1),
@@ -171,8 +169,8 @@ impl<F: ClientFactory> RpcClientInner<F> {
             throttler: None,
             last_resp_ts,
             has_err: AtomicBool::new(false),
-            factory,
             codec: F::Codec::default(),
+            factory,
         };
         if thresholds > 0 {
             logger_trace!(
@@ -370,8 +368,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
     }
 
     async fn receive_loop(&self) {
-        let later = Instant::now() + Duration::from_secs(1);
-        let mut tick = Box::pin(interval_at(later, Duration::from_secs(1)));
+        let mut tick = <F::IO as AsyncIO>::tick(Duration::from_secs(1));
         loop {
             let f = self.recv_some();
             pin_mut!(f);
@@ -389,7 +386,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
                         // pending_task_count will not keep growing,
                         // so there is no need to sleep here.
                         timer.clean_pending_tasks(self.factory.as_ref());
-                        sleep(Duration::from_secs(1)).await;
+                        <F::IO as AsyncIO>::sleep(Duration::from_secs(1)).await;
                     }
                     return;
                 }
@@ -431,7 +428,7 @@ where
     P: Future<Output = Result<(), RpcError>> + Unpin,
 {
     client: &'a RpcClientInner<F>,
-    inv: &'a mut Pin<Box<Interval>>,
+    inv: Pin<&'a mut <F::IO as AsyncIO>::Interval>,
     recv_future: Pin<&'a mut P>,
 }
 
@@ -441,9 +438,10 @@ where
     P: Future<Output = Result<(), RpcError>> + Unpin,
 {
     fn new(
-        client: &'a RpcClientInner<F>, inv: &'a mut Pin<Box<Interval>>, recv_future: &'a mut P,
+        client: &'a RpcClientInner<F>, inv: &'a mut <F::IO as AsyncIO>::Interval,
+        recv_future: &'a mut P,
     ) -> Self {
-        Self { inv, client, recv_future: Pin::new(recv_future) }
+        Self { inv: Pin::new(inv), client, recv_future: Pin::new(recv_future) }
     }
 }
 
@@ -459,6 +457,7 @@ where
 
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         let mut _self = self.get_mut();
+        //let _inv = Pin::new(<<_self.inv as F::IO as AsyncIO>::Interval as TimeInterval>);
         // In case ticker not fire, and ensure ticker schedule after ready
         while let Poll::Ready(_) = _self.inv.as_mut().poll_tick(ctx) {
             _self.client.time_reach();

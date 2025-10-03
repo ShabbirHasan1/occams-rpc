@@ -3,7 +3,7 @@ pub use super::client_timer::RpcClientTaskTimer;
 use super::{RpcAction, TaskCommon};
 use crate::buffer::AllocateBuf;
 use crate::codec::Codec;
-use crate::transport::*;
+use crate::runtime::AsyncIO;
 use crate::*;
 use captains_log::filter::Filter;
 use crossfire::MAsyncRx;
@@ -20,7 +20,14 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
 
     type Logger: Filter;
 
-    type Transport: Transport<Self>;
+    type Transport: ClientTransport<Self>;
+
+    type IO: AsyncIO;
+
+    fn spawn_detach<F, R>(&self, f: F)
+    where
+        F: Future<Output = R> + Send + 'static,
+        R: Send + 'static;
 
     fn new_logger(client_id: u64, server_id: u64) -> Self::Logger;
 
@@ -42,14 +49,22 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
         self: Arc<Self>, addr: &str, server_id: u64, last_resp_ts: Option<Arc<AtomicU64>>,
     ) -> impl Future<Output = Result<RpcClient<Self>, RpcError>> + Send {
         async move {
-            let timeout = self.get_config().timeout.connect_timeout;
-            let conn = <Self::Transport as Transport<Self>>::connect(addr, timeout).await?;
-            Ok(RpcClient::new(self, server_id, conn, last_resp_ts))
+            let client_id = self.get_client_id();
+            let timeout = &self.get_config().timeout;
+            let conn = <Self::Transport as ClientTransport<Self>>::connect(
+                addr, timeout, client_id, server_id,
+            )
+            .await?;
+            Ok(RpcClient::new(self, conn, client_id, server_id, last_resp_ts))
         }
     }
 }
 
-pub trait ClientTransport<F: ClientFactory>: Debug + Send + 'static {
+pub trait ClientTransport<F: ClientFactory>: Debug + Send + Sized + 'static {
+    fn connect(
+        addr: &str, timeout: &TimeoutSetting, client_id: u64, server_id: u64,
+    ) -> impl Future<Output = Result<Self, RpcError>> + Send;
+
     fn get_logger(&self) -> &F::Logger;
 
     fn close(&self) -> impl Future<Output = ()> + Send;

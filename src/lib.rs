@@ -5,9 +5,9 @@ pub mod buffer;
 pub mod codec;
 pub mod config;
 pub mod error;
+pub mod io;
+pub mod runtime;
 pub mod stream;
-pub mod transport;
-pub mod utils;
 
 pub use config::{RpcConfig, TimeoutSetting};
 pub use error::RpcError;
