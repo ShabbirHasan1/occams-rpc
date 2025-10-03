@@ -209,7 +209,7 @@ impl<F: ClientFactory> RpcClientTaskTimer<F> {
                         }
                     }
                     warn!(
-                        "task {} is timeout on client={}:{}",
+                        "task {:?} is timeout on client={}:{}",
                         _task, self.server_id, self.client_id
                     );
                     factory.error_handle(_task, RpcError::Rpc(ERR_TIMEOUT));

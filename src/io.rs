@@ -3,9 +3,9 @@
 use io_buffer::Buffer;
 use pin_project_lite::pin_project;
 use std::future::Future;
-use std::io;
 use std::pin::Pin;
 use std::task::*;
+use std::{fmt, io};
 
 pin_project! {
     pub struct Cancellable<F, C> {
@@ -164,6 +164,14 @@ pub trait AsyncWrite: Send + 'static {
             Ok(())
         }
     }
+}
+
+pub trait AsyncListener: Send + Sized + 'static + fmt::Debug {
+    type Conn: Send + 'static + Sized;
+
+    fn bind(addr: &str) -> io::Result<Self>;
+
+    fn accept(&mut self) -> impl Future<Output = io::Result<Self::Conn>> + Send;
 }
 
 ///// Buffered IO for UnifyStream

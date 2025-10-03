@@ -1,4 +1,3 @@
-use nix::errno::Errno;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::str::FromStr;
 use std::{
@@ -10,7 +9,7 @@ use std::{
 };
 
 use log::*;
-use occams_rpc::io::{AsyncRead, AsyncWrite};
+use occams_rpc::io::{AsyncListener, AsyncRead, AsyncWrite};
 use occams_rpc::runtime::{AsyncFdTrait, AsyncIO};
 
 /// Unify behavior of tcp & unix ddr
@@ -98,17 +97,25 @@ impl std::cmp::PartialEq<str> for UnifyAddr {
     }
 }
 
-impl<IO: AsyncIO> UnifyListener<IO> {
-    pub fn bind(addr: &UnifyAddr) -> io::Result<Self> {
-        match addr {
-            UnifyAddr::Socket(_addr) => match TcpListener::bind(_addr) {
+impl<IO: AsyncIO> AsyncListener for UnifyListener<IO> {
+    type Conn = UnifyStream<IO>;
+
+    fn bind(addr: &str) -> io::Result<Self> {
+        match UnifyAddr::from_str(addr) {
+            Err(e) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("addr {:?} invalid: {:?}", addr, e),
+                ));
+            }
+            Ok(UnifyAddr::Socket(_addr)) => match TcpListener::bind(_addr) {
                 Ok(l) => {
                     l.set_nonblocking(true).expect("non_blocking");
                     return Ok(UnifyListener::Tcp(IO::to_async_fd_rd(l)?));
                 }
                 Err(e) => Err(e),
             },
-            UnifyAddr::Path(path) => {
+            Ok(UnifyAddr::Path(ref path)) => {
                 if path.exists() {
                     fs::remove_file(path)?;
                 }
@@ -119,7 +126,7 @@ impl<IO: AsyncIO> UnifyListener<IO> {
                 }
                 match UnixListener::bind(&path_dup) {
                     Ok(l) => {
-                        if let Err(e) = fs::hard_link(path_dup, path) {
+                        if let Err(e) = fs::hard_link(path_dup, &path) {
                             error!(
                                 "hard_link {:?}->{:?} error: {:?}",
                                 path_dup.to_str(),
@@ -128,7 +135,8 @@ impl<IO: AsyncIO> UnifyListener<IO> {
                             );
                             return Err(e);
                         }
-                        if let Err(e) = fs::set_permissions(path, fs::Permissions::from_mode(0o666))
+                        if let Err(e) =
+                            fs::set_permissions(&path, fs::Permissions::from_mode(0o666))
                         {
                             error!("cannot get metadata of {:?}: {:?}", path.to_str(), e);
                             return Err(e);
@@ -143,7 +151,7 @@ impl<IO: AsyncIO> UnifyListener<IO> {
     }
 
     #[inline]
-    pub async fn accept(&mut self) -> io::Result<UnifyStream<IO>> {
+    async fn accept(&mut self) -> io::Result<UnifyStream<IO>> {
         match self {
             UnifyListener::Tcp(l) => match l.async_read(|_l| _l.accept()).await {
                 Ok((stream, _)) => {
@@ -163,7 +171,7 @@ impl<IO: AsyncIO> UnifyListener<IO> {
     }
 }
 
-impl<IO: AsyncIO> std::fmt::Display for UnifyListener<IO> {
+impl<IO: AsyncIO> std::fmt::Debug for UnifyListener<IO> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Tcp(l) => match l.local_addr() {
@@ -237,25 +245,6 @@ impl<IO: AsyncIO> AsyncWrite for UnifyStream<IO> {
             UnifyStream::Tcp(s) => s.async_write(|mut stream| stream.write(buf)).await,
             UnifyStream::Unix(s) => s.async_write(|mut stream| stream.write(buf)).await,
         }
-    }
-}
-
-pub fn listen_on_addr<IO: AsyncIO>(addr: &str) -> io::Result<UnifyListener<IO>> {
-    match UnifyAddr::from_str(addr) {
-        Err(_) => {
-            error!("Fail to parse addr {:?}", addr);
-            return Err(Errno::EFAULT.into());
-        }
-        Ok(listen_addr) => match UnifyListener::bind(&listen_addr) {
-            Ok(listener) => {
-                info!("listen on {:?}", addr);
-                return Ok(listener);
-            }
-            Err(e) => {
-                error!("Fail to bind on addr {:?}: {:?}", listen_addr, e);
-                return Err(e);
-            }
-        },
     }
 }
 

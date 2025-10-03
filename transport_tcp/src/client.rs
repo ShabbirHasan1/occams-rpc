@@ -2,8 +2,7 @@ use crate::net::{UnifyAddr, UnifyStream};
 use bytes::BytesMut;
 use crossfire::MAsyncRx;
 use io_buffer::Buffer;
-use occams_rpc::buffer::AllocateBuf;
-use occams_rpc::io::{AsyncRead, AsyncWrite, Cancellable, io_with_timeout};
+use occams_rpc::io::{AllocateBuf, AsyncRead, AsyncWrite, Cancellable, io_with_timeout};
 use occams_rpc::runtime::AsyncIO;
 use occams_rpc::stream::client::{ClientFactory, ClientTaskDecode, ClientTransport, RpcClientTask};
 use occams_rpc::stream::client_timer::RpcClientTaskTimer;
@@ -35,6 +34,8 @@ impl<F: ClientFactory> fmt::Debug for TcpClient<F> {
 }
 
 impl<F: ClientFactory> TcpClient<F> {
+    // Because async runtimes does not support spliting read and write to static handler,
+    // we use unsafe to achieve such goal,
     #[inline(always)]
     fn get_stream_mut(&self) -> &mut UnifyStream<F::IO> {
         unsafe { std::mem::transmute(self.stream.get()) }
@@ -95,7 +96,7 @@ impl<F: ClientFactory> TcpClient<F> {
                             Err(_) => {
                                 logger_error!(
                                     self.logger,
-                                    "{:?} recv task {} err string invalid",
+                                    "{:?} recv task {:?} err string invalid",
                                     self,
                                     task
                                 );
@@ -140,7 +141,7 @@ impl<F: ClientFactory> TcpClient<F> {
                     None => {
                         logger_error!(
                             self.logger,
-                            "{:?} rpc client task {} has no ext_buf",
+                            "{:?} rpc client task {:?} has no ext_buf",
                             self,
                             task,
                         );
@@ -165,7 +166,7 @@ impl<F: ClientFactory> TcpClient<F> {
                         } else {
                             logger_error!(
                                 self.logger,
-                                "{:?} rpc client task {} has no ext_buf",
+                                "{:?} rpc client task {:?} has no ext_buf",
                                 self,
                                 task,
                             );
@@ -175,7 +176,7 @@ impl<F: ClientFactory> TcpClient<F> {
                     }
                 }
             }
-            logger_debug!(self.logger, "{:?} recv task {} ok", self, task);
+            logger_debug!(self.logger, "{:?} recv task {:?} ok", self, task);
             // set result of task, and notify task completed
             if let Err(_) = task.decode_resp(codec, read_buf) {
                 logger_warn!(self.logger, "{:?} rpc client reader decode resp err", self,);
@@ -200,7 +201,7 @@ impl<F: ClientFactory> TcpClient<F> {
 
 impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
     async fn connect(
-        addr: &str, timeout: &TimeoutSetting, client_id: u64, server_id: u64,
+        addr: &str, timeout: &TimeoutSetting, client_id: u64, server_id: u64, logger: F::Logger,
     ) -> Result<Self, RpcError> {
         let connect_timeout = timeout.connect_timeout;
         let stream: UnifyStream<F::IO> = {
@@ -229,7 +230,6 @@ impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
                 }
             }
         };
-        let logger = F::new_logger(client_id, server_id);
         Ok(Self {
             stream: UnsafeCell::new(stream),
             resp_buf: UnsafeCell::new(BytesMut::with_capacity(512)),

@@ -210,7 +210,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
         if self.closed.load(Ordering::Acquire) {
             logger_warn!(
                 self.logger(),
-                "{:?} sending task {} failed: {}",
+                "{:?} sending task {:?} failed: {}",
                 self,
                 task,
                 RPC_ERR_CLOSED,
@@ -222,7 +222,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
 
         match self.send_request(&mut task, need_flush).await {
             Err(e) => {
-                logger_warn!(self.logger(), "{:?} sending task {} failed: {:?}", self, task, e);
+                logger_warn!(self.logger(), "{:?} sending task {:?} failed: {:?}", self, task, e);
                 timer.pending_task_count_ref().fetch_sub(1, Ordering::SeqCst); // rollback
                 self.factory.error_handle(task, e.clone());
                 self.closed.store(true, Ordering::SeqCst);
@@ -231,7 +231,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
                 return Err(e);
             }
             Ok(_) => {
-                logger_trace!(self.logger(), "{:?} send task {} success", self, task);
+                logger_trace!(self.logger(), "{:?} send task {:?} success", self, task);
                 // register task to norifier
                 let mut wg: Option<WaitGroupGuard> = None;
                 if let Some(throttler) = self.throttler.as_ref() {
@@ -262,7 +262,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
         task.set_seq(seq);
         match proto::ReqHead::encode(&self.codec, self.client_id, task) {
             Err(_) => {
-                logger_warn!(self.logger(), "{:?} send_req encode req {} err", self, task);
+                logger_warn!(self.logger(), "{:?} send_req encode req {:?} err", self, task);
                 return Err(RPC_ERR_ENCODE);
             }
             Ok((header, action_str, msg_buf, blob_buf)) => {
@@ -274,7 +274,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
                 {
                     logger_warn!(
                         self.logger(),
-                        "{:?} send_req write req {} err: {:?}",
+                        "{:?} send_req write req {:?} err: {:?}",
                         self,
                         task,
                         e

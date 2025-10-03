@@ -1,7 +1,7 @@
 use super::{RpcAction, client::RpcClientTask};
-//use super::server::RpcSvrResp;
 use crate::codec::Codec;
 use crate::error::*;
+use io_buffer::Buffer;
 use std::fmt;
 use std::mem::{size_of, transmute};
 use std::ptr::addr_of;
@@ -195,44 +195,25 @@ pub struct RespHead {
 pub const RPC_RESP_HEADER_LEN: usize = size_of::<RespHead>();
 
 impl RespHead {
-    /*
-    pub fn encode<'a>(task_resp: &'a RpcSvrResp) -> (Self, Option<&'a Vec<u8>>, Option<&'a [u8]>) {
+    #[inline]
+    pub fn encode_err<'a>(seq: u64, err: &'a RpcError) -> (Self, Option<&'a [u8]>) {
         let error_str: &[u8];
-        let seq = task_resp.seq;
-        match task_resp.res {
-            Ok((ref msg, ref blob)) => {
-                let msg_len = if let Some(msg_buf) = msg.as_ref() { msg_buf.len() } else { 0 };
-                let mut blob_len: i32 = 0;
-                let mut blob_o: Option<&[u8]> = None;
-                if let Some(blob_buf) = blob.as_ref() {
-                    blob_len = blob_buf.len() as i32;
-                    blob_o = Some(blob_buf.as_ref());
-                }
-                let header = RespHead {
-                    magic: RPC_MAGIC,
-                    ver: 1,
-                    flag: 0,
-                    seq: task_resp.seq,
-                    msg_len: msg_len as u32,
-                    blob_len: blob_len as i32,
-                };
-                return (header, msg.as_ref(), blob_o);
-            }
-            Err(RpcError::Rpc(s)) => {
-                error_str = s.as_bytes();
-            }
-            Err(RpcError::Num(errno)) => {
+        match err {
+            RpcError::Num(errno) => {
                 let header = RespHead {
                     magic: RPC_MAGIC,
                     ver: 1,
                     flag: RESP_FLAG_HAS_ERRNO,
-                    seq: task_resp.seq,
-                    msg_len: errno,
+                    seq,
+                    msg_len: *errno,
                     blob_len: 0,
                 };
-                return (header, None, None);
+                return (header, None);
             }
-            Err(RpcError::Text(ref s)) => {
+            RpcError::Text(s) => {
+                error_str = s.as_bytes();
+            }
+            RpcError::Rpc(s) => {
                 error_str = s.as_bytes();
             }
         }
@@ -244,9 +225,25 @@ impl RespHead {
             msg_len: 0,
             blob_len: error_str.len() as i32,
         };
-        return (header, None, Some(error_str));
+        return (header, Some(error_str));
     }
-    */
+
+    #[inline]
+    pub fn encode_msg(seq: u64, msg: &[u8], blob: &Option<Buffer>) -> Self {
+        let mut blob_len: i32 = 0;
+        if let Some(blob_buf) = blob.as_ref() {
+            blob_len = blob_buf.len() as i32;
+        }
+        let header = RespHead {
+            magic: RPC_MAGIC,
+            ver: 1,
+            flag: 0,
+            seq,
+            msg_len: msg.len() as u32,
+            blob_len: blob_len as i32,
+        };
+        return header;
+    }
 
     #[inline(always)]
     pub fn decode_head(head_buf: &[u8]) -> Result<&Self, RpcError> {

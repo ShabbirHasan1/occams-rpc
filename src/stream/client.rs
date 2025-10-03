@@ -7,7 +7,7 @@ use crate::runtime::AsyncIO;
 use crate::*;
 use captains_log::filter::Filter;
 use crossfire::MAsyncRx;
-use std::fmt::{Debug, Display};
+use std::fmt;
 use std::future::Future;
 use std::io;
 use std::ops::DerefMut;
@@ -49,7 +49,7 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
         R: Send + 'static;
 
     /// Construct a logger filter to oganize log of a client
-    fn new_logger(client_id: u64, server_id: u64) -> Self::Logger;
+    fn new_logger(&self, client_id: u64, server_id: u64) -> Self::Logger;
 
     /// How to deal with RpcError
     ///
@@ -64,7 +64,6 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
         0
     }
 
-    /// Holds the RpcConfig
     fn get_config(&self) -> &RpcConfig;
 
     /// Make a streaming connection to the server, returns [RpcClient] on success
@@ -75,8 +74,9 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
         async move {
             let client_id = self.get_client_id();
             let timeout = &self.get_config().timeout;
+            let logger = self.new_logger(client_id, server_id);
             let conn = <Self::Transport as ClientTransport<Self>>::connect(
-                addr, timeout, client_id, server_id,
+                addr, timeout, client_id, server_id, logger,
             )
             .await?;
             Ok(RpcClient::new(self, conn, client_id, server_id, last_resp_ts))
@@ -89,9 +89,9 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
 /// Current avaiable transport crate:
 ///
 /// - TCP/unix transport: [occams-rpc-tcp](https://docs.rs/occams-rpc-tcp)
-pub trait ClientTransport<F: ClientFactory>: Debug + Send + Sized + 'static {
+pub trait ClientTransport<F: ClientFactory>: fmt::Debug + Send + Sized + 'static {
     fn connect(
-        addr: &str, timeout: &TimeoutSetting, client_id: u64, server_id: u64,
+        addr: &str, timeout: &TimeoutSetting, client_id: u64, server_id: u64, logger: F::Logger,
     ) -> impl Future<Output = Result<Self, RpcError>> + Send;
 
     fn get_logger(&self) -> &F::Logger;
@@ -118,7 +118,7 @@ pub trait RpcClientTask:
     + Send
     + Sized
     + 'static
-    + Display
+    + fmt::Debug
     + Unpin
 {
     fn action<'a>(&'a self) -> RpcAction<'a>;

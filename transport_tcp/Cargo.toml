@@ -15,6 +15,5 @@ zerocopy = "0.2"
 io-buffer = "1"
 bytes = "1"
 libc = "0"
-nix = "0"
 signal-hook = { version = "0" }
 occams-rpc = {path="../"}
