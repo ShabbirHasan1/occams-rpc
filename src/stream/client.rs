@@ -5,12 +5,12 @@ use crate::buffer::AllocateBuf;
 use crate::codec::Codec;
 use crate::transport::*;
 use crate::*;
-use captains_log::LogFilter;
+use captains_log::filter::Filter;
 use crossfire::MAsyncRx;
 use std::fmt::{Debug, Display};
 use std::future::Future;
 use std::io;
-use std::ops::{Deref, DerefMut};
+use std::ops::DerefMut;
 use std::sync::{Arc, atomic::AtomicU64};
 
 pub trait ClientFactory: Send + Sync + Sized + 'static {
@@ -18,7 +18,7 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
 
     type Task: RpcClientTask;
 
-    type Logger: Deref<Target = LogFilter>;
+    type Logger: Filter;
 
     type Transport: Transport<Self>;
 

@@ -20,7 +20,7 @@ and can change log setting on the fly.
 [dependencies]
 occams-rpc-macros = { path = "occams-rpc-macros" }
 log = { version = "0.4", features = ["std", "kv_unstable"] }
-captains-log = "0.4"
+captains-log = "0.14"
 nix = "0"
 close_fds = "0.3.2"
 tokio = { version = "1", features = ["net", "io-util", "time", "rt"] }
