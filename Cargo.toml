@@ -12,9 +12,8 @@ documentation = "https://docs.rs/occams-rpc"
 keywords = ["networking", "rpc"]
 license = "MIT"
 description = """
-A light-weight customizable logger which have concurrency in mind.
-Allow for multi-process/thread/coroutine programing,
-and can change log setting on the fly.
+A modular, plugable RPC for high throughput scenario, supports various runtime,
+with a low-level streaming interface, and high-level remote API call interface.
 """
 
 [dependencies]
