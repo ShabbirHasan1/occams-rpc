@@ -1,0 +1,27 @@
+[package]
+name = "occams-smol"
+version = "0.1.0"
+edition = "2024"
+authors = ["plan <frostyplanet@gmail.com>"]
+categories = ["concurrency", "network-programming"]
+repository = "https://github.com/NaturalIO/occams-rpc"
+documentation = "https://docs.rs/occams-tokio"
+keywords = ["networking", "rpc"]
+license = "MIT"
+description = """
+occams-rpc runtime adaptor for smol-rs ecology
+"""
+
+[dependencies]
+futures = "0.3"
+#occams-rpc = "0"
+occams-rpc = { path = "../../" }
+async-io = {version="2.6", optional=true}
+smol = {version="2", optional=true}
+
+[features]
+default = ["async_io"]
+# Minimal dep with only async_io
+async_io = ["dep:async-io"]
+# Use smol global executor
+global = ["dep:smol"]

@@ -1,0 +1,20 @@
+[package]
+name = "occams-tokio"
+version = "0.1.0"
+edition = "2024"
+authors = ["plan <frostyplanet@gmail.com>"]
+categories = ["concurrency", "network-programming"]
+repository = "https://github.com/NaturalIO/occams-rpc"
+documentation = "https://docs.rs/occams-tokio"
+keywords = ["networking", "rpc"]
+license = "MIT"
+description = """
+occams-rpc runtime adaptor for tokio ecology
+"""
+
+[dependencies]
+tokio = { version = "1", features = ["net", "time", "rt"] }
+#occams-rpc = "0"
+occams-rpc = { path = "../../" }
+
+[dev-dependencies]
