@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate captains_log;
 
-pub mod buffer;
 pub mod codec;
 pub mod config;
 pub mod error;

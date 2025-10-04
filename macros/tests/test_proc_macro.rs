@@ -1,4 +1,3 @@
-use occams_rpc::buffer::AllocateBuf;
 use occams_rpc::{
     codec::{Codec, MsgpCodec},
     stream::client::{ClientTaskDecode, ClientTaskEncode},

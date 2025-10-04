@@ -86,7 +86,7 @@ pub fn client_task(
 
     let get_resp_blob_mut_body = if let Some((resp_blob_field_name, _)) = &resp_blob_field {
         quote! {
-            fn get_resp_blob_mut(&mut self) -> Option<&mut impl occams_rpc::buffer::AllocateBuf> {
+            fn get_resp_blob_mut(&mut self) -> Option<&mut impl occams_rpc::io::AllocateBuf> {
                 Some(&mut self.#resp_blob_field_name)
             }
         }
