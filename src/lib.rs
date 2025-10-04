@@ -6,6 +6,7 @@ pub mod codec;
 pub mod config;
 pub mod error;
 pub mod io;
+pub mod macros;
 pub mod runtime;
 pub mod stream;
 
