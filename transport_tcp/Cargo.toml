@@ -1,5 +1,5 @@
 [package]
-name = "occams_rpc_tcp"
+name = "occams-rpc-tcp"
 version = "0.1.0"
 edition = "2024"
 

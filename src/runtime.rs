@@ -1,3 +1,13 @@
+//! The runtime model defines interface to adapt various async runtimes.
+//!
+//! The adaptor are provided as sub-crates:
+//!
+//! - occams-tokio: <https://docs.rs/occams-tokio>
+//!
+//! - occams-smol: <https://docs.rs/occams-smol>
+//!
+//! Users need to set the implementation of AsyncIO trait to [ClientFactory::IO](crate::stream::client::ClientFactory) or [ServerFactory::IO](crate::stream::server::ServerFactory)
+
 use crate::io::Cancellable;
 use std::future::Future;
 use std::io;
@@ -11,6 +21,9 @@ use std::pin::Pin;
 use std::task::*;
 use std::time::{Duration, Instant};
 
+/// The trait of async fd to turn sync I/O to async
+///
+/// See module level doc: [crate::runtime]
 pub trait AsyncFdTrait<T: AsRawFd + AsFd + Send + Sync + 'static>:
     Send + Sync + 'static + Deref<Target = T>
 {
@@ -23,6 +36,9 @@ pub trait AsyncFdTrait<T: AsRawFd + AsFd + Send + Sync + 'static>:
     ) -> impl Future<Output = io::Result<R>> + Send;
 }
 
+/// Defines the interface we used from async runtime
+///
+/// See module level doc: [crate::runtime]
 pub trait AsyncIO: Send + 'static {
     type Interval: TimeInterval;
 
@@ -59,6 +75,7 @@ pub trait AsyncIO: Send + 'static {
     ) -> io::Result<Self::AsyncFd<T>>;
 }
 
+/// Defines the universal interval/ticker trait
 pub trait TimeInterval: Unpin + Send {
     fn poll_tick(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Instant>;
 }

@@ -14,23 +14,45 @@ use std::ops::DerefMut;
 use std::sync::{Arc, atomic::AtomicU64};
 
 pub trait ClientFactory: Send + Sync + Sized + 'static {
+    /// Define the codec to serialization and deserialization
+    ///
+    /// Refers to [crate::codec]
     type Codec: Codec;
 
+    /// Define the RPC task from client-side
+    ///
+    /// Either one RpcClientTask or an enum of multiple RpcClientTask.
+    /// If you have multiple task type, recommend to use the `enum_dispatch` crate.
+    ///
+    /// You can use [crate::macros] on task type
     type Task: RpcClientTask;
 
+    /// A [captains-log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/index.html) implementation
     type Logger: Filter;
 
+    /// Define the transport layer protocol
+    ///
+    /// Refers to [ClientTransport]
     type Transport: ClientTransport<Self>;
 
+    /// Define the adaptor of async runtime
+    ///
+    /// Refers to [crate::runtime]
     type IO: AsyncIO;
 
+    /// Define how the async runtime spawn a task
+    ///
+    /// You may spawn globally, or to a specified runtime executor
     fn spawn_detach<F, R>(&self, f: F)
     where
         F: Future<Output = R> + Send + 'static,
         R: Send + 'static;
 
+    /// Construct a logger filter to oganize log of a client
     fn new_logger(client_id: u64, server_id: u64) -> Self::Logger;
 
+    /// How to deal with RpcError
+    ///
     /// You can overwrite this to implement retry logic
     fn error_handle(&self, task: Self::Task, err: RpcError) {
         task.set_result(Err(err));
@@ -42,8 +64,10 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
         0
     }
 
+    /// Holds the RpcConfig
     fn get_config(&self) -> &RpcConfig;
 
+    /// Make a streaming connection to the server, returns [RpcClient] on success
     #[inline(always)]
     fn client_connect(
         self: Arc<Self>, addr: &str, server_id: u64, last_resp_ts: Option<Arc<AtomicU64>>,
@@ -60,6 +84,11 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
     }
 }
 
+/// A ClientTransport implements network transport layer protocol
+///
+/// Current avaiable transport crate:
+///
+/// - TCP/unix transport: [occams-rpc-tcp](https://docs.rs/occams-rpc-tcp)
 pub trait ClientTransport<F: ClientFactory>: Debug + Send + Sized + 'static {
     fn connect(
         addr: &str, timeout: &TimeoutSetting, client_id: u64, server_id: u64,

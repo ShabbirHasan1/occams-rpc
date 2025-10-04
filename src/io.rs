@@ -13,6 +13,10 @@ pin_project! {
     }
 }
 
+/// Cancellable accepts a param `future` for I/O,
+/// abort the I/O waiting when `cancel_future` returns.
+///
+/// The `cancel_future` can be timer or notification channel recv()
 impl<F: Future + Send, C: Future + Send> Cancellable<F, C> {
     pub fn new(future: F, cancel_future: C) -> Self {
         Self { future, cancel_future }
@@ -36,6 +40,7 @@ impl<F: Future + Send, C: Future + Send> Future for Cancellable<F, C> {
     }
 }
 
+/// Because timeout function return () as error, this macro convert to io::Error
 #[macro_export(local_inner_macros)]
 macro_rules! io_with_timeout {
     ($IO: path, $timeout: expr, $f: expr) => {{
