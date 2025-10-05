@@ -229,7 +229,7 @@ impl RespHead {
     }
 
     #[inline]
-    pub fn encode_msg(seq: u64, msg: &[u8], blob: &Option<Buffer>) -> Self {
+    pub fn encode_msg(seq: u64, msg: &[u8], blob: Option<&Buffer>) -> Self {
         let mut blob_len: i32 = 0;
         if let Some(blob_buf) = blob.as_ref() {
             blob_len = blob_buf.len() as i32;

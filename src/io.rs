@@ -286,7 +286,7 @@ pub trait AsyncListener: Send + Sized + 'static + fmt::Debug {
 //}
 //
 
-pub trait AllocateBuf {
+pub trait AllocateBuf: 'static + Sized + Send {
     type Inner;
 
     /// Alloc buffer or reserve space inside the Buffer

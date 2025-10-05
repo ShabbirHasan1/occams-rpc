@@ -141,18 +141,12 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
             }
         };
 
-        let mut msg: Option<&[u8]> = None;
+        let msg_buf = self.get_msg_buf();
+        msg_buf.resize(rpc_head.msg_len as usize, 0);
         if rpc_head.msg_len > 0 {
-            let msg_buf = self.get_msg_buf();
-            msg_buf.resize(rpc_head.msg_len as usize, 0);
-            match io_with_timeout!(F::IO, read_timeout, reader.read_exact(msg_buf)) {
-                Err(_) => {
-                    logger_trace!(self.logger, "{:?}: read_exact error", self);
-                    return Err(RPC_ERR_COMM);
-                }
-                Ok(_) => {
-                    msg = Some(msg_buf);
-                }
+            if let Err(e) = io_with_timeout!(F::IO, read_timeout, reader.read_exact(msg_buf)) {
+                logger_trace!(self.logger, "{:?}: read req msg error: {:?}", self, e);
+                return Err(RPC_ERR_COMM);
             }
         }
         let mut blob: Option<Buffer> = None;
@@ -172,16 +166,16 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
                 }
             }
         }
-        return Ok(RpcSvrReq::<'a> { seq: rpc_head.seq, action, msg, blob });
+        return Ok(RpcSvrReq::<'a> { seq: rpc_head.seq, action, msg: msg_buf, blob });
     }
 
     #[inline]
     async fn send_resp<'a>(
-        &self, seq: u64, res: Result<(&'a [u8], Option<Buffer>), RpcError>,
+        &self, seq: u64, res: Result<(Vec<u8>, Option<&'a Buffer>), &'a RpcError>,
     ) -> io::Result<()> {
         let writer = self.get_stream_mut();
         let write_timeout = self.timeout.write_timeout;
-        match &res {
+        match res {
             Err(e) => {
                 let (header, err_str) = proto::RespHead::encode_err(seq, e);
                 if let Err(e) =
@@ -209,7 +203,7 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
                 logger_trace!(self.logger, "{:?}: send resp: {}", self, header);
             }
             Ok((msg, blob_buf)) => {
-                let header = proto::RespHead::encode_msg(seq, msg, blob_buf);
+                let header = proto::RespHead::encode_msg(seq, &msg, blob_buf);
                 if let Err(e) =
                     io_with_timeout!(F::IO, write_timeout, writer.write_all(header.as_bytes()))
                 {

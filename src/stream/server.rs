@@ -1,4 +1,4 @@
-use std::{fmt, future::Future, io, ops::Deref, sync::Arc};
+use std::{fmt, future::Future, io, sync::Arc};
 
 use super::*;
 use crate::codec::Codec;
@@ -37,6 +37,8 @@ pub trait ServerFactory: Clone + Sync + Send + 'static + Sized {
     /// Define how the server connection is served
     type ConnHandle: ServerHandle<Self>;
 
+    fn get_dispatcher<R: RpcServerTaskResp>(&self) -> impl TaskDispatcher<R>;
+
     /// Define how the async runtime spawn a task
     ///
     /// You may spawn globally, or to a specified runtime executor
@@ -61,7 +63,7 @@ pub trait ServerTransport<F: ServerFactory>: Send + Sync + Sized + 'static + fmt
     ) -> impl Future<Output = Result<RpcSvrReq<'a>, RpcError>> + Send;
 
     fn send_resp<'a>(
-        &self, seq: u64, res: Result<(&'a [u8], Option<Buffer>), RpcError>,
+        &self, seq: u64, res: Result<(Vec<u8>, Option<&'a Buffer>), &'a RpcError>,
     ) -> impl Future<Output = io::Result<()>> + Send;
 
     fn flush_resp(&self) -> impl Future<Output = io::Result<()>> + Send;
@@ -77,7 +79,7 @@ pub trait ServerTransport<F: ServerFactory>: Send + Sync + Sized + 'static + fmt
 pub struct RpcSvrReq<'a> {
     pub seq: u64,
     pub action: RpcAction<'a>,
-    pub msg: Option<&'a [u8]>,
+    pub msg: &'a [u8],
     pub blob: Option<Buffer>, // for write, this contains data
 }
 
@@ -86,55 +88,59 @@ pub trait ServerHandle<F: ServerFactory> {
     fn run(conn: F::Transport, factory: &F, server_close_rx: MAsyncRx<()>);
 }
 
-pub trait TaskDispatcher {
+pub trait TaskDispatcher<R: RpcServerTaskResp>: Send + Sync + Sized + 'static {
     /// Define the RPC task from server-side
     ///
-    /// Either one RpcClientTask or an enum of multiple RpcClientTask.
+    /// Either one or an enum of multiple RpcServerTask.
     /// If you have multiple task type, recommend to use the `enum_dispatch` crate.
     ///
     /// You can use [crate::macros] on task type
-    type Task: RpcServerTask;
+    type Task: RpcServerTaskReq<R>;
 
     /// Define the task handler, called from connection reader coroutine.
     ///
     /// You might dispatch them to a worker pool.
     /// If you processing them directly in the connection coroutine, should make sure not
     /// blocking the thread for long.
-    fn dispatch_task(&self, task: Self::Task);
+    fn dispatch_task(&self, task: Self::Task) -> impl Future<Output = ()> + Send;
 }
 
 /// A writer channel to send reponse. Can be clone anywhere.
 #[derive(Clone)]
-pub struct RpcRespNoti<T: RpcServerTask>(pub(crate) MTx<T>);
+pub struct RpcRespNoti<T>(pub(crate) crossfire::MTx<Result<T, (u64, Option<RpcError>)>>);
 
-impl<T: RpcServerTask> RpcRespNoti<T> {
+impl<T: RpcServerTaskResp> RpcRespNoti<T> {
     #[inline]
     pub fn done(self, task: T) {
-        let _ = self.0.send(task);
+        let _ = self.0.send(Ok(task));
     }
 }
 
-pub trait RpcServerTask:
-    ServerTaskDecode
-    + ServerTaskEncode
-    + Deref<Target = TaskCommon>
-    + Send
-    + Sized
-    + fmt::Debug
-    + Unpin
-    + 'static
+/// For enum_dispatch
+pub trait RpcServerTaskReq<R: RpcServerTaskResp>:
+    for<'a> ServerTaskDecode<'a, R> + Send + Sized + fmt::Debug + Unpin + 'static
 {
-    fn set_result(self, res: Result<(), RpcError>);
 }
 
-pub trait ServerTaskDecode: Sized + 'static {
-    fn decode_req<C: Codec, T: RpcServerTask>(
-        codec: &C, seq: u64, req: &[u8], blob: Option<Buffer>, noti: RpcRespNoti<T>,
+/// For enum_dispatch
+pub trait RpcServerTaskResp:
+    ServerTaskEncode + Send + Sized + fmt::Debug + Unpin + 'static
+{
+}
+
+pub trait ServerTaskDecode<'a, T>: Sized + 'static {
+    fn decode_req<C: Codec>(
+        codec: &'a C, action: RpcAction<'a>, seq: u64, req: &'a [u8], blob: Option<Buffer>,
+        noti: RpcRespNoti<T>,
     ) -> Result<Self, ()>;
 }
 
 pub trait ServerTaskEncode {
-    fn get_result(&self) -> Result<(), &RpcError>;
+    fn encode_resp<'a, C: Codec>(
+        &'a self, codec: &'a C,
+    ) -> Result<(u64, Result<(Vec<u8>, Option<&'a Buffer>), &'a RpcError>), u64>;
+}
 
-    fn encode_resp<C: Codec>(&self, codec: &C) -> Result<Vec<u8>, ()>;
+pub trait ServerTaskDone<T: RpcServerTaskResp> {
+    fn set_result(self, res: Result<(), RpcError>) -> RpcRespNoti<T>;
 }
