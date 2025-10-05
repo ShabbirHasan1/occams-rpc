@@ -287,11 +287,21 @@ pub trait AsyncListener: Send + Sized + 'static + fmt::Debug {
 //
 
 pub trait AllocateBuf {
+    type Inner;
+
     /// Alloc buffer or reserve space inside the Buffer
     fn reserve<'a>(&'a mut self, _blob_len: i32) -> Option<&'a mut [u8]>;
+
+    fn as_ref<'a>(&'a self) -> Option<&'a [u8]>;
+
+    fn as_mut<'a>(&'a mut self) -> Option<&'a mut [u8]>;
+
+    fn take(&mut self) -> Option<Self::Inner>;
 }
 
 impl AllocateBuf for Option<Vec<u8>> {
+    type Inner = Vec<u8>;
+
     #[inline]
     fn reserve<'a>(&'a mut self, blob_len: i32) -> Option<&'a mut [u8]> {
         let blob_len = blob_len as usize;
@@ -309,9 +319,26 @@ impl AllocateBuf for Option<Vec<u8>> {
         }
         return self.as_deref_mut();
     }
+
+    #[inline]
+    fn as_ref<'a>(&'a self) -> Option<&'a [u8]> {
+        self.as_deref()
+    }
+
+    #[inline]
+    fn as_mut<'a>(&'a mut self) -> Option<&'a mut [u8]> {
+        self.as_deref_mut()
+    }
+
+    #[inline]
+    fn take(&mut self) -> Option<Self::Inner> {
+        self.take()
+    }
 }
 
 impl AllocateBuf for Option<Buffer> {
+    type Inner = Buffer;
+
     #[inline]
     fn reserve<'a>(&'a mut self, blob_len: i32) -> Option<&'a mut [u8]> {
         if let Some(buf) = self.as_mut() {
@@ -331,5 +358,20 @@ impl AllocateBuf for Option<Buffer> {
             }
         }
         return self.as_deref_mut();
+    }
+
+    #[inline]
+    fn as_ref<'a>(&'a self) -> Option<&'a [u8]> {
+        self.as_deref()
+    }
+
+    #[inline]
+    fn as_mut<'a>(&'a mut self) -> Option<&'a mut [u8]> {
+        self.as_deref_mut()
+    }
+
+    #[inline]
+    fn take(&mut self) -> Option<Self::Inner> {
+        self.take()
     }
 }
