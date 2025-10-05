@@ -255,6 +255,7 @@ impl<F: ServerFactory, R: RpcServerTaskResp> ServerHandle<F> for ServerHandleTas
 /// A container that impl RpcServerTaskResp to show an example,
 /// pressuming you have a different types to represent Request and Response.
 /// You can write your customize version.
+#[allow(dead_code)]
 pub struct ServerTaskVariant<T, M: fmt::Debug> {
     seq: u64,
     msg: M,
@@ -305,6 +306,92 @@ impl<T, M: Serialize + 'static + fmt::Debug> ServerTaskEncode for ServerTaskVari
                         return Ok((self.seq, Err(e)));
                     }
                 },
+            }
+        } else {
+            error!("task {:?} has no result", self);
+            return Err(self.seq);
+        }
+    }
+}
+
+/// A container that impl RpcServerTaskResp to show an example,
+/// pressuming you have a type to carry both Request and Response.
+/// You can write your customize version.
+#[allow(dead_code)]
+pub struct ServerTaskVariantFull<T, R: fmt::Debug + 'static, P: 'static> {
+    seq: u64,
+    req: R,
+    req_blob: Option<Buffer>,
+    resp: Option<P>,
+    resp_blob: Option<Buffer>,
+    res: Option<Result<(), RpcError>>,
+    done_tx: Option<RpcRespNoti<T>>,
+}
+
+impl<T, M: fmt::Debug, P> fmt::Debug for ServerTaskVariantFull<T, M, P> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "task seq={} {:?}", self.seq, self.req)
+    }
+}
+
+impl<T: RpcServerTaskResp, M: fmt::Debug + 'static, P> ServerTaskDone<T>
+    for ServerTaskVariantFull<T, M, P>
+{
+    fn set_result(mut self, res: Result<(), RpcError>) -> RpcRespNoti<T> {
+        self.res.replace(res);
+        return self.done_tx.take().unwrap();
+    }
+}
+
+impl<'a, T: RpcServerTaskResp, M: Deserialize<'a> + fmt::Debug + 'static, P> ServerTaskDecode<'a, T>
+    for ServerTaskVariantFull<T, M, P>
+{
+    fn decode_req<C: Codec>(
+        codec: &'a C, _action: RpcAction<'a>, seq: u64, msg: &'a [u8], blob: Option<Buffer>,
+        noti: RpcRespNoti<T>,
+    ) -> Result<Self, ()> {
+        let req = codec.decode(msg)?;
+        Ok(Self {
+            seq,
+            req,
+            req_blob: blob,
+            res: None,
+            resp: None,
+            resp_blob: None,
+            done_tx: Some(noti),
+        })
+    }
+}
+
+impl<T, M: fmt::Debug, P: Serialize + 'static> ServerTaskEncode for ServerTaskVariantFull<T, M, P> {
+    fn encode_resp<'a, C: Codec>(
+        &'a self, codec: &'a C,
+    ) -> Result<(u64, Result<(Vec<u8>, Option<&'a Buffer>), &'a RpcError>), u64> {
+        if let Some(res) = self.res.as_ref() {
+            if let Some(resp) = self.resp.as_ref() {
+                match codec.encode(resp) {
+                    Err(_) => {
+                        error!("{:?} failed to encode resp", self);
+                        return Err(self.seq);
+                    }
+                    Ok(resp_buf) => match res {
+                        Ok(_) => {
+                            return Ok((self.seq, Ok((resp_buf, self.resp_blob.as_ref()))));
+                        }
+                        Err(e) => {
+                            return Ok((self.seq, Err(e)));
+                        }
+                    },
+                }
+            } else {
+                match res {
+                    Ok(_) => {
+                        return Ok((self.seq, Ok((vec![], self.resp_blob.as_ref()))));
+                    }
+                    Err(e) => {
+                        return Ok((self.seq, Err(e)));
+                    }
+                }
             }
         } else {
             error!("task {:?} has no result", self);
