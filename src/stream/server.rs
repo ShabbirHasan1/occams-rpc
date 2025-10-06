@@ -11,11 +11,6 @@ use crossfire::*;
 use io_buffer::Buffer;
 
 pub trait ServerFactory: Clone + Sync + Send + 'static + Sized {
-    /// Define the codec to serialization and deserialization
-    ///
-    /// Refers to [crate::codec]
-    type Codec: Codec;
-
     /// A [captains-log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/index.html) implementation
     type Logger: Filter + Send;
 
@@ -37,7 +32,10 @@ pub trait ServerFactory: Clone + Sync + Send + 'static + Sized {
     /// Define how the server connection is served
     type ConnHandle: ServerHandle<Self>;
 
-    fn get_dispatcher<R: RpcServerTaskResp>(&self) -> impl TaskDispatcher<R>;
+    type RespReceiver: RespReceiver;
+
+    /// The dispatch is likely to be a closure or object, in order to dispatch task to different worker
+    fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespReceiver>;
 
     /// Define how the async runtime spawn a task
     ///
@@ -83,41 +81,77 @@ pub struct RpcSvrReq<'a> {
     pub blob: Option<Buffer>, // for write, this contains data
 }
 
+/// A temporary struct to hold data buffer for RespReceiverBuf
+#[derive(Debug)]
+pub struct RpcSvrResp {
+    pub seq: u64,
+
+    pub msg: Option<Vec<u8>>,
+
+    pub blob: Option<Buffer>,
+
+    pub res: Result<(), RpcError>,
+}
+
 pub trait ServerHandle<F: ServerFactory> {
     /// It's expect to spawn coroutine to process
     fn run(conn: F::Transport, factory: &F, server_close_rx: MAsyncRx<()>);
 }
 
-pub trait TaskDispatcher<R: RpcServerTaskResp>: Send + Sync + Sized + 'static {
-    /// Define the RPC task from server-side
-    ///
-    /// Either one or an enum of multiple RpcServerTask.
-    /// If you have multiple task type, recommend to use the `enum_dispatch` crate.
-    ///
-    /// You can use [crate::macros] on task type
-    type Task: RpcServerTaskReq<R>;
-
+pub trait ReqDispatch<R: RespReceiver>: Send + Sync + Sized + 'static {
     /// Define the task handler, called from connection reader coroutine.
     ///
     /// You might dispatch them to a worker pool.
     /// If you processing them directly in the connection coroutine, should make sure not
     /// blocking the thread for long.
-    fn dispatch_task(&self, task: Self::Task) -> impl Future<Output = ()> + Send;
+    /// This in async fn, but you should avoid waiting as must as possible.
+    /// Should return Err(()) when codec decode_req failed.
+    fn dispatch_req<'a>(
+        &'a self, req: RpcSvrReq<'a>, noti: RpcRespNoti<R::ChannelItem>,
+    ) -> impl Future<Output = Result<(), ()>> + Send;
+
+    fn encode_resp<'a>(
+        &'a self, task: &'a mut R::ChannelItem,
+    ) -> (u64, Result<(Vec<u8>, Option<&'a Buffer>), &'a RpcError>);
+}
+
+pub trait RespReceiver: Send + 'static {
+    type ChannelItem: Send + Unpin + 'static;
+
+    /// NOTE: Because the msg encoded from task resp is not a ref, should return a owned buffer.
+    /// In order to return Vec<u8> from RpcSvrResp, should take the msg out, thus require task to
+    /// by &mut, but this does not affect encoding.
+    fn encode_resp<'a, C: Codec>(
+        codec: &'a C, task: &'a mut Self::ChannelItem,
+    ) -> (u64, Result<(Vec<u8>, Option<&'a Buffer>), &'a RpcError>);
 }
 
 /// A writer channel to send reponse. Can be clone anywhere.
-#[derive(Clone)]
-pub struct RpcRespNoti<T>(pub(crate) crossfire::MTx<Result<T, (u64, Option<RpcError>)>>);
+pub struct RpcRespNoti<T: Send + 'static>(
+    pub(crate) crossfire::MTx<Result<T, (u64, Option<RpcError>)>>,
+);
 
-impl<T: RpcServerTaskResp> RpcRespNoti<T> {
+impl<T: Send + 'static> Clone for RpcRespNoti<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<T: Send + 'static> RpcRespNoti<T> {
     #[inline]
     pub fn done(self, task: T) {
         let _ = self.0.send(Ok(task));
     }
+
+    #[inline]
+    pub(crate) fn send_err(&self, seq: u64, err: Option<RpcError>) -> Result<(), ()> {
+        if self.0.send(Err((seq, err))).is_err() { return Err(()) } else { Ok(()) }
+    }
 }
 
 /// For enum_dispatch
-pub trait RpcServerTaskReq<R: RpcServerTaskResp>:
+pub trait RpcServerTaskReq<R: Send + Unpin + 'static>:
     for<'a> ServerTaskDecode<'a, R> + Send + Sized + fmt::Debug + Unpin + 'static
 {
 }
@@ -128,7 +162,7 @@ pub trait RpcServerTaskResp:
 {
 }
 
-pub trait ServerTaskDecode<'a, T>: Sized + 'static {
+pub trait ServerTaskDecode<'a, T: Send + 'static>: Sized + 'static {
     fn decode_req<C: Codec>(
         codec: &'a C, action: RpcAction<'a>, seq: u64, req: &'a [u8], blob: Option<Buffer>,
         noti: RpcRespNoti<T>,
@@ -138,7 +172,7 @@ pub trait ServerTaskDecode<'a, T>: Sized + 'static {
 pub trait ServerTaskEncode {
     fn encode_resp<'a, C: Codec>(
         &'a self, codec: &'a C,
-    ) -> Result<(u64, Result<(Vec<u8>, Option<&'a Buffer>), &'a RpcError>), u64>;
+    ) -> (u64, Result<(Vec<u8>, Option<&'a Buffer>), &'a RpcError>);
 }
 
 pub trait ServerTaskDone<T: RpcServerTaskResp> {
