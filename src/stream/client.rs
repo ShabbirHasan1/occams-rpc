@@ -1,6 +1,6 @@
+use super::RpcAction;
 pub use super::client_impl::RpcClient;
 pub use super::client_timer::RpcClientTaskTimer;
-use super::{RpcAction, TaskCommon};
 use crate::codec::Codec;
 use crate::io::AllocateBuf;
 use crate::runtime::AsyncIO;
@@ -114,7 +114,7 @@ pub trait ClientTransport<F: ClientFactory>: fmt::Debug + Send + Sized + 'static
 pub trait RpcClientTask:
     ClientTaskEncode
     + ClientTaskDecode
-    + DerefMut<Target = TaskCommon>
+    + DerefMut<Target = ClientTaskCommon>
     + Send
     + Sized
     + 'static
@@ -143,5 +143,19 @@ pub trait ClientTaskDecode {
     #[inline(always)]
     fn get_resp_blob_mut(&mut self) -> Option<&mut impl AllocateBuf> {
         None::<&mut Option<Vec<u8>>>
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct ClientTaskCommon {
+    pub seq: u64,
+}
+
+impl ClientTaskCommon {
+    pub fn seq(&self) -> u64 {
+        self.seq
+    }
+    pub fn set_seq(&mut self, seq: u64) {
+        self.seq = seq;
     }
 }

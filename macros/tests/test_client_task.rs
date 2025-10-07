@@ -1,8 +1,7 @@
 use occams_rpc::{
     codec::{Codec, MsgpCodec},
     io::AllocateBuf,
-    stream::client::{ClientTaskDecode, ClientTaskEncode},
-    stream::TaskCommon,
+    stream::client::{ClientTaskCommon, ClientTaskDecode, ClientTaskEncode},
 };
 use occams_rpc_macros::client_task;
 use serde_derive::{Deserialize, Serialize};
@@ -15,27 +14,16 @@ pub struct FileIOReq {
     pub offset: i64,
 }
 
-impl Display for FileIOReq {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        write!(f, "inode: {}, offset: {}", self.inode, self.offset)
-    }
-}
-
 #[derive(Default, Deserialize, Serialize, Debug, PartialEq)]
 pub struct FileIOResp {
     pub read_size: u64,
 }
 
-impl Display for FileIOResp {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        write!(f, "read_size: {}", self.read_size)
-    }
-}
-
 #[client_task]
+#[derive(Debug)]
 pub struct FileTask {
     #[field(common)]
-    common: TaskCommon,
+    common: ClientTaskCommon,
     #[field(req)]
     req: FileIOReq,
     #[field(resp)]
@@ -45,7 +33,7 @@ pub struct FileTask {
 #[test]
 fn test_client_task_macro() {
     let mut task = FileTask {
-        common: TaskCommon { seq: 123, ..Default::default() },
+        common: ClientTaskCommon { seq: 123, ..Default::default() },
         req: FileIOReq { inode: 1, offset: 100 },
         resp: None,
     };
@@ -74,7 +62,7 @@ fn test_client_task_macro() {
 #[client_task]
 pub struct FileTaskWithBlob {
     #[field(common)]
-    common: TaskCommon,
+    common: ClientTaskCommon,
     #[field(req)]
     req: FileIOReq,
     #[field(req_blob)]
@@ -89,7 +77,7 @@ fn test_client_task_macro_with_req_blob() {
     let blob_data = vec![1, 2, 3, 4, 5];
 
     let task = FileTaskWithBlob {
-        common: TaskCommon { seq: 123, ..Default::default() },
+        common: ClientTaskCommon { seq: 123, ..Default::default() },
         req: req_data.clone(),
         resp: None,
         blob: blob_data.clone(),
@@ -107,7 +95,7 @@ fn test_client_task_macro_with_req_blob() {
 
     // Test ClientTaskDecode (should still work for resp)
     let mut task_decode = FileTaskWithBlob {
-        common: TaskCommon { seq: 123, ..Default::default() },
+        common: ClientTaskCommon { seq: 123, ..Default::default() },
         req: req_data.clone(),
         resp: None,
         blob: blob_data.clone(),
@@ -122,7 +110,7 @@ fn test_client_task_macro_with_req_blob() {
 #[client_task]
 pub struct FileTaskWithRespBlob {
     #[field(common)]
-    common: TaskCommon,
+    common: ClientTaskCommon,
     #[field(req)]
     req: FileIOReq,
     #[field(resp)]
@@ -138,7 +126,7 @@ fn test_client_task_macro_with_resp_blob() {
     let initial_resp_blob = Some(vec![6, 7, 8, 9, 10]);
 
     let mut task = FileTaskWithRespBlob {
-        common: TaskCommon { seq: 123, ..Default::default() },
+        common: ClientTaskCommon { seq: 123, ..Default::default() },
         req: req_data.clone(),
         resp: None,
         resp_blob: initial_resp_blob,

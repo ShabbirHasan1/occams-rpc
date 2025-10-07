@@ -5,7 +5,6 @@ use io_buffer::Buffer;
 use log::*;
 use occams_rpc::codec::MsgpCodec;
 use occams_rpc::stream::client::*;
-use occams_rpc::stream::client_task::*;
 use occams_rpc::stream::*;
 use occams_rpc::*;
 use occams_rpc_macros::*;
@@ -14,7 +13,7 @@ use std::fmt;
 use tokio::runtime::{Builder, Runtime};
 
 pub fn setup() -> Runtime {
-    recipe::raw_file_logger("/tmp", "rpc_test", Level::Trace).test().build();
+    recipe::raw_file_logger("/tmp/rpc_test.log", Level::Trace).test().build().expect("log");
     let rt = Builder::new_multi_thread().worker_threads(8).enable_all().build().unwrap();
     rt
 }
@@ -76,7 +75,7 @@ pub struct FileTask {
     res: Option<Result<(), RpcError>>,
 }
 
-impl fmt::Display for FileTask {
+impl fmt::Debug for FileTask {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "FileTask seq={} action={}", self.common.seq, self.action)
     }

@@ -133,7 +133,7 @@ pub fn client_task_impl(input: TokenStream) -> TokenStream {
 /// #[client_task]
 /// pub struct FileTaskWrongResp {
 ///     #[field(common)]
-///     common: occams_rpc::stream::TaskCommon,
+///     common: occams_rpc::stream::client::ClientTaskCommon,
 ///     #[field(req)]
 ///     req: (),
 ///     #[field(resp)]
@@ -149,7 +149,7 @@ fn test_resp_not_option() {}
 /// #[client_task]
 /// pub struct FileTaskNoReq {
 ///     #[field(common)]
-///     common: occams_rpc::stream::TaskCommon,
+///     common: occams_rpc::stream::client::ClientTaskCommon,
 ///     #[field(resp)]
 ///     resp: Option<()_,
 /// }
@@ -163,7 +163,7 @@ fn test_missing_req() {}
 /// #[client_task]
 /// pub struct FileTaskNoResp {
 ///     #[field(common)]
-///     common: occams_rpc::stream::TaskCommon,
+///     common: occams_rpc::stream::client::ClientTaskCommon,
 ///     #[field(req)]
 ///     req: (),
 /// }
