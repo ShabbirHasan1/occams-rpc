@@ -52,8 +52,24 @@ pub enum ServerTaskReqOnly {
 #[server_task_enum(resp)] // Example with only resp, resp_type and action is not required
 #[derive(Debug)]
 pub enum ServerTaskReqOnly {
-    #[action(1)]
     Task1(SubTask1),
+}
+```
+
+The `#[action]` can be multiple, separated with comma. Then it will call the SubType::decode_req in multiple situtation.
+In this case the SubType is required to impl `ServerTaskAction` trait to return the actual action it stored
+
+```
+#[server_task_enum(req, resp_type = RpcResp)] // Example with only req, resp_type is required
+#[derive(Debug)]
+pub enum ServerTaskReqOnly {
+    #[action(1, 2, 3)]
+    Task1(SubTask1),
+}
+
+pub struct SubTask1 {
+    action_field: i32,
+    ...
 }
 ```
 
@@ -75,6 +91,13 @@ impl From<SubTask1> for ServerTask {
 
 The macro should filter potential duplicate types inside the variants.
 
+## Requirements
+
+- The macro must be applied to an enum.
+- Each variant of the enum must be a tuple-style variant with a single field.
+- Each variant must have an `#[action]` attribute, which can be a numeric or string literal (e.g., `#[action(1)]` or `#[action("my_action")]`).
+- The inner type of each variant must implement `ServerTaskDecode`, `ServerTaskEncode`, and `ServerTaskDone`.
+
 ### `ServerTaskDecode`
 
 If `req` is specified with `server_task_enum` attribute, the macro generates an implementation of `ServerTaskDecode` that decodes an incoming request based on the `RpcAction`. It matches the action from the request with the `#[action]` attribute of the variants and delegates the decoding to the corresponding subtype's `decode_req` method.
@@ -87,16 +110,10 @@ If `resp` is specified with `server_task_enum` attribute, an implementation of `
 
 If `resp` is specified with `server_task_enum` attribute, an implementation of `ServerTaskDone` is generated to handle the completion of a task. It delegates the `set_result` call to the inner subtype.
 
-### `get_action()`
+### `ServerTaskAction::get_action()`
 
 A `get_action(&self) -> RpcAction` method is generated for the enum, which returns the `RpcAction` associated with the current variant.
 
-## Requirements
-
-- The macro must be applied to an enum.
-- Each variant of the enum must be a tuple-style variant with a single field.
-- Each variant must have an `#[action]` attribute, which can be a numeric or string literal (e.g., `#[action(1)]` or `#[action("my_action")]`).
-- The inner type of each variant must implement `ServerTaskDecode`, `ServerTaskEncode`, and `ServerTaskDone`.
 
 ## Trait Delegation and Compile-Time Checks
 

@@ -173,3 +173,7 @@ pub trait ServerTaskEncode {
 pub trait ServerTaskDone<T: Send + 'static> {
     fn set_result(&mut self, res: Result<(), RpcError>) -> RespNoti<T>;
 }
+
+pub trait ServerTaskAction {
+    fn get_action<'a>(&'a self) -> RpcAction<'a>;
+}
