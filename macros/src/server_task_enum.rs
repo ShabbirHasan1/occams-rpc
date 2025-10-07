@@ -94,17 +94,21 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
             _ => panic!("Enum variants must be tuple-style with a single field"),
         };
 
-        let action_value = if has_req {
-            let action = get_action_attribute(variant);
+        let action_values = if has_req {
+            let actions = get_action_attribute(variant);
             variant.attrs.retain(|attr| !attr.path.is_ident("action"));
-            match action {
-                Lit::Int(i) => quote! { occams_rpc::stream::RpcAction::Num(#i) },
-                Lit::Str(s) => quote! { occams_rpc::stream::RpcAction::Str(#s) },
-                _ => panic!("Unsupported action literal type"),
-            }
+            actions
+                .into_iter()
+                .map(|action| match action {
+                    Lit::Int(i) => quote! { occams_rpc::stream::RpcAction::Num(#i) },
+                    Lit::Str(s) => quote! { occams_rpc::stream::RpcAction::Str(#s) },
+                    _ => panic!("Unsupported action literal type"),
+                })
+                .collect::<Vec<_>>()
         } else {
-            quote! {} // No action value needed if no req
+            vec![] // No action value needed if no req
         };
+
         let inner_type_str = quote! {#inner_type}.to_string();
         if *inner_type_counts.get(&inner_type_str).unwrap_or(&0) == 1 {
             // Only generate if count is 1
@@ -118,20 +122,25 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
         }
 
         if has_req {
-            decode_arms.push(quote! {
-                #action_value => {
-                    let task = <#inner_type as occams_rpc::stream::server::ServerTaskDecode<#resp_type>>::decode_req::<C>(codec, action, seq, req, blob, noti)?;
-                    Ok(#enum_name::#variant_name(task))
-                }
-            });
+            for action_value in &action_values {
+                decode_arms.push(quote! {
+                            #action_value => {
+                                let task = <#inner_type as occams_rpc::stream::server::ServerTaskDecode<#resp_type>>::decode_req::<C>(codec, action, seq, req, blob, noti)?;
+                                Ok(#enum_name::#variant_name(task))
+                            }
+                        });
+            }
 
             where_clauses_for_decode.push(quote! {
                 #inner_type: occams_rpc::stream::server::ServerTaskDecode<#resp_type>
             });
 
-            get_action_arms.push(quote! {
-                #enum_name::#variant_name(_) => #action_value,
-            });
+            // For get_action, we only return the first action
+            if let Some(first_action) = action_values.first() {
+                get_action_arms.push(quote! {
+                    #enum_name::#variant_name(_) => #first_action,
+                });
+            }
         }
 
         if has_resp {
@@ -210,8 +219,8 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
 
     let get_action_impl = if has_req {
         quote! {
-            impl #enum_name {
-                pub fn get_action(&self) -> occams_rpc::stream::RpcAction {
+            impl occams_rpc::stream::server::ServerTaskAction for #enum_name {
+                fn get_action<'a>(&'a self) -> occams_rpc::stream::RpcAction<'a> {
                     match self {
                         #(#get_action_arms)*
                     }
@@ -237,14 +246,23 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
     TokenStream::from(expanded)
 }
 
-fn get_action_attribute(variant: &Variant) -> Lit {
+fn get_action_attribute(variant: &Variant) -> Vec<Lit> {
     for attr in &variant.attrs {
         if attr.path.is_ident("action") {
             if let Ok(Meta::List(meta_list)) = attr.parse_meta() {
-                if meta_list.nested.len() == 1 {
-                    if let NestedMeta::Lit(lit) = &meta_list.nested[0] {
-                        return lit.clone();
-                    }
+                let actions: Vec<Lit> = meta_list
+                    .nested
+                    .iter()
+                    .filter_map(|nested| {
+                        if let NestedMeta::Lit(lit) = nested {
+                            Some(lit.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if !actions.is_empty() {
+                    return actions;
                 }
             }
         }

@@ -4,7 +4,10 @@ use occams_rpc::{
     error::RpcError,
     stream::server_impl::ServerTaskVariant,
     stream::{
-        server::{RespNoti, RpcSvrResp, ServerTaskDecode, ServerTaskDone, ServerTaskEncode},
+        server::{
+            RespNoti, RpcSvrResp, ServerTaskAction, ServerTaskDecode, ServerTaskDone,
+            ServerTaskEncode,
+        },
         RpcAction,
     },
 };
@@ -208,4 +211,66 @@ fn test_server_task_enum_duplicate_subtype() {
         panic!("Expected TaskB variant");
     }
     assert_eq!(server_task_b.get_action(), RpcAction::Num(2));
+}
+
+#[test]
+fn test_server_task_enum_multiple_actions() {
+    #[server_task_enum(req, resp_type=RpcSvrResp)]
+    #[derive(Debug)]
+    pub enum MultiActionServerTask {
+        #[action(1, 2, "action_str")]
+        TaskA(ServerTaskVariant<RpcSvrResp, ReqMsg1>),
+    }
+
+    let codec = MsgpCodec::default();
+    let (tx, _rx) = crossfire::mpsc::unbounded_async();
+    let noti: RespNoti<RpcSvrResp> = RespNoti::new(tx);
+
+    let req_msg_data = ReqMsg1 { val: 100 };
+    let req_msg_buf = codec.encode(&req_msg_data).unwrap();
+
+    // Test decoding with first numeric action
+    let task1 = <MultiActionServerTask as ServerTaskDecode<RpcSvrResp>>::decode_req(
+        &codec,
+        RpcAction::Num(1),
+        123,
+        &req_msg_buf,
+        None,
+        noti.clone(),
+    )
+    .unwrap();
+    assert_eq!(task1.get_action(), RpcAction::Num(1));
+    let MultiActionServerTask::TaskA(req_task_variant) = task1;
+    assert_eq!(req_task_variant.seq, 123);
+    assert_eq!(req_task_variant.msg, req_msg_data);
+
+    // Test decoding with second numeric action
+    let task2 = <MultiActionServerTask as ServerTaskDecode<RpcSvrResp>>::decode_req(
+        &codec,
+        RpcAction::Num(2),
+        456,
+        &req_msg_buf,
+        None,
+        noti.clone(),
+    )
+    .unwrap();
+    assert_eq!(task2.get_action(), RpcAction::Num(1)); // Still returns the first action
+    let MultiActionServerTask::TaskA(req_task_variant) = task2;
+    assert_eq!(req_task_variant.seq, 456);
+    assert_eq!(req_task_variant.msg, req_msg_data);
+
+    // Test decoding with string action
+    let task3 = <MultiActionServerTask as ServerTaskDecode<RpcSvrResp>>::decode_req(
+        &codec,
+        RpcAction::Str("action_str"),
+        789,
+        &req_msg_buf,
+        None,
+        noti.clone(),
+    )
+    .unwrap();
+    assert_eq!(task3.get_action(), RpcAction::Num(1)); // Still returns the first action
+    let MultiActionServerTask::TaskA(req_task_variant) = task3;
+    assert_eq!(req_task_variant.seq, 789);
+    assert_eq!(req_task_variant.msg, req_msg_data);
 }

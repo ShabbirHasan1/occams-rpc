@@ -59,7 +59,7 @@ pub enum ServerTaskReqOnly {
 The `#[action]` can be multiple, separated with comma. Then it will call the SubType::decode_req in multiple situtation.
 In this case the SubType is required to impl `ServerTaskAction` trait to return the actual action it stored
 
-```
+```rust
 #[server_task_enum(req, resp_type = RpcResp)] // Example with only req, resp_type is required
 #[derive(Debug)]
 pub enum ServerTaskReqOnly {
@@ -112,7 +112,7 @@ If `resp` is specified with `server_task_enum` attribute, an implementation of `
 
 ### `ServerTaskAction::get_action()`
 
-A `get_action(&self) -> RpcAction` method is generated for the enum, which returns the `RpcAction` associated with the current variant.
+A `get_action(&self) -> RpcAction` method is generated for the enum, which returns the `RpcAction` associated with the current variant. This method is part of the `ServerTaskAction` trait.
 
 
 ## Trait Delegation and Compile-Time Checks
