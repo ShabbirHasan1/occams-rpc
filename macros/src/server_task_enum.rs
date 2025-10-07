@@ -1,5 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
+use std::collections::HashMap;
 use syn::{parse_macro_input, Data, DeriveInput, Fields, Lit, Meta, NestedMeta, Variant};
 
 struct ServerTaskEnumAttrs {
@@ -56,6 +57,18 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
     let mut set_result_arms = Vec::new();
     let mut where_clauses_for_decode = Vec::new();
 
+    let mut inner_type_counts: HashMap<String, usize> = HashMap::new();
+    for variant in variants.iter() {
+        let inner_type = match &variant.fields {
+            Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                &fields.unnamed.first().unwrap().ty
+            }
+            _ => panic!("Enum variants must be tuple-style with a single field"),
+        };
+        let inner_type_str = quote! {#inner_type}.to_string();
+        *inner_type_counts.entry(inner_type_str).or_insert(0) += 1;
+    }
+
     let macro_attrs = parse_macro_input!(attrs as ServerTaskEnumAttrs);
     let has_req = macro_attrs.req;
     let has_resp = macro_attrs.resp;
@@ -92,13 +105,17 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
         } else {
             quote! {} // No action value needed if no req
         };
-        from_impls.push(quote! {
-            impl From<#inner_type> for #enum_name {
-                fn from(task: #inner_type) -> Self {
-                    #enum_name::#variant_name(task)
+        let inner_type_str = quote! {#inner_type}.to_string();
+        if *inner_type_counts.get(&inner_type_str).unwrap_or(&0) == 1 {
+            // Only generate if count is 1
+            from_impls.push(quote! {
+                impl From<#inner_type> for #enum_name {
+                    fn from(task: #inner_type) -> Self {
+                        #enum_name::#variant_name(task)
+                    }
                 }
-            }
-        });
+            });
+        }
 
         if has_req {
             decode_arms.push(quote! {

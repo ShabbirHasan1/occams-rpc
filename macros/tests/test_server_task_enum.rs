@@ -1,3 +1,4 @@
+use crossfire::mpsc;
 use occams_rpc::{
     codec::{Codec, MsgpCodec},
     error::RpcError,
@@ -8,7 +9,7 @@ use occams_rpc::{
     },
 };
 use occams_rpc_macros::server_task_enum;
-use serde_derive::{Deserialize, Serialize};
+use serde_derive::{Deserialize, Serialize}; // Added this import
 
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
 struct ReqMsg1 {
@@ -160,4 +161,51 @@ fn test_server_task_enum_resp_macro() {
         .unwrap(),
     );
     task_for_set_result_done.set_result_done(Ok(()));
+}
+
+#[test]
+fn test_server_task_enum_duplicate_subtype() {
+    #[server_task_enum(req, resp)]
+    #[derive(Debug)] // Removed PartialEq
+    enum MyServerTask {
+        #[action(1)]
+        TaskA(ServerTaskVariant<MyServerTask, ReqMsg1>),
+        #[action(2)]
+        TaskB(ServerTaskVariant<MyServerTask, ReqMsg1>),
+    }
+
+    let (tx, _rx) = mpsc::unbounded_async();
+    let noti: RpcRespNoti<MyServerTask> = RpcRespNoti::new(tx);
+
+    let sub_task_a = ServerTaskVariant {
+        seq: 100,
+        msg: ReqMsg1 { val: 1 },
+        blob: None,
+        res: None,
+        noti: Some(noti.clone()),
+    };
+    let server_task_a = MyServerTask::TaskA(sub_task_a); // Explicit construction
+    if let MyServerTask::TaskA(ref variant) = server_task_a {
+        assert_eq!(variant.seq, 100);
+        assert_eq!(variant.msg.val, 1);
+    } else {
+        panic!("Expected TaskA variant");
+    }
+    assert_eq!(server_task_a.get_action(), RpcAction::Num(1));
+
+    let sub_task_b = ServerTaskVariant {
+        seq: 200,
+        msg: ReqMsg1 { val: 2 },
+        blob: None,
+        res: None,
+        noti: Some(noti.clone()),
+    };
+    let server_task_b = MyServerTask::TaskB(sub_task_b); // Explicit construction
+    if let MyServerTask::TaskB(ref variant) = server_task_b {
+        assert_eq!(variant.seq, 200);
+        assert_eq!(variant.msg.val, 2);
+    } else {
+        panic!("Expected TaskB variant");
+    }
+    assert_eq!(server_task_b.get_action(), RpcAction::Num(2));
 }
