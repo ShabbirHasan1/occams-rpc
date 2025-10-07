@@ -4,8 +4,8 @@ use crossfire::MAsyncRx;
 use io_buffer::Buffer;
 use occams_rpc::io::{AllocateBuf, AsyncRead, AsyncWrite, Cancellable, io_with_timeout};
 use occams_rpc::runtime::AsyncIO;
-use occams_rpc::stream::client::{ClientFactory, ClientTaskDecode, ClientTransport, RpcClientTask};
-use occams_rpc::stream::client_timer::RpcClientTaskTimer;
+use occams_rpc::stream::client::{ClientFactory, ClientTask, ClientTaskDecode, ClientTransport};
+use occams_rpc::stream::client_timer::ClientTaskTimer;
 use occams_rpc::stream::proto;
 use occams_rpc::{TimeoutSetting, error::*};
 use std::cell::UnsafeCell;
@@ -117,7 +117,7 @@ impl<F: ClientFactory> TcpClient<F> {
 
     #[inline]
     async fn _recv_resp_body(
-        &self, factory: &F, codec: &F::Codec, task_reg: &mut RpcClientTaskTimer<F>,
+        &self, factory: &F, codec: &F::Codec, task_reg: &mut ClientTaskTimer<F>,
         resp_head: &proto::RespHead,
     ) -> Result<(), RpcError> {
         let reader = self.get_stream_mut();
@@ -296,7 +296,7 @@ impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
     #[inline]
     async fn recv_task(
         &self, factory: &F, codec: &F::Codec, close_ch: Option<&MAsyncRx<()>>,
-        task_reg: &mut RpcClientTaskTimer<F>,
+        task_reg: &mut ClientTaskTimer<F>,
     ) -> Result<bool, RpcError> {
         let mut resp_head_buf = [0u8; proto::RPC_RESP_HEADER_LEN];
         let reader = self.get_stream_mut();

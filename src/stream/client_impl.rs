@@ -129,7 +129,7 @@ struct RpcClientInner<F: ClientFactory> {
     seq: AtomicU64,
     close_rx: MAsyncRx<()>, // When RpcClient(sender) dropped, receiver will be timer
     closed: AtomicBool,     // flag set by either sender or receive on there exit
-    timer: UnsafeCell<RpcClientTaskTimer<F>>,
+    timer: UnsafeCell<ClientTaskTimer<F>>,
     has_err: AtomicBool,
     throttler: Option<Throttler>,
     last_resp_ts: Option<Arc<AtomicU64>>,
@@ -160,7 +160,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
             close_rx,
             closed: AtomicBool::new(false),
             seq: AtomicU64::new(1),
-            timer: UnsafeCell::new(RpcClientTaskTimer::new(
+            timer: UnsafeCell::new(ClientTaskTimer::new(
                 server_id,
                 client_id,
                 config.timeout.task_timeout,
@@ -193,7 +193,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
     }
 
     #[inline(always)]
-    fn get_timer_mut(&self) -> &mut RpcClientTaskTimer<F> {
+    fn get_timer_mut(&self) -> &mut ClientTaskTimer<F> {
         unsafe { std::mem::transmute(self.timer.get()) }
     }
 

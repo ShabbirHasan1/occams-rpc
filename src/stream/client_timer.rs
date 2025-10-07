@@ -13,24 +13,24 @@ use crossfire::{stream::AsyncStream, *};
 use rustc_hash::FxHashMap;
 use sync_utils::waitgroup::WaitGroupGuard;
 
-pub struct RpcClientTaskItem<T: RpcClientTask> {
+pub struct ClientTaskItem<T: ClientTask> {
     pub task: Option<T>,
     _upstream: Option<WaitGroupGuard>,
 }
 
-pub struct DelayTasksBatch<T: RpcClientTask> {
-    tasks: FxHashMap<u64, RpcClientTaskItem<T>>,
+pub struct DelayTasksBatch<T: ClientTask> {
+    tasks: FxHashMap<u64, ClientTaskItem<T>>,
 }
 
-pub struct RpcClientTaskTimer<F: ClientFactory> {
+pub struct ClientTaskTimer<F: ClientFactory> {
     server_id: u64,
     client_id: u64,
-    pending_tasks_recv: AsyncStream<RpcClientTaskItem<F::Task>>,
-    pending_tasks_sender: MAsyncTx<RpcClientTaskItem<F::Task>>,
+    pending_tasks_recv: AsyncStream<ClientTaskItem<F::Task>>,
+    pending_tasks_sender: MAsyncTx<ClientTaskItem<F::Task>>,
     pending_task_count: AtomicU64,
 
-    sent_tasks: FxHashMap<u64, RpcClientTaskItem<F::Task>>, // sent_tasks of the current second
-    delay_tasks_queue: VecDeque<DelayTasksBatch<F::Task>>,  // sent_tasks of past seconds
+    sent_tasks: FxHashMap<u64, ClientTaskItem<F::Task>>, // sent_tasks of the current second
+    delay_tasks_queue: VecDeque<DelayTasksBatch<F::Task>>, // sent_tasks of past seconds
 
     min_delay_seq: u64,
     task_timeout: usize, // in seconds
@@ -39,10 +39,10 @@ pub struct RpcClientTaskTimer<F: ClientFactory> {
     reg_stopped_flag: AtomicBool,
 }
 
-unsafe impl<T: ClientFactory> Send for RpcClientTaskTimer<T> {}
-unsafe impl<T: ClientFactory> Sync for RpcClientTaskTimer<T> {}
+unsafe impl<T: ClientFactory> Send for ClientTaskTimer<T> {}
+unsafe impl<T: ClientFactory> Sync for ClientTaskTimer<T> {}
 
-impl<F: ClientFactory> RpcClientTaskTimer<F> {
+impl<F: ClientFactory> ClientTaskTimer<F> {
     pub fn new(server_id: u64, client_id: u64, task_timeout: usize, mut thresholds: usize) -> Self {
         if thresholds == 0 {
             thresholds = 500;
@@ -127,7 +127,7 @@ impl<F: ClientFactory> RpcClientTaskTimer<F> {
     pub async fn reg_task(&self, task: F::Task, wg: Option<WaitGroupGuard>) {
         let _ = self
             .pending_tasks_sender
-            .send(RpcClientTaskItem { task: Some(task), _upstream: wg })
+            .send(ClientTaskItem { task: Some(task), _upstream: wg })
             .await;
     }
 
@@ -136,7 +136,7 @@ impl<F: ClientFactory> RpcClientTaskTimer<F> {
         self.reg_stopped_flag.store(true, Ordering::SeqCst);
     }
 
-    pub async fn take_task(&mut self, seq: u64) -> Option<RpcClientTaskItem<F::Task>> {
+    pub async fn take_task(&mut self, seq: u64) -> Option<ClientTaskItem<F::Task>> {
         // ping resp won't readh here
         if seq < self.min_delay_seq {
             return None; // Task is already timeouted by us
@@ -178,7 +178,7 @@ impl<F: ClientFactory> RpcClientTaskTimer<F> {
 
     // return None if task is store in sent_tasks
     #[inline]
-    fn got_pending_task(&mut self, task_item: RpcClientTaskItem<F::Task>) {
+    fn got_pending_task(&mut self, task_item: ClientTaskItem<F::Task>) {
         self.pending_task_count.fetch_sub(1, Ordering::SeqCst);
         let t = task_item.task.as_ref().unwrap();
         let task_seq = t.seq();
@@ -224,7 +224,7 @@ struct WaitRegTaskFuture<'a, F>
 where
     F: ClientFactory,
 {
-    noti: &'a mut RpcClientTaskTimer<F>,
+    noti: &'a mut ClientTaskTimer<F>,
     target_seq: u64,
 }
 

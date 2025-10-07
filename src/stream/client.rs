@@ -1,6 +1,6 @@
 use super::RpcAction;
 pub use super::client_impl::RpcClient;
-pub use super::client_timer::RpcClientTaskTimer;
+pub use super::client_timer::ClientTaskTimer;
 use crate::codec::Codec;
 use crate::io::AllocateBuf;
 use crate::runtime::AsyncIO;
@@ -21,14 +21,14 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
 
     /// Define the RPC task from client-side
     ///
-    /// Either one RpcClientTask or an enum of multiple RpcClientTask.
+    /// Either one ClientTask or an enum of multiple ClientTask.
     /// If you have multiple task type, recommend to use the `enum_dispatch` crate.
     ///
     /// You can use [crate::macros] on task type
-    type Task: RpcClientTask;
+    type Task: ClientTask;
 
     /// A [captains-log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/index.html) implementation
-    type Logger: Filter;
+    type Logger: Filter + Send;
 
     /// Define the transport layer protocol
     ///
@@ -107,11 +107,11 @@ pub trait ClientTransport<F: ClientFactory>: fmt::Debug + Send + Sized + 'static
 
     fn recv_task(
         &self, factory: &F, codec: &F::Codec, close_ch: Option<&MAsyncRx<()>>,
-        task_reg: &mut RpcClientTaskTimer<F>,
+        task_reg: &mut ClientTaskTimer<F>,
     ) -> impl std::future::Future<Output = Result<bool, RpcError>> + Send;
 }
 
-pub trait RpcClientTask:
+pub trait ClientTask:
     ClientTaskEncode
     + ClientTaskDecode
     + DerefMut<Target = ClientTaskCommon>
@@ -126,6 +126,7 @@ pub trait RpcClientTask:
     fn set_result(self, res: Result<(), RpcError>);
 }
 
+/// Encode the request to buffer that can be send to server
 pub trait ClientTaskEncode {
     /// Return a sererialized msg of the request.
     fn encode_req<C: Codec>(&self, codec: &C) -> Result<Vec<u8>, ()>;
@@ -137,6 +138,7 @@ pub trait ClientTaskEncode {
     }
 }
 
+/// Decode the response from server and assign to the task struct
 pub trait ClientTaskDecode {
     fn decode_resp<C: Codec>(&mut self, codec: &C, buf: &[u8]) -> Result<(), ()>;
 

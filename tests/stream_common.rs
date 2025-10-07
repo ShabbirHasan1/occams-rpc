@@ -94,7 +94,7 @@ impl FileTask {
     }
 }
 
-impl RpcClientTask for FileTask {
+impl ClientTask for FileTask {
     fn action<'a>(&'a self) -> RpcAction<'a> {
         return RpcAction::Num(self.action);
     }

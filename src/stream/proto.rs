@@ -1,4 +1,4 @@
-use super::{RpcAction, client::RpcClientTask};
+use super::{RpcAction, client::ClientTask};
 use crate::codec::Codec;
 use crate::error::*;
 use io_buffer::Buffer;
@@ -57,7 +57,7 @@ impl ReqHead {
         codec: &C, client_id: u64, task: &'a T,
     ) -> Result<(Self, Option<&'a [u8]>, Vec<u8>, Option<&'a [u8]>), ()>
     where
-        T: RpcClientTask,
+        T: ClientTask,
         C: Codec,
     {
         let action_flag: u32;
