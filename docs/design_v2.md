@@ -63,10 +63,12 @@ The macro can be:
 pub enum MyServerTask {
     [action=xxx]
     Type1(SubType1)
+    [action=xxx]
     Type2(SubType2)
 }
 ```
 
+(action may be num or "string")
 
 For SubType1, need to generate MyServerTask::From SubType1. If user process using SubType, and call subtype::set_result(), should transform into() the supertype to call RpcRespNoti.done().
 
@@ -83,7 +85,15 @@ So the macro is on MyServerTask:
 For string, might used in the API interface, can be first match in a HashMap to decide which class to handle, an decode accoding to string (class::method) to a specified Req type.
 
 
-Codec:  Intend to support encryption, so there should be shared state, need to initialized as Arc<Codec> share between
-conn reader and writer.
+#### Dispatch
 
-Therefore, The Dispatcher should be arc to be shared between reader and writer.
+The dispatcher is repsponsible for decode the task and dispatch to backend processing. (There may be struct like worker pool in other threads/coroutines to handle)
+
+Codec is intend to support encryption, so there should be shared state, need to initialized as Arc<Codec> share between
+conn reader and writer. Therefore, The dispatcher should be a Arc being shared between reader and writer.
+
+Because the connection of reader and writer is parallel, we should define ReqDispatch trait and RespReceiver trait separately. The ReqDispatch relies on RespReceiver because it should know about the task type of done channel.
+
+We set RespReceiver in ServerFactory as an associate type. but we leave the ReqDispatch to be infered From
+` fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespReceiver>``, because like TaskReqDispatch, usually comes with
+closure capturing the connext about how to dispatch the task. There may be a Fn or a struct defined by user.
