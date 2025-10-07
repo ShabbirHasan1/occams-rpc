@@ -139,6 +139,10 @@ impl<T: Send + 'static> Clone for RpcRespNoti<T> {
 }
 
 impl<T: Send + 'static> RpcRespNoti<T> {
+    pub fn new(tx: crossfire::MTx<Result<T, (u64, Option<RpcError>)>>) -> Self {
+        Self(tx)
+    }
+
     #[inline]
     pub fn done(self, task: T) {
         let _ = self.0.send(Ok(task));
@@ -175,6 +179,6 @@ pub trait ServerTaskEncode {
     ) -> (u64, Result<(Vec<u8>, Option<&'a Buffer>), &'a RpcError>);
 }
 
-pub trait ServerTaskDone<T: RpcServerTaskResp> {
-    fn set_result(self, res: Result<(), RpcError>) -> RpcRespNoti<T>;
+pub trait ServerTaskDone<T: Send + 'static> {
+    fn set_result(&mut self, res: Result<(), RpcError>) -> RpcRespNoti<T>;
 }

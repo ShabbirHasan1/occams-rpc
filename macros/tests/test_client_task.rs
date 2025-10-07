@@ -1,5 +1,6 @@
 use occams_rpc::{
     codec::{Codec, MsgpCodec},
+    io::AllocateBuf,
     stream::client::{ClientTaskDecode, ClientTaskEncode},
     stream::TaskCommon,
 };

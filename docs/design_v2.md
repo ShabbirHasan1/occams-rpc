@@ -59,7 +59,7 @@ The macro can be:
 
 ```
 
-#[server_task]
+#[server_task_enum]
 pub enum MyServerTask {
     [action=xxx]
     Type1(SubType1)
