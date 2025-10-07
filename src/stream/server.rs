@@ -156,18 +156,15 @@ impl<T: Send + 'static> RpcRespNoti<T> {
 
 /// For enum_dispatch
 pub trait RpcServerTaskReq<R: Send + Unpin + 'static>:
-    for<'a> ServerTaskDecode<'a, R> + Send + Sized + fmt::Debug + Unpin + 'static
+    ServerTaskDecode<R> + Send + Sized + Unpin + 'static
 {
 }
 
 /// For enum_dispatch
-pub trait RpcServerTaskResp:
-    ServerTaskEncode + Send + Sized + fmt::Debug + Unpin + 'static
-{
-}
+pub trait RpcServerTaskResp: ServerTaskEncode + Send + Sized + Unpin + 'static {}
 
-pub trait ServerTaskDecode<'a, T: Send + 'static>: Sized + 'static {
-    fn decode_req<C: Codec>(
+pub trait ServerTaskDecode<T: Send + 'static>: Sized + 'static {
+    fn decode_req<'a, C: Codec>(
         codec: &'a C, action: RpcAction<'a>, seq: u64, req: &'a [u8], blob: Option<Buffer>,
         noti: RpcRespNoti<T>,
     ) -> Result<Self, ()>;

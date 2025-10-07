@@ -273,7 +273,7 @@ where
     async fn dispatch_req<'a>(
         &'a self, req: RpcSvrReq<'a>, noti: RpcRespNoti<R::ChannelItem>,
     ) -> Result<(), ()> {
-        match <T as ServerTaskDecode<'_, R::ChannelItem>>::decode_req(
+        match <T as ServerTaskDecode<R::ChannelItem>>::decode_req(
             &self.codec,
             req.action,
             req.seq,
@@ -338,7 +338,7 @@ impl RespReceiver for RespReceiverBuf {
 /// pressuming you have a different types to represent Request and Response.
 /// You can write your customize version.
 #[allow(dead_code)]
-pub struct ServerTaskVariant<T: Send + Unpin + 'static, M: fmt::Debug> {
+pub struct ServerTaskVariant<T: Send + Unpin + 'static, M> {
     pub seq: u64,
     pub msg: M,
     pub blob: Option<Buffer>,
@@ -352,19 +352,17 @@ impl<T: Send + Unpin + 'static, M: fmt::Debug> fmt::Debug for ServerTaskVariant<
     }
 }
 
-impl<T: Send + Unpin + 'static, M: 'static + fmt::Debug> ServerTaskDone<T>
-    for ServerTaskVariant<T, M>
-{
+impl<T: Send + Unpin + 'static, M: 'static> ServerTaskDone<T> for ServerTaskVariant<T, M> {
     fn set_result(&mut self, res: Result<(), RpcError>) -> RpcRespNoti<T> {
         self.res.replace(res);
         return self.noti.take().unwrap();
     }
 }
 
-impl<'a, T: Send + Unpin + 'static, M: Deserialize<'a> + 'static + fmt::Debug>
-    ServerTaskDecode<'a, T> for ServerTaskVariant<T, M>
+impl<T: Send + Unpin + 'static, M: for<'b> Deserialize<'b> + 'static> ServerTaskDecode<T>
+    for ServerTaskVariant<T, M>
 {
-    fn decode_req<C: Codec>(
+    fn decode_req<'a, C: Codec>(
         codec: &'a C, _action: RpcAction<'a>, seq: u64, msg: &'a [u8], blob: Option<Buffer>,
         noti: RpcRespNoti<T>,
     ) -> Result<Self, ()> {
@@ -373,7 +371,7 @@ impl<'a, T: Send + Unpin + 'static, M: Deserialize<'a> + 'static + fmt::Debug>
     }
 }
 
-impl<T: Send + Unpin + 'static, M: Serialize + 'static + fmt::Debug> ServerTaskEncode
+impl<T: Send + Unpin + 'static, M: Serialize + 'static> ServerTaskEncode
     for ServerTaskVariant<T, M>
 {
     fn encode_resp<'a, C: Codec>(
@@ -394,8 +392,7 @@ impl<T: Send + Unpin + 'static, M: Serialize + 'static + fmt::Debug> ServerTaskE
                 },
             }
         } else {
-            error!("task {:?} has no result", self);
-            return (self.seq, Err(&RPC_ERR_ENCODE));
+            panic!("no result when encode_resp");
         }
     }
 }
@@ -404,7 +401,7 @@ impl<T: Send + Unpin + 'static, M: Serialize + 'static + fmt::Debug> ServerTaskE
 /// pressuming you have a type to carry both Request and Response.
 /// You can write your customize version.
 #[allow(dead_code)]
-pub struct ServerTaskVariantFull<T: Send + Unpin + 'static, R: fmt::Debug + 'static, P: 'static> {
+pub struct ServerTaskVariantFull<T: Send + Unpin + 'static, R: 'static, P: 'static> {
     seq: u64,
     req: R,
     req_blob: Option<Buffer>,
@@ -420,7 +417,7 @@ impl<T: Send + Unpin + 'static, M: fmt::Debug, P> fmt::Debug for ServerTaskVaria
     }
 }
 
-impl<T: Send + Unpin + 'static, M: fmt::Debug + 'static, P> ServerTaskDone<T>
+impl<T: Send + Unpin + 'static, M: 'static, P> ServerTaskDone<T>
     for ServerTaskVariantFull<T, M, P>
 {
     fn set_result(&mut self, res: Result<(), RpcError>) -> RpcRespNoti<T> {
@@ -429,10 +426,10 @@ impl<T: Send + Unpin + 'static, M: fmt::Debug + 'static, P> ServerTaskDone<T>
     }
 }
 
-impl<'a, T: Send + Unpin + 'static, M: Deserialize<'a> + fmt::Debug + 'static, P>
-    ServerTaskDecode<'a, T> for ServerTaskVariantFull<T, M, P>
+impl<T: Send + Unpin + 'static, M: for<'b> Deserialize<'b> + 'static, P> ServerTaskDecode<T>
+    for ServerTaskVariantFull<T, M, P>
 {
-    fn decode_req<C: Codec>(
+    fn decode_req<'a, C: Codec>(
         codec: &'a C, _action: RpcAction<'a>, seq: u64, msg: &'a [u8], blob: Option<Buffer>,
         noti: RpcRespNoti<T>,
     ) -> Result<Self, ()> {
@@ -449,7 +446,7 @@ impl<'a, T: Send + Unpin + 'static, M: Deserialize<'a> + fmt::Debug + 'static, P
     }
 }
 
-impl<T: Send + Unpin + 'static, M: fmt::Debug, P: Serialize + 'static> ServerTaskEncode
+impl<T: Send + Unpin + 'static, M, P: Serialize + 'static> ServerTaskEncode
     for ServerTaskVariantFull<T, M, P>
 {
     fn encode_resp<'a, C: Codec>(
@@ -459,7 +456,6 @@ impl<T: Send + Unpin + 'static, M: fmt::Debug, P: Serialize + 'static> ServerTas
             if let Some(resp) = self.resp.as_ref() {
                 match codec.encode(resp) {
                     Err(_) => {
-                        error!("{:?} failed to encode resp", self);
                         return (self.seq, Err(&RPC_ERR_ENCODE));
                     }
                     Ok(resp_buf) => match res {
@@ -482,8 +478,7 @@ impl<T: Send + Unpin + 'static, M: fmt::Debug, P: Serialize + 'static> ServerTas
                 }
             }
         } else {
-            error!("task {:?} has no result", self);
-            return (self.seq, Err(&RPC_ERR_ENCODE));
+            panic!("no result when encode_resp");
         }
     }
 }
