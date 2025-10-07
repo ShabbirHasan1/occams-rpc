@@ -131,7 +131,7 @@ where
 
 /// This ServerHandle impl two coroutines, one to read task, and one to write task.
 ///
-/// When task is done, it will dispatched back to writer through a channel. The task may be an enum that impl RpcServerTaskResp.
+/// When task is done, it will dispatched back to writer through a channel. The task may be an enum that impl ServerTaskResp.
 pub struct ServerHandleTaskStream();
 
 impl<F: ServerFactory> ServerHandle<F> for ServerHandleTaskStream {
@@ -141,9 +141,9 @@ impl<F: ServerFactory> ServerHandle<F> for ServerHandleTaskStream {
         let dispatch = Arc::new(factory.new_dispatcher());
         let (done_tx, done_rx) = crossfire::mpsc::unbounded_async();
 
-        let noti = RpcRespNoti(done_tx);
+        let noti = RespNoti(done_tx);
         struct Reader<F: ServerFactory, D: ReqDispatch<R>, R: RespReceiver> {
-            noti: RpcRespNoti<R::ChannelItem>,
+            noti: RespNoti<R::ChannelItem>,
             conn: Arc<F::Transport>,
             server_close_rx: crossfire::MAsyncRx<()>,
             dispatch: Arc<D>,
@@ -237,7 +237,7 @@ impl<F: ServerFactory> ServerHandle<F> for ServerHandleTaskStream {
 pub struct TaskReqDispatch<C, T, R, H, F>
 where
     C: Codec,
-    T: RpcServerTaskReq<R::ChannelItem>,
+    T: ServerTaskDecode<R::ChannelItem>,
     R: RespReceiver,
     H: Fn(T) -> F + Send + Sync + 'static,
     F: Future<Output = Result<(), ()>> + Send + 'static,
@@ -250,7 +250,7 @@ where
 impl<C, T, R, H, F> TaskReqDispatch<C, T, R, H, F>
 where
     C: Codec,
-    T: RpcServerTaskReq<R::ChannelItem>,
+    T: ServerTaskDecode<R::ChannelItem>,
     R: RespReceiver,
     H: Fn(T) -> F + Send + Sync + 'static,
     F: Future<Output = Result<(), ()>> + Send + 'static,
@@ -264,14 +264,14 @@ where
 impl<C, T, R, H, F> ReqDispatch<R> for TaskReqDispatch<C, T, R, H, F>
 where
     C: Codec,
-    T: RpcServerTaskReq<R::ChannelItem>,
+    T: ServerTaskDecode<R::ChannelItem>,
     R: RespReceiver,
     H: Fn(T) -> F + Send + Sync + 'static,
     F: Future<Output = Result<(), ()>> + Send + 'static,
 {
     #[inline]
     async fn dispatch_req<'a>(
-        &'a self, req: RpcSvrReq<'a>, noti: RpcRespNoti<R::ChannelItem>,
+        &'a self, req: RpcSvrReq<'a>, noti: RespNoti<R::ChannelItem>,
     ) -> Result<(), ()> {
         match <T as ServerTaskDecode<R::ChannelItem>>::decode_req(
             &self.codec,
@@ -303,9 +303,9 @@ where
     }
 }
 
-pub struct RespReceiverTask<T: RpcServerTaskResp>(PhantomData<fn(&T)>);
+pub struct RespReceiverTask<T: ServerTaskResp>(PhantomData<fn(&T)>);
 
-impl<T: RpcServerTaskResp> RespReceiver for RespReceiverTask<T> {
+impl<T: ServerTaskResp> RespReceiver for RespReceiverTask<T> {
     type ChannelItem = T;
 
     #[inline]
@@ -334,45 +334,61 @@ impl RespReceiver for RespReceiverBuf {
     }
 }
 
-/// A container that impl RpcServerTaskResp to show an example,
+/// A container that impl ServerTaskResp to show an example,
 /// pressuming you have a different types to represent Request and Response.
 /// You can write your customize version.
 #[allow(dead_code)]
-pub struct ServerTaskVariant<T: Send + Unpin + 'static, M> {
+pub struct ServerTaskVariant<T, M>
+where
+    T: Send + Unpin + 'static,
+    M: Send + Unpin + 'static,
+{
     pub seq: u64,
     pub msg: M,
     pub blob: Option<Buffer>,
     pub res: Option<Result<(), RpcError>>,
-    pub noti: Option<RpcRespNoti<T>>,
+    pub noti: Option<RespNoti<T>>,
 }
 
-impl<T: Send + Unpin + 'static, M: fmt::Debug> fmt::Debug for ServerTaskVariant<T, M> {
+impl<T, M> fmt::Debug for ServerTaskVariant<T, M>
+where
+    T: Send + Unpin + 'static,
+    M: fmt::Debug + Send + Unpin + 'static,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "task seq={} {:?}", self.seq, self.msg)
     }
 }
 
-impl<T: Send + Unpin + 'static, M: 'static> ServerTaskDone<T> for ServerTaskVariant<T, M> {
-    fn set_result(&mut self, res: Result<(), RpcError>) -> RpcRespNoti<T> {
+impl<T, M> ServerTaskDone<T> for ServerTaskVariant<T, M>
+where
+    T: Send + Unpin + 'static,
+    M: Send + Unpin + 'static,
+{
+    fn set_result(&mut self, res: Result<(), RpcError>) -> RespNoti<T> {
         self.res.replace(res);
         return self.noti.take().unwrap();
     }
 }
 
-impl<T: Send + Unpin + 'static, M: for<'b> Deserialize<'b> + 'static> ServerTaskDecode<T>
-    for ServerTaskVariant<T, M>
+impl<T, M> ServerTaskDecode<T> for ServerTaskVariant<T, M>
+where
+    T: Send + Unpin + 'static,
+    M: for<'b> Deserialize<'b> + Send + Unpin + 'static,
 {
     fn decode_req<'a, C: Codec>(
         codec: &'a C, _action: RpcAction<'a>, seq: u64, msg: &'a [u8], blob: Option<Buffer>,
-        noti: RpcRespNoti<T>,
+        noti: RespNoti<T>,
     ) -> Result<Self, ()> {
         let req = codec.decode(msg)?;
         Ok(Self { seq, msg: req, blob, res: None, noti: Some(noti) })
     }
 }
 
-impl<T: Send + Unpin + 'static, M: Serialize + 'static> ServerTaskEncode
-    for ServerTaskVariant<T, M>
+impl<T, M> ServerTaskEncode for ServerTaskVariant<T, M>
+where
+    T: Send + Unpin + 'static,
+    M: Serialize + Send + Unpin + 'static,
 {
     fn encode_resp<'a, C: Codec>(
         &'a self, codec: &'a C,
@@ -397,41 +413,57 @@ impl<T: Send + Unpin + 'static, M: Serialize + 'static> ServerTaskEncode
     }
 }
 
-/// A container that impl RpcServerTaskResp to show an example,
+/// A container that impl ServerTaskResp to show an example,
 /// pressuming you have a type to carry both Request and Response.
 /// You can write your customize version.
 #[allow(dead_code)]
-pub struct ServerTaskVariantFull<T: Send + Unpin + 'static, R: 'static, P: 'static> {
+pub struct ServerTaskVariantFull<T, R, P>
+where
+    T: Send + Unpin + 'static,
+    R: Send + Unpin + 'static,
+    P: Send + Unpin + 'static,
+{
     seq: u64,
     req: R,
     req_blob: Option<Buffer>,
     resp: Option<P>,
     resp_blob: Option<Buffer>,
     res: Option<Result<(), RpcError>>,
-    done_tx: Option<RpcRespNoti<T>>,
+    done_tx: Option<RespNoti<T>>,
 }
 
-impl<T: Send + Unpin + 'static, M: fmt::Debug, P> fmt::Debug for ServerTaskVariantFull<T, M, P> {
+impl<T, R, P> fmt::Debug for ServerTaskVariantFull<T, R, P>
+where
+    T: Send + Unpin + 'static,
+    R: Send + Unpin + 'static + fmt::Debug,
+    P: Send + Unpin + 'static,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "task seq={} {:?}", self.seq, self.req)
     }
 }
 
-impl<T: Send + Unpin + 'static, M: 'static, P> ServerTaskDone<T>
-    for ServerTaskVariantFull<T, M, P>
+impl<T, R, P> ServerTaskDone<T> for ServerTaskVariantFull<T, R, P>
+where
+    T: Send + Unpin + 'static,
+    R: Send + Unpin + 'static,
+    P: Send + Unpin + 'static,
 {
-    fn set_result(&mut self, res: Result<(), RpcError>) -> RpcRespNoti<T> {
+    fn set_result(&mut self, res: Result<(), RpcError>) -> RespNoti<T> {
         self.res.replace(res);
         return self.done_tx.take().unwrap();
     }
 }
 
-impl<T: Send + Unpin + 'static, M: for<'b> Deserialize<'b> + 'static, P> ServerTaskDecode<T>
-    for ServerTaskVariantFull<T, M, P>
+impl<T, R, P> ServerTaskDecode<T> for ServerTaskVariantFull<T, R, P>
+where
+    T: Send + Unpin + 'static,
+    R: for<'b> Deserialize<'b> + Send + Unpin + 'static,
+    P: Send + Unpin + 'static,
 {
     fn decode_req<'a, C: Codec>(
         codec: &'a C, _action: RpcAction<'a>, seq: u64, msg: &'a [u8], blob: Option<Buffer>,
-        noti: RpcRespNoti<T>,
+        noti: RespNoti<T>,
     ) -> Result<Self, ()> {
         let req = codec.decode(msg)?;
         Ok(Self {
@@ -446,8 +478,11 @@ impl<T: Send + Unpin + 'static, M: for<'b> Deserialize<'b> + 'static, P> ServerT
     }
 }
 
-impl<T: Send + Unpin + 'static, M, P: Serialize + 'static> ServerTaskEncode
-    for ServerTaskVariantFull<T, M, P>
+impl<T, R, P> ServerTaskEncode for ServerTaskVariantFull<T, R, P>
+where
+    T: Send + Unpin + 'static,
+    R: Send + Unpin + 'static,
+    P: Send + Unpin + 'static + Serialize,
 {
     fn encode_resp<'a, C: Codec>(
         &'a self, codec: &'a C,

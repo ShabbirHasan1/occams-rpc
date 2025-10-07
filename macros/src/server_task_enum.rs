@@ -147,7 +147,6 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
 
     let req_impl = if has_req {
         quote! {
-            impl occams_rpc::stream::server::RpcServerTaskReq<#resp_type> for #enum_name {}
 
             impl occams_rpc::stream::server::ServerTaskDecode<#resp_type> for #enum_name
             where
@@ -159,7 +158,7 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
                     seq: u64,
                     req: &'a [u8],
                     blob: Option<io_buffer::Buffer>,
-                    noti: occams_rpc::stream::server::RpcRespNoti<#resp_type>,
+                    noti: occams_rpc::stream::server::RespNoti<#resp_type>,
                 ) -> Result<Self, ()> {
                     match action {
                         #(#decode_arms)*
@@ -177,7 +176,7 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
 
     let resp_impl = if has_resp {
         quote! {
-            impl occams_rpc::stream::server::RpcServerTaskResp for #enum_name {}
+            impl occams_rpc::stream::server::ServerTaskResp for #enum_name {}
 
             impl occams_rpc::stream::server::ServerTaskEncode for #enum_name {
                 fn encode_resp<'a, C: occams_rpc::codec::Codec>(
@@ -191,7 +190,7 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
             }
 
             impl occams_rpc::stream::server::ServerTaskDone<#enum_name> for #enum_name {
-                fn set_result(&mut self, res: Result<(), occams_rpc::error::RpcError>) -> occams_rpc::stream::server::RpcRespNoti<#enum_name> {
+                fn set_result(&mut self, res: Result<(), occams_rpc::error::RpcError>) -> occams_rpc::stream::server::RespNoti<#enum_name> {
                     match self {
                         #(#set_result_arms)*
                     }

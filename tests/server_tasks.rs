@@ -4,7 +4,7 @@ use occams_rpc::{
     error::RpcError,
     stream::{
         RpcAction,
-        server::{RpcRespNoti, RpcSvrResp, ServerTaskDecode, ServerTaskEncode},
+        server::{RespNoti, RpcSvrResp, ServerTaskDecode},
         server_impl::ServerTaskVariant,
     },
 };
@@ -26,7 +26,7 @@ struct TestRespMsg {
 fn test_server_task_variant_decode_req() {
     let codec = MsgpCodec::default();
     let (tx, _rx) = crossfire::mpsc::unbounded_async();
-    let noti: RpcRespNoti<RpcSvrResp> = RpcRespNoti::new(tx);
+    let noti: RespNoti<RpcSvrResp> = RespNoti::new(tx);
 
     let req_msg = TestReqMsg { value: "test_request".to_string(), number: 123 };
     let req_buf = codec.encode(&req_msg).unwrap();

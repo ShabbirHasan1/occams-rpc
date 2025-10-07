@@ -4,7 +4,7 @@ use occams_rpc::{
     error::RpcError,
     stream::server_impl::ServerTaskVariant,
     stream::{
-        server::{RpcRespNoti, RpcSvrResp, ServerTaskDecode, ServerTaskDone, ServerTaskEncode},
+        server::{RespNoti, RpcSvrResp, ServerTaskDecode, ServerTaskDone, ServerTaskEncode},
         RpcAction,
     },
 };
@@ -39,7 +39,7 @@ fn test_server_task_enum_req_macro() {
 
     let codec = MsgpCodec::default();
     let (tx, _rx) = crossfire::mpsc::unbounded_async();
-    let noti: RpcRespNoti<RpcSvrResp> = RpcRespNoti::new(tx);
+    let noti: RespNoti<RpcSvrResp> = RespNoti::new(tx);
 
     // Test decode_req with numeric action and actual data
     let req_msg_1_data = ReqMsg1 { val: 100 };
@@ -104,7 +104,7 @@ fn test_server_task_enum_resp_macro() {
     }
     let codec = MsgpCodec::default();
     let (tx, _rx) = crossfire::mpsc::unbounded_async();
-    let noti: RpcRespNoti<ExampleServerTaskResp> = RpcRespNoti::new(tx);
+    let noti: RespNoti<ExampleServerTaskResp> = RespNoti::new(tx);
 
     // Create ServerTaskVariant instances using decode_req
     let msg1_buf = codec.encode(&Msg1::default()).unwrap();
@@ -148,7 +148,7 @@ fn test_server_task_enum_resp_macro() {
         >>::decode_req(&codec, RpcAction::Num(1), 789, &msg1_buf, None, noti.clone())
         .unwrap(),
     );
-    let _: RpcRespNoti<ExampleServerTaskResp> = <ExampleServerTaskResp as ServerTaskDone<
+    let _: RespNoti<ExampleServerTaskResp> = <ExampleServerTaskResp as ServerTaskDone<
         ExampleServerTaskResp,
     >>::set_result(&mut task_for_set_result, Ok(()));
 
@@ -175,7 +175,7 @@ fn test_server_task_enum_duplicate_subtype() {
     }
 
     let (tx, _rx) = mpsc::unbounded_async();
-    let noti: RpcRespNoti<MyServerTask> = RpcRespNoti::new(tx);
+    let noti: RespNoti<MyServerTask> = RespNoti::new(tx);
 
     let sub_task_a = ServerTaskVariant {
         seq: 100,

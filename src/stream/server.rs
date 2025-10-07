@@ -107,7 +107,7 @@ pub trait ReqDispatch<R: RespReceiver>: Send + Sync + Sized + 'static {
     /// This in async fn, but you should avoid waiting as must as possible.
     /// Should return Err(()) when codec decode_req failed.
     fn dispatch_req<'a>(
-        &'a self, req: RpcSvrReq<'a>, noti: RpcRespNoti<R::ChannelItem>,
+        &'a self, req: RpcSvrReq<'a>, noti: RespNoti<R::ChannelItem>,
     ) -> impl Future<Output = Result<(), ()>> + Send;
 
     fn encode_resp<'a>(
@@ -127,18 +127,18 @@ pub trait RespReceiver: Send + 'static {
 }
 
 /// A writer channel to send reponse. Can be clone anywhere.
-pub struct RpcRespNoti<T: Send + 'static>(
+pub struct RespNoti<T: Send + 'static>(
     pub(crate) crossfire::MTx<Result<T, (u64, Option<RpcError>)>>,
 );
 
-impl<T: Send + 'static> Clone for RpcRespNoti<T> {
+impl<T: Send + 'static> Clone for RespNoti<T> {
     #[inline]
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
 
-impl<T: Send + 'static> RpcRespNoti<T> {
+impl<T: Send + 'static> RespNoti<T> {
     pub fn new(tx: crossfire::MTx<Result<T, (u64, Option<RpcError>)>>) -> Self {
         Self(tx)
     }
@@ -155,18 +155,12 @@ impl<T: Send + 'static> RpcRespNoti<T> {
 }
 
 /// For enum_dispatch
-pub trait RpcServerTaskReq<R: Send + Unpin + 'static>:
-    ServerTaskDecode<R> + Send + Sized + Unpin + 'static
-{
-}
+pub trait ServerTaskResp: ServerTaskEncode + Send + Sized + Unpin + 'static {}
 
-/// For enum_dispatch
-pub trait RpcServerTaskResp: ServerTaskEncode + Send + Sized + Unpin + 'static {}
-
-pub trait ServerTaskDecode<T: Send + 'static>: Sized + 'static {
+pub trait ServerTaskDecode<R: Send + Unpin + 'static>: Send + Sized + Unpin + 'static {
     fn decode_req<'a, C: Codec>(
         codec: &'a C, action: RpcAction<'a>, seq: u64, req: &'a [u8], blob: Option<Buffer>,
-        noti: RpcRespNoti<T>,
+        noti: RespNoti<R>,
     ) -> Result<Self, ()>;
 }
 
@@ -177,5 +171,5 @@ pub trait ServerTaskEncode {
 }
 
 pub trait ServerTaskDone<T: Send + 'static> {
-    fn set_result(&mut self, res: Result<(), RpcError>) -> RpcRespNoti<T>;
+    fn set_result(&mut self, res: Result<(), RpcError>) -> RespNoti<T>;
 }
