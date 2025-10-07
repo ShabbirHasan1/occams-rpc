@@ -8,8 +8,6 @@ When applied to an enum, this macro generates implementations for `ServerTaskDec
 
 ## Usage
 
-To use the macro, apply it to an enum where each variant is a tuple-style variant with a single field representing a specific task type. Each variant must also have an `#[action]` attribute to associate it with an RPC action.
-
 ```rust
 use occams_rpc::stream::server::{ServerTaskDecode, ServerTaskEncode, ServerTaskDone};
 use occams_rpc_macros::server_task_enum;
@@ -28,14 +26,34 @@ impl ServerTaskEncode for SubTask2 { /* ... */ }
 impl<T: RpcServerTaskResp> ServerTaskDone<T> for SubTask2 { /* ... */ }
 
 
-#[server_task_enum]
+The `server_task_enum` can accept either or both of "req" and "resp" flags.
+- If "resp" is specified, the response type for `ServerTaskDecode<R>` and `ServerTaskDone<R>` is implicitly `Self` (the enum itself). In this case, `resp_type` can be omitted.
+
+- If only "req" is specified (and "resp" is not), then `resp_type` must be provided. This `resp_type` specifies the type `<R>` for parameters of `ServerTaskDecode<R>` and `ServerTaskDone<R>`.
+- If "req" is specified, each variant must also have an `#[action]` attribute to associate it with an RPC action.
+
+#[server_task_enum(req, resp)] // Example with both req and resp, resp_type omitted
 #[derive(Debug)]
 pub enum ServerTask {
-    #[action(action = 1)]
+    #[action(1)]
     Task1(SubTask1),
 
-    #[action(action = "sub_task_2")]
+    #[action("sub_task_2")]
     Task2(SubTask2),
+}
+
+#[server_task_enum(req, resp_type = RpcResp)] // Example with only req, resp_type is required
+#[derive(Debug)]
+pub enum ServerTaskReqOnly {
+    #[action(1)]
+    Task1(SubTask1),
+}
+
+#[server_task_enum(resp)] // Example with only resp, resp_type and action is not required
+#[derive(Debug)]
+pub enum ServerTaskReqOnly {
+    #[action(1)]
+    Task1(SubTask1),
 }
 ```
 
@@ -55,17 +73,19 @@ impl From<SubTask1> for ServerTask {
 }
 ```
 
+The macro should filter potential duplicate types inside the variants.
+
 ### `ServerTaskDecode`
 
-The macro generates an implementation of `ServerTaskDecode` that decodes an incoming request based on the `RpcAction`. It matches the action from the request with the `#[action]` attribute of the variants and delegates the decoding to the corresponding subtype's `decode_req` method.
+If `req` is specified with `server_task_enum` attribute, the macro generates an implementation of `ServerTaskDecode` that decodes an incoming request based on the `RpcAction`. It matches the action from the request with the `#[action]` attribute of the variants and delegates the decoding to the corresponding subtype's `decode_req` method.
 
 ### `ServerTaskEncode`
 
-An implementation of `ServerTaskEncode` is generated to encode the response. It matches on the enum variant and delegates the encoding to the inner subtype's `encode_resp` method.
+If `resp` is specified with `server_task_enum` attribute, an implementation of `ServerTaskEncode` is generated to encode the response. It matches on the enum variant and delegates the encoding to the inner subtype's `encode_resp` method.
 
 ### `ServerTaskDone`
 
-An implementation of `ServerTaskDone` is generated to handle the completion of a task. It delegates the `set_result` call to the inner subtype.
+If `resp` is specified with `server_task_enum` attribute, an implementation of `ServerTaskDone` is generated to handle the completion of a task. It delegates the `set_result` call to the inner subtype.
 
 ### `get_action()`
 
@@ -75,7 +95,7 @@ A `get_action(&self) -> RpcAction` method is generated for the enum, which retur
 
 - The macro must be applied to an enum.
 - Each variant of the enum must be a tuple-style variant with a single field.
-- Each variant must have an `#[action]` attribute, which can be a numeric or string literal (e.g., `#[action(action = 1)]` or `#[action(action = "my_action")]`).
+- Each variant must have an `#[action]` attribute, which can be a numeric or string literal (e.g., `#[action(1)]` or `#[action("my_action")]`).
 - The inner type of each variant must implement `ServerTaskDecode`, `ServerTaskEncode`, and `ServerTaskDone`.
 
 ## Trait Delegation and Compile-Time Checks
