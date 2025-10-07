@@ -5,7 +5,6 @@ use occams_rpc::{
 };
 use occams_rpc_macros::client_task;
 use serde_derive::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::ops::{Deref, DerefMut};
 
 #[derive(Default, Deserialize, Serialize, Debug, PartialEq, Clone)]

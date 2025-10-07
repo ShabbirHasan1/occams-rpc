@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
-use syn::{parse_macro_input, Data, DeriveInput, Fields, Ident, Lit, Meta, NestedMeta, Variant};
+use quote::quote;
+use syn::{parse_macro_input, Data, DeriveInput, Fields, Lit, Meta, NestedMeta, Variant};
 
 struct ServerTaskEnumAttrs {
     req: bool,
@@ -83,6 +83,7 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
 
         let action_value = if has_req {
             let action = get_action_attribute(variant);
+            variant.attrs.retain(|attr| !attr.path.is_ident("action"));
             match action {
                 Lit::Int(i) => quote! { occams_rpc::stream::RpcAction::Num(#i) },
                 Lit::Str(s) => quote! { occams_rpc::stream::RpcAction::Str(#s) },
@@ -91,7 +92,6 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
         } else {
             quote! {} // No action value needed if no req
         };
-
         from_impls.push(quote! {
             impl From<#inner_type> for #enum_name {
                 fn from(task: #inner_type) -> Self {
@@ -130,9 +130,9 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
 
     let req_impl = if has_req {
         quote! {
-            impl<R: Send + Unpin + 'static> occams_rpc::stream::server::RpcServerTaskReq<R> for #enum_name {}
+            impl occams_rpc::stream::server::RpcServerTaskReq<#resp_type> for #enum_name {}
 
-            impl<R: Send + Unpin + 'static> occams_rpc::stream::server::ServerTaskDecode<R> for #enum_name
+            impl occams_rpc::stream::server::ServerTaskDecode<#resp_type> for #enum_name
             where
                 #(#where_clauses_for_decode),*
             {
@@ -142,7 +142,7 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
                     seq: u64,
                     req: &'a [u8],
                     blob: Option<io_buffer::Buffer>,
-                    noti: occams_rpc::stream::server::RpcRespNoti<R>,
+                    noti: occams_rpc::stream::server::RpcRespNoti<#resp_type>,
                 ) -> Result<Self, ()> {
                     match action {
                         #(#decode_arms)*
@@ -225,25 +225,17 @@ fn get_action_attribute(variant: &Variant) -> Lit {
     for attr in &variant.attrs {
         if attr.path.is_ident("action") {
             if let Ok(Meta::List(meta_list)) = attr.parse_meta() {
-                for nested in meta_list.nested.iter() {
-                    if let NestedMeta::Meta(Meta::NameValue(name_value)) = nested {
-                        if name_value.path.is_ident("action") {
-                            return name_value.lit.clone();
-                        }
+                if meta_list.nested.len() == 1 {
+                    if let NestedMeta::Lit(lit) = &meta_list.nested[0] {
+                        return lit.clone();
                     }
                 }
             }
         }
     }
 
-    // A fallback for a simple #[action = "..."] syntax
-    for attr in &variant.attrs {
-        if attr.path.is_ident("action") {
-            if let Ok(Meta::NameValue(name_value)) = attr.parse_meta() {
-                return name_value.lit.clone();
-            }
-        }
-    }
-
-    panic!("Variant {} is missing #[action(...)] attribute", variant.ident);
+    panic!(
+        "Variant {} is missing #[action(LITERAL)] attribute or has incorrect format",
+        variant.ident
+    );
 }
