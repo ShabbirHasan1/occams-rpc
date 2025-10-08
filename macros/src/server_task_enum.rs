@@ -94,7 +94,7 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
             _ => panic!("Enum variants must be tuple-style with a single field"),
         };
 
-        let _action_values = if has_req {
+        if has_req {
             let actions = get_action_attribute(variant);
             variant.attrs.retain(|attr| !attr.path.is_ident("action"));
             // Logic for decode_arms
@@ -158,32 +158,13 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
                     #enum_name::#variant_name(_) => #action_token_stream,
                 });
             } else {
-                if inner_type_exists {
-                    get_action_arms.push(quote! {
-                        #enum_name::#variant_name(inner) => inner.get_action(),
-                    });
-                } else {
-                    get_action_arms.push(quote! {
-                        #enum_name::#variant_name(_) => occams_rpc::stream::RpcAction::Str(""),
-                    });
-                }
+                panic!("Must specify #[action] attribute for req case");
             }
-
-            actions
-                .into_iter()
-                .map(|action| match action {
-                    Lit::Int(i) => quote! { occams_rpc::stream::RpcAction::Num(#i) },
-                    Lit::Str(s) => quote! { occams_rpc::stream::RpcAction::Str(#s) },
-                    _ => panic!("Unsupported action literal type"),
-                })
-                .collect::<Vec<_>>()
-        } else {
-            vec![] // No action value needed if no req
-        };
+        }
 
         let inner_type_str = quote! {#inner_type}.to_string();
         if *inner_type_counts.get(&inner_type_str).unwrap_or(&0) == 1 {
-            // Only generate if count is 1
+            // Only generate if count is 1, prevent duplicate sub-types
             from_impls.push(quote! {
                 impl From<#inner_type> for #enum_name {
                     fn from(task: #inner_type) -> Self {
@@ -317,6 +298,6 @@ fn get_action_attribute(variant: &Variant) -> Vec<Lit> {
             }
         }
     }
-
+    // No action value needed if no req
     Vec::new()
 }
