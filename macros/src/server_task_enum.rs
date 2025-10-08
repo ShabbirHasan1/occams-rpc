@@ -132,15 +132,12 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
             }
 
             where_clauses_for_decode.push(quote! {
-                #inner_type: occams_rpc::stream::server::ServerTaskDecode<#resp_type>
+                #inner_type: occams_rpc::stream::server::ServerTaskDecode<#resp_type> + occams_rpc::stream::server::ServerTaskAction
             });
 
-            // For get_action, we only return the first action
-            if let Some(first_action) = action_values.first() {
-                get_action_arms.push(quote! {
-                    #enum_name::#variant_name(_) => #first_action,
-                });
-            }
+            get_action_arms.push(quote! {
+                #enum_name::#variant_name(inner) => inner.get_action(),
+            });
         }
 
         if has_resp {

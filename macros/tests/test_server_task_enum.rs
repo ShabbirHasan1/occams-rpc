@@ -8,7 +8,7 @@ use occams_rpc::{
             RespNoti, RpcSvrResp, ServerTaskAction, ServerTaskDecode, ServerTaskDone,
             ServerTaskEncode,
         },
-        RpcAction,
+        RpcAction, RpcActionOwned,
     },
 };
 use occams_rpc_macros::server_task_enum;
@@ -88,6 +88,7 @@ fn test_server_task_enum_req_macro() {
     // Test From impls
     let req_task_variant_from_sub = ServerTaskVariant {
         seq: 3,
+        action: RpcActionOwned::Num(1),
         msg: ReqMsg1::default(),
         blob: None,
         res: None,
@@ -95,6 +96,7 @@ fn test_server_task_enum_req_macro() {
     };
     let server_task_from_sub: ExampleServerTaskReq = req_task_variant_from_sub.into();
     assert!(matches!(server_task_from_sub, ExampleServerTaskReq::Task1(_)));
+    assert_eq!(server_task_from_sub.get_action(), RpcAction::Num(1));
 }
 
 #[test]
@@ -182,6 +184,7 @@ fn test_server_task_enum_duplicate_subtype() {
 
     let sub_task_a = ServerTaskVariant {
         seq: 100,
+        action: RpcActionOwned::Num(1),
         msg: ReqMsg1 { val: 1 },
         blob: None,
         res: None,
@@ -198,6 +201,7 @@ fn test_server_task_enum_duplicate_subtype() {
 
     let sub_task_b = ServerTaskVariant {
         seq: 200,
+        action: RpcActionOwned::Num(2),
         msg: ReqMsg1 { val: 2 },
         blob: None,
         res: None,
@@ -254,7 +258,7 @@ fn test_server_task_enum_multiple_actions() {
         noti.clone(),
     )
     .unwrap();
-    assert_eq!(task2.get_action(), RpcAction::Num(1)); // Still returns the first action
+    assert_eq!(task2.get_action(), RpcAction::Num(2));
     let MultiActionServerTask::TaskA(req_task_variant) = task2;
     assert_eq!(req_task_variant.seq, 456);
     assert_eq!(req_task_variant.msg, req_msg_data);
@@ -269,7 +273,7 @@ fn test_server_task_enum_multiple_actions() {
         noti.clone(),
     )
     .unwrap();
-    assert_eq!(task3.get_action(), RpcAction::Num(1)); // Still returns the first action
+    assert_eq!(task3.get_action(), RpcAction::Str("action_str"));
     let MultiActionServerTask::TaskA(req_task_variant) = task3;
     assert_eq!(req_task_variant.seq, 789);
     assert_eq!(req_task_variant.msg, req_msg_data);

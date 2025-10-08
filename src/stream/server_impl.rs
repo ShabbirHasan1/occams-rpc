@@ -344,6 +344,7 @@ where
     M: Send + Unpin + 'static,
 {
     pub seq: u64,
+    pub action: RpcActionOwned,
     pub msg: M,
     pub blob: Option<Buffer>,
     pub res: Option<Result<(), RpcError>>,
@@ -356,7 +357,7 @@ where
     M: fmt::Debug + Send + Unpin + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "task seq={} {:?}", self.seq, self.msg)
+        write!(f, "task seq={} action={:?} {:?}", self.seq, self.action, self.msg)
     }
 }
 
@@ -377,11 +378,21 @@ where
     M: for<'b> Deserialize<'b> + Send + Unpin + 'static,
 {
     fn decode_req<'a, C: Codec>(
-        codec: &'a C, _action: RpcAction<'a>, seq: u64, msg: &'a [u8], blob: Option<Buffer>,
+        codec: &'a C, action: RpcAction<'a>, seq: u64, msg: &'a [u8], blob: Option<Buffer>,
         noti: RespNoti<T>,
     ) -> Result<Self, ()> {
         let req = codec.decode(msg)?;
-        Ok(Self { seq, msg: req, blob, res: None, noti: Some(noti) })
+        Ok(Self { seq, action: action.into(), msg: req, blob, res: None, noti: Some(noti) })
+    }
+}
+
+impl<T, M> ServerTaskAction for ServerTaskVariant<T, M>
+where
+    T: Send + Unpin + 'static,
+    M: Send + Unpin + 'static,
+{
+    fn get_action<'a>(&'a self) -> RpcAction<'a> {
+        self.action.to_action()
     }
 }
 
@@ -424,6 +435,7 @@ where
     P: Send + Unpin + 'static,
 {
     seq: u64,
+    action: RpcActionOwned,
     req: R,
     req_blob: Option<Buffer>,
     resp: Option<P>,
@@ -439,7 +451,7 @@ where
     P: Send + Unpin + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "task seq={} {:?}", self.seq, self.req)
+        write!(f, "task seq={} action={:?} {:?}", self.seq, self.action, self.req)
     }
 }
 
@@ -462,12 +474,13 @@ where
     P: Send + Unpin + 'static,
 {
     fn decode_req<'a, C: Codec>(
-        codec: &'a C, _action: RpcAction<'a>, seq: u64, msg: &'a [u8], blob: Option<Buffer>,
+        codec: &'a C, action: RpcAction<'a>, seq: u64, msg: &'a [u8], blob: Option<Buffer>,
         noti: RespNoti<T>,
     ) -> Result<Self, ()> {
         let req = codec.decode(msg)?;
         Ok(Self {
             seq,
+            action: action.into(),
             req,
             req_blob: blob,
             res: None,
@@ -475,6 +488,17 @@ where
             resp_blob: None,
             done_tx: Some(noti),
         })
+    }
+}
+
+impl<T, R, P> ServerTaskAction for ServerTaskVariantFull<T, R, P>
+where
+    T: Send + Unpin + 'static,
+    R: Send + Unpin + 'static,
+    P: Send + Unpin + 'static,
+{
+    fn get_action<'a>(&'a self) -> RpcAction<'a> {
+        self.action.to_action()
     }
 }
 
