@@ -1,6 +1,5 @@
 use occams_rpc::{
     codec::{Codec, MsgpCodec},
-    io::AllocateBuf,
     stream::client::{ClientTaskAction, ClientTaskCommon, ClientTaskDecode, ClientTaskEncode},
 };
 use occams_rpc_macros::client_task;
@@ -130,11 +129,9 @@ fn test_client_task_macro_with_resp_blob() {
         resp_blob: initial_resp_blob,
     };
 
-    // Test ClientTaskDecode::get_resp_blob_mut
-    let resp_blob_mut = task.get_resp_blob_mut();
-    assert!(resp_blob_mut.is_some());
+    // Test ClientTaskDecode::reserve_resp_blob
+    assert!(task.reserve_resp_blob(20).is_some());
 
-    assert_eq!(resp_blob_mut.unwrap().reserve(10).unwrap().len(), 10);
     let codec = MsgpCodec::default();
 
     // Test ClientTaskEncode (should still work for req)

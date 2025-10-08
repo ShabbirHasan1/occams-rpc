@@ -117,10 +117,10 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
         quote! {}
     };
 
-    let get_resp_blob_mut_body = if let Some((resp_blob_field_name, _)) = &resp_blob_field {
+    let reserve_resp_blob_body = if let Some((resp_blob_field_name, _)) = &resp_blob_field {
         quote! {
-            fn get_resp_blob_mut(&mut self) -> Option<&mut impl occams_rpc::io::AllocateBuf> {
-                Some(&mut self.#resp_blob_field_name)
+            fn reserve_resp_blob(&mut self, size: i32) -> Option<&mut [u8]> {
+                occams_rpc::io::AllocateBuf::reserve(&mut self.#resp_blob_field_name, size)
             }
         }
     } else {
@@ -211,7 +211,7 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
                 Ok(())
             }
 
-            #get_resp_blob_mut_body
+            #reserve_resp_blob_body
         }
     };
     TokenStream::from(expanded)
