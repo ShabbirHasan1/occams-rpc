@@ -310,3 +310,73 @@ fn test_server_task_enum_multiple_actions() {
     assert_eq!(req_task_variant.seq, 789);
     assert_eq!(req_task_variant.msg, req_msg_data);
 }
+
+/// ```compile_fail
+/// use occams_rpc_macros::server_task_enum;
+/// #[server_task_enum(req)]
+/// pub struct NotAnEnum;
+/// ```
+#[doc(hidden)]
+#[allow(dead_code)]
+fn test_not_an_enum() {}
+
+/// ```compile_fail
+/// use occams_rpc_macros::server_task_enum;
+/// use serde_derive::{Deserialize, Serialize};
+/// #[derive(Serialize, Deserialize)]
+/// struct MyMsg;
+/// #[server_task_enum(req)]
+/// pub enum InvalidVariantFieldCount {
+///     #[action(1)]
+///     Task1, // Unit variant
+///     #[action(2)]
+///     Task2(MyMsg, MyMsg), // Multiple fields
+/// }
+/// ```
+#[doc(hidden)]
+#[allow(dead_code)]
+fn test_invalid_variant_field_count() {}
+
+/// ```compile_fail
+/// use occams_rpc_macros::server_task_enum;
+/// use serde_derive::{Deserialize, Serialize};
+/// #[derive(Serialize, Deserialize)]
+/// struct MyMsg;
+/// #[server_task_enum(req, resp, resp_type=MyMsg)]
+/// pub enum RespAndRespType {
+///     #[action(1)]
+///     Task1(MyMsg),
+/// }
+/// ```
+#[doc(hidden)]
+#[allow(dead_code)]
+fn test_resp_and_resp_type() {}
+
+/// ```compile_fail
+/// use occams_rpc_macros::server_task_enum;
+/// use serde_derive::{Deserialize, Serialize};
+/// #[derive(Serialize, Deserialize)]
+/// struct MyMsg;
+/// #[server_task_enum(req)] // Missing resp_type
+/// pub enum MissingRespType {
+///     #[action(1)]
+///     Task1(MyMsg),
+/// }
+/// ```
+#[doc(hidden)]
+#[allow(dead_code)]
+fn test_missing_resp_type() {}
+
+/// ```compile_fail
+/// use occams_rpc_macros::server_task_enum;
+/// use serde_derive::{Deserialize, Serialize};
+/// #[derive(Serialize, Deserialize)]
+/// struct MyMsg;
+/// #[server_task_enum(req)]
+/// pub enum MissingActionAttribute {
+///     Task1(MyMsg), // Missing #[action]
+/// }
+/// ```
+#[doc(hidden)]
+#[allow(dead_code)]
+fn test_missing_action_attribute() {}
