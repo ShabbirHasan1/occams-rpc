@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, Fields, Ident, Meta, NestedMeta, Type};
+use syn::{parse_macro_input, AttributeArgs, DeriveInput, Fields, Ident, Meta, NestedMeta, Type};
 
 fn check_option_inner_type(ty: &syn::Type) -> bool {
     if let syn::Type::Path(syn::TypePath { qself: None, path }) = ty {
@@ -20,14 +20,38 @@ fn check_option_inner_type(ty: &syn::Type) -> bool {
     false
 }
 
-pub fn client_task_impl(input: TokenStream) -> TokenStream {
+pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
+    let args = parse_macro_input!(attr as AttributeArgs);
     let mut ast = parse_macro_input!(input as DeriveInput);
     let struct_name = &ast.ident;
     let mut common_field: Option<(Ident, Type)> = None;
     let mut req_field: Option<Ident> = None;
     let mut resp_field: Option<(Ident, Type)> = None;
-    let mut req_blob_field: Option<Ident> = None; // New field for req_blob
-    let mut resp_blob_field: Option<(Ident, Type)> = None; // New field for resp_blob
+    let mut req_blob_field: Option<Ident> = None;
+    let mut resp_blob_field: Option<(Ident, Type)> = None;
+    let mut field_action: Option<(Ident, Type)> = None; // For #[field(action)]
+    let mut static_action: Option<NestedMeta> = None; // For #[client_task(action)]
+
+    for arg in args {
+        match arg {
+            NestedMeta::Meta(Meta::NameValue(nv)) if nv.path.is_ident("action") => {
+                if static_action.is_some() {
+                    panic!("Duplicate `action` attribute");
+                }
+                static_action = Some(NestedMeta::Lit(nv.lit));
+            }
+            NestedMeta::Meta(Meta::List(ml)) if ml.path.is_ident("action") => {
+                if static_action.is_some() {
+                    panic!("Duplicate `action` attribute");
+                }
+                if ml.nested.len() != 1 {
+                    panic!("`action` attribute list must have exactly one value");
+                }
+                static_action = Some(ml.nested.first().unwrap().clone());
+            }
+            _ => {} // Ignore other attributes
+        }
+    }
 
     if let syn::Data::Struct(syn::DataStruct { fields: Fields::Named(fields), .. }) = &mut ast.data
     {
@@ -45,8 +69,15 @@ pub fn client_task_impl(input: TokenStream) -> TokenStream {
                                         "common" => common_field = Some((f_name, f_type)),
                                         "req" => req_field = Some(f_name),
                                         "resp" => resp_field = Some((f_name, f_type)),
-                                        "req_blob" => req_blob_field = Some(f_name), // Handle req_blob
-                                        "resp_blob" => resp_blob_field = Some((f_name, f_type)), // Handle resp_blob
+                                        "req_blob" => req_blob_field = Some(f_name),
+                                        "resp_blob" => resp_blob_field = Some((f_name, f_type)),
+                                        "action" => {
+                                            // Handle #[field(action)]
+                                            if field_action.is_some() {
+                                                panic!("Only one #[field(action)] is allowed.");
+                                            }
+                                            field_action = Some((f_name, f_type));
+                                        }
                                         _ => {}
                                     }
                                 }
@@ -59,6 +90,11 @@ pub fn client_task_impl(input: TokenStream) -> TokenStream {
             }
             field.attrs = new_attrs;
         }
+    }
+
+    // Check for mutual exclusivity
+    if field_action.is_some() && static_action.is_some() {
+        panic!("Cannot specify both #[field(action)] and #[client_task(action = ...)] attributes.");
     }
 
     let (common_field_name, common_field_type) =
@@ -91,8 +127,61 @@ pub fn client_task_impl(input: TokenStream) -> TokenStream {
         quote! {}
     };
 
+    let client_task_action_impl = if let Some((f_action_name, f_action_type)) = field_action {
+        let action_conversion = if let Type::Path(type_path) = &f_action_type {
+            if let Some(segment) = type_path.path.segments.last() {
+                if segment.ident == "String" {
+                    quote! { occams_rpc::stream::RpcAction::Str(&self.#f_action_name) }
+                } else {
+                    // Assume numeric or enum
+                    quote! { occams_rpc::stream::RpcAction::Num(self.#f_action_name as i32) }
+                }
+            } else {
+                panic!("Unsupported type for #[field(action)]");
+            }
+        } else {
+            panic!("Unsupported type for #[field(action)]");
+        };
+
+        quote! {
+            impl occams_rpc::stream::client::ClientTaskAction for #struct_name {
+                fn get_action<'a>(&'a self) -> occams_rpc::stream::RpcAction<'a> {
+                    #action_conversion
+                }
+            }
+        }
+    } else if let Some(s_action) = static_action {
+        let action_token_stream = match s_action {
+            NestedMeta::Lit(syn::Lit::Str(s)) => {
+                let action_str = s.value();
+                quote! { occams_rpc::stream::RpcAction::Str(#action_str) }
+            }
+            NestedMeta::Lit(syn::Lit::Int(i)) => {
+                let action_int = i
+                    .base10_parse::<i32>()
+                    .expect("Invalid integer literal for action");
+                quote! { occams_rpc::stream::RpcAction::Num(#action_int) }
+            }
+            NestedMeta::Meta(syn::Meta::Path(p)) => {
+                quote! { occams_rpc::stream::RpcAction::Num(#p as i32) }
+            }
+            _ => panic!("Unsupported action type in #[action(...)]. Only string/integer literals and enum variants are supported."),
+        };
+        quote! {
+            impl occams_rpc::stream::client::ClientTaskAction for #struct_name {
+                fn get_action<'a>(&'a self) -> occams_rpc::stream::RpcAction<'a> {
+                    #action_token_stream
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let expanded = quote! {
         #ast
+
+        #client_task_action_impl
 
         impl std::ops::Deref for #struct_name {
             type Target = #common_field_type;
@@ -151,7 +240,7 @@ fn test_resp_not_option() {}
 ///     #[field(common)]
 ///     common: occams_rpc::stream::client::ClientTaskCommon,
 ///     #[field(resp)]
-///     resp: Option<()_,
+///     resp: Option<()>,
 /// }
 /// ```
 #[doc(hidden)]
@@ -171,3 +260,23 @@ fn test_missing_req() {}
 #[doc(hidden)]
 #[allow(dead_code)]
 fn test_missing_resp() {}
+
+/// ```compile_fail
+/// use occams_rpc_macros::*;
+/// use occams_rpc::stream::client::ClientTaskCommon;
+///
+/// #[client_task(action = 1)]
+/// pub struct ConflictingActionTask {
+///     #[field(common)]
+///     common: ClientTaskCommon,
+///     #[field(action)]
+///     action: u8,
+///     #[field(req)]
+///     req: (),
+///     #[field(resp)]
+///     resp: Option<()>
+/// }
+/// ```
+#[doc(hidden)]
+#[allow(dead_code)]
+fn test_conflicting_action() {}

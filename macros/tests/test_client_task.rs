@@ -1,7 +1,7 @@
 use occams_rpc::{
     codec::{Codec, MsgpCodec},
     io::AllocateBuf,
-    stream::client::{ClientTaskCommon, ClientTaskDecode, ClientTaskEncode},
+    stream::client::{ClientTaskAction, ClientTaskCommon, ClientTaskDecode, ClientTaskEncode},
 };
 use occams_rpc_macros::client_task;
 use serde_derive::{Deserialize, Serialize};
@@ -18,19 +18,18 @@ pub struct FileIOResp {
     pub read_size: u64,
 }
 
-#[client_task]
-#[derive(Debug)]
-pub struct FileTask {
-    #[field(common)]
-    common: ClientTaskCommon,
-    #[field(req)]
-    req: FileIOReq,
-    #[field(resp)]
-    resp: Option<FileIOResp>,
-}
-
 #[test]
 fn test_client_task_macro() {
+    #[client_task]
+    #[derive(Debug)]
+    pub struct FileTask {
+        #[field(common)]
+        common: ClientTaskCommon,
+        #[field(req)]
+        req: FileIOReq,
+        #[field(resp)]
+        resp: Option<FileIOResp>,
+    }
     let mut task = FileTask {
         common: ClientTaskCommon { seq: 123, ..Default::default() },
         req: FileIOReq { inode: 1, offset: 100 },
@@ -148,4 +147,140 @@ fn test_client_task_macro_with_resp_blob() {
     let result = task.decode_resp(&codec, &resp_buffer);
     assert!(result.is_ok());
     assert_eq!(task.resp, Some(resp_data));
+}
+
+#[repr(u8)]
+#[derive(Debug, PartialEq)]
+#[allow(dead_code)] // Allow unused variants for test enum
+enum Action {
+    Open = 1,
+    Read = 2,
+    Write = 3,
+}
+
+#[test]
+fn test_client_task_macro_field_action() {
+    #[derive(Default, Deserialize, Serialize, Debug, PartialEq, Clone)]
+    pub struct MyReq {
+        pub data: u32,
+    }
+
+    #[derive(Default, Deserialize, Serialize, Debug, PartialEq)]
+    pub struct MyResp {
+        pub result: bool,
+    }
+
+    #[client_task]
+    #[derive(Debug)]
+    pub struct FieldActionTaskNum {
+        #[field(common)]
+        common: ClientTaskCommon,
+        #[field(action)]
+        action_num: u8, // Numeric action field
+        #[field(req)]
+        req: MyReq,
+        #[field(resp)]
+        resp: Option<MyResp>,
+    }
+
+    #[client_task]
+    #[derive(Debug)]
+    pub struct FieldActionTaskStr {
+        #[field(common)]
+        common: ClientTaskCommon,
+        #[field(action)]
+        action_str: String, // String action field
+        #[field(req)]
+        req: MyReq,
+        #[field(resp)]
+        resp: Option<MyResp>,
+    }
+
+    // Test FieldActionTaskNum
+    let task_num = FieldActionTaskNum {
+        common: ClientTaskCommon { seq: 1, ..Default::default() },
+        action_num: 5,
+        req: MyReq { data: 10 },
+        resp: None,
+    };
+    assert_eq!(task_num.get_action(), occams_rpc::stream::RpcAction::Num(5));
+
+    // Test FieldActionTaskStr
+    let task_str = FieldActionTaskStr {
+        common: ClientTaskCommon { seq: 2, ..Default::default() },
+        action_str: "my_action".to_string(),
+        req: MyReq { data: 20 },
+        resp: None,
+    };
+    assert_eq!(task_str.get_action(), occams_rpc::stream::RpcAction::Str("my_action"));
+}
+
+#[test]
+fn test_client_task_macro_static_action() {
+    #[derive(Default, Deserialize, Serialize, Debug, PartialEq, Clone)]
+    pub struct MyReq {
+        pub data: u32,
+    }
+
+    #[derive(Default, Deserialize, Serialize, Debug, PartialEq)]
+    pub struct MyResp {
+        pub result: bool,
+    }
+
+    #[client_task(action = 10)] // Numeric static action
+    #[derive(Debug)]
+    pub struct StaticActionTaskNum {
+        #[field(common)]
+        common: ClientTaskCommon,
+        #[field(req)]
+        req: MyReq,
+        #[field(resp)]
+        resp: Option<MyResp>,
+    }
+
+    #[client_task(action = "static_str_action")] // String static action
+    #[derive(Debug)]
+    pub struct StaticActionTaskStr {
+        #[field(common)]
+        common: ClientTaskCommon,
+        #[field(req)]
+        req: MyReq,
+        #[field(resp)]
+        resp: Option<MyResp>,
+    }
+
+    #[client_task(action(Action::Open))] // Enum static action
+    #[derive(Debug)]
+    pub struct StaticActionTaskEnum {
+        #[field(common)]
+        common: ClientTaskCommon,
+        #[field(req)]
+        req: MyReq,
+        #[field(resp)]
+        resp: Option<MyResp>,
+    }
+
+    // Test StaticActionTaskNum
+    let task_num = StaticActionTaskNum {
+        common: ClientTaskCommon { seq: 1, ..Default::default() },
+        req: MyReq { data: 10 },
+        resp: None,
+    };
+    assert_eq!(task_num.get_action(), occams_rpc::stream::RpcAction::Num(10));
+
+    // Test StaticActionTaskStr
+    let task_str = StaticActionTaskStr {
+        common: ClientTaskCommon { seq: 2, ..Default::default() },
+        req: MyReq { data: 20 },
+        resp: None,
+    };
+    assert_eq!(task_str.get_action(), occams_rpc::stream::RpcAction::Str("static_str_action"));
+
+    // Test StaticActionTaskEnum
+    let task_enum = StaticActionTaskEnum {
+        common: ClientTaskCommon { seq: 3, ..Default::default() },
+        req: MyReq { data: 30 },
+        resp: None,
+    };
+    assert_eq!(task_enum.get_action(), occams_rpc::stream::RpcAction::Num(Action::Open as i32));
 }

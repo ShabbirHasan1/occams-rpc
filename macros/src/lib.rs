@@ -3,9 +3,9 @@ mod server_task_enum;
 
 #[proc_macro_attribute]
 pub fn client_task(
-    _attrs: proc_macro::TokenStream, input: proc_macro::TokenStream,
+    attrs: proc_macro::TokenStream, input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    client_task::client_task_impl(input)
+    client_task::client_task_impl(attrs, input)
 }
 
 #[proc_macro_attribute]

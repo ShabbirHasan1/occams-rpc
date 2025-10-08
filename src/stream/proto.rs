@@ -62,7 +62,7 @@ impl ReqHead {
     {
         let action_flag: u32;
         let mut action_str: Option<&'a [u8]> = None;
-        match task.action() {
+        match task.get_action() {
             RpcAction::Num(num) => action_flag = num as u32,
             RpcAction::Str(s) => {
                 action_flag = s.len() as u32 | U32_HIGH_MASK;

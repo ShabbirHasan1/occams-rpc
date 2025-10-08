@@ -71,6 +71,7 @@ pub struct FileTask {
     req: FileIOReq,
     #[field(resp)]
     resp: Option<FileIOResp>,
+    #[field(action)]
     action: i32,
     res: Option<Result<(), RpcError>>,
 }
@@ -95,10 +96,6 @@ impl FileTask {
 }
 
 impl ClientTask for FileTask {
-    fn action<'a>(&'a self) -> RpcAction<'a> {
-        return RpcAction::Num(self.action);
-    }
-
     fn set_result(self, _res: Result<(), RpcError>) {
         // mock implementation
     }

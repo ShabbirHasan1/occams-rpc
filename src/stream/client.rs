@@ -148,7 +148,7 @@ pub trait ClientTaskDecode {
 }
 
 pub trait ClientTaskAction {
-    fn action<'a>(&'a self) -> RpcAction<'a>;
+    fn get_action<'a>(&'a self) -> RpcAction<'a>;
 }
 
 #[derive(Debug, Default)]
