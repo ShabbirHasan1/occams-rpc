@@ -29,6 +29,19 @@ struct Msg1;
 #[derive(Serialize, Deserialize, Debug, Default)]
 struct Msg2;
 
+// Define a dummy struct that implements ServerTaskDecode for static action testing
+#[derive(Debug, Default, PartialEq)]
+struct StaticActionTask;
+
+impl<R: Send + Unpin + 'static> ServerTaskDecode<R> for StaticActionTask {
+    fn decode_req<'a, C: Codec>(
+        _codec: &'a C, _action: RpcAction<'a>, _seq: u64, _req: &'a [u8],
+        _blob: Option<io_buffer::Buffer>, _noti: RespNoti<R>,
+    ) -> Result<Self, ()> {
+        Ok(StaticActionTask)
+    }
+}
+
 #[test]
 fn test_server_task_enum_req_macro() {
     #[server_task_enum(req, resp_type=RpcSvrResp)]
@@ -38,6 +51,8 @@ fn test_server_task_enum_req_macro() {
         Task1(ServerTaskVariant<RpcSvrResp, ReqMsg1>),
         #[action("sub_task_2")]
         Task2(ServerTaskVariant<RpcSvrResp, ReqMsg2>),
+        #[action("static_action")] // New variant for static action
+        Task3(StaticActionTask),
     }
 
     let codec = MsgpCodec::default();
@@ -81,6 +96,23 @@ fn test_server_task_enum_req_macro() {
         assert_eq!(req_task_variant.seq, 456);
         assert_eq!(req_task_variant.msg, req_msg_2_data);
         assert!(req_task_variant.blob.is_none()); // Assuming no blob is sent for this test
+    } else {
+        panic!("Decoded to wrong variant");
+    }
+
+    // Test for Task3 (static action)
+    let task3 = <ExampleServerTaskReq as ServerTaskDecode<RpcSvrResp>>::decode_req(
+        &codec,
+        RpcAction::Str("static_action"),
+        0,    // Dummy seq
+        &[],  // Dummy req
+        None, // Dummy blob
+        noti.clone(),
+    )
+    .unwrap();
+    assert_eq!(task3.get_action(), RpcAction::Str("static_action"));
+    if let ExampleServerTaskReq::Task3(inner_task) = task3 {
+        assert_eq!(inner_task, StaticActionTask);
     } else {
         panic!("Decoded to wrong variant");
     }
@@ -171,7 +203,7 @@ fn test_server_task_enum_resp_macro() {
 #[test]
 fn test_server_task_enum_duplicate_subtype() {
     #[server_task_enum(req, resp)]
-    #[derive(Debug)] // Removed PartialEq
+    #[derive(Debug)]
     enum MyServerTask {
         #[action(1)]
         TaskA(ServerTaskVariant<MyServerTask, ReqMsg1>),

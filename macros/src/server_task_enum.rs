@@ -94,9 +94,81 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
             _ => panic!("Enum variants must be tuple-style with a single field"),
         };
 
-        let action_values = if has_req {
+        let _action_values = if has_req {
             let actions = get_action_attribute(variant);
             variant.attrs.retain(|attr| !attr.path.is_ident("action"));
+            // Logic for decode_arms
+            for action_lit in &actions {
+                let action_token_stream = match action_lit {
+                    Lit::Str(s) => {
+                        let action_str = s.value();
+                        quote! { occams_rpc::stream::RpcAction::Str(#action_str) }
+                    }
+                    Lit::Int(i) => {
+                        let action_int =
+                            i.base10_parse::<i32>().expect("Invalid integer literal for action");
+                        quote! { occams_rpc::stream::RpcAction::Num(#action_int) }
+                    }
+                    _ => panic!("Unsupported action literal type for decode_arms"),
+                };
+                decode_arms.push(quote! {
+                            #action_token_stream => {
+                                let task = <#inner_type as occams_rpc::stream::server::ServerTaskDecode<#resp_type>>::decode_req::<C>(codec, action, seq, req, blob, noti)?;
+                                Ok(#enum_name::#variant_name(task))
+                            }
+                        });
+            }
+
+            // Logic for where_clauses_for_decode (conditional)
+            let inner_type_exists = match &variant.fields {
+                Fields::Unnamed(fields) if fields.unnamed.len() == 1 => true,
+                _ => false,
+            };
+
+            if actions.len() > 1 || (actions.len() == 0 && inner_type_exists) {
+                where_clauses_for_decode.push(quote! {
+                    #inner_type: occams_rpc::stream::server::ServerTaskDecode<#resp_type> + occams_rpc::stream::server::ServerTaskAction
+                });
+            } else {
+                where_clauses_for_decode.push(quote! {
+                    #inner_type: occams_rpc::stream::server::ServerTaskDecode<#resp_type>
+                });
+            }
+
+            // Logic for get_action_arms (conditional and RpcAction return type)
+            if actions.len() > 1 {
+                get_action_arms.push(quote! {
+                    #enum_name::#variant_name(inner) => inner.get_action(),
+                });
+            } else if actions.len() == 1 {
+                let action_lit = &actions[0];
+                let action_token_stream = match action_lit {
+                    Lit::Str(s) => {
+                        let action_str = s.value();
+                        quote! { occams_rpc::stream::RpcAction::Str(#action_str) }
+                    }
+                    Lit::Int(i) => {
+                        let action_int =
+                            i.base10_parse::<i32>().expect("Invalid integer literal for action");
+                        quote! { occams_rpc::stream::RpcAction::Num(#action_int) }
+                    }
+                    _ => panic!("Unsupported action literal type for get_action"),
+                };
+                get_action_arms.push(quote! {
+                    #enum_name::#variant_name(_) => #action_token_stream,
+                });
+            } else {
+                if inner_type_exists {
+                    get_action_arms.push(quote! {
+                        #enum_name::#variant_name(inner) => inner.get_action(),
+                    });
+                } else {
+                    get_action_arms.push(quote! {
+                        #enum_name::#variant_name(_) => occams_rpc::stream::RpcAction::Str(""),
+                    });
+                }
+            }
+
             actions
                 .into_iter()
                 .map(|action| match action {
@@ -118,25 +190,6 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
                         #enum_name::#variant_name(task)
                     }
                 }
-            });
-        }
-
-        if has_req {
-            for action_value in &action_values {
-                decode_arms.push(quote! {
-                            #action_value => {
-                                let task = <#inner_type as occams_rpc::stream::server::ServerTaskDecode<#resp_type>>::decode_req::<C>(codec, action, seq, req, blob, noti)?;
-                                Ok(#enum_name::#variant_name(task))
-                            }
-                        });
-            }
-
-            where_clauses_for_decode.push(quote! {
-                #inner_type: occams_rpc::stream::server::ServerTaskDecode<#resp_type> + occams_rpc::stream::server::ServerTaskAction
-            });
-
-            get_action_arms.push(quote! {
-                #enum_name::#variant_name(inner) => inner.get_action(),
             });
         }
 
@@ -265,8 +318,5 @@ fn get_action_attribute(variant: &Variant) -> Vec<Lit> {
         }
     }
 
-    panic!(
-        "Variant {} is missing #[action(LITERAL)] attribute or has incorrect format",
-        variant.ident
-    );
+    Vec::new()
 }
