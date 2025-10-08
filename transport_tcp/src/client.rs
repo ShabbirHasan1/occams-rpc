@@ -2,7 +2,7 @@ use crate::net::{UnifyAddr, UnifyStream};
 use bytes::BytesMut;
 use crossfire::MAsyncRx;
 use io_buffer::Buffer;
-use occams_rpc::io::{AllocateBuf, AsyncRead, AsyncWrite, Cancellable, io_with_timeout};
+use occams_rpc::io::{AsyncRead, AsyncWrite, Cancellable, io_with_timeout};
 use occams_rpc::runtime::AsyncIO;
 use occams_rpc::stream::client::{ClientFactory, ClientTask, ClientTaskDecode, ClientTransport};
 use occams_rpc::stream::client_timer::ClientTaskTimer;
@@ -137,7 +137,7 @@ impl<F: ClientFactory> TcpClient<F> {
             } // When msg_len == 0, read_buf has 0 size
 
             if blob_len > 0 {
-                match task.get_resp_blob_mut() {
+                match task.reserve_resp_blob(blob_len) {
                     None => {
                         logger_error!(
                             self.logger,
@@ -148,30 +148,19 @@ impl<F: ClientFactory> TcpClient<F> {
                         task.set_result(Err(RPC_ERR_DECODE));
                         return self._recv_and_dump(blob_len as usize).await;
                     }
-                    Some(blob) => {
-                        if let Some(buf) = blob.reserve(blob_len) {
-                            // Should ensure ext_buf has len meat blob_len
-                            if let Err(e) =
-                                io_with_timeout!(F::IO, read_timeout, reader.read_exact(buf))
-                            {
-                                logger_warn!(
-                                    self.logger,
-                                    "{:?} rpc client reader read ext_buf err: {:?}",
-                                    self,
-                                    e
-                                );
-                                factory.error_handle(task, RPC_ERR_COMM);
-                                return Err(RPC_ERR_COMM);
-                            }
-                        } else {
-                            logger_error!(
+                    Some(buf) => {
+                        // ensure buf can fit blob_len
+                        if let Err(e) =
+                            io_with_timeout!(F::IO, read_timeout, reader.read_exact(buf))
+                        {
+                            logger_warn!(
                                 self.logger,
-                                "{:?} rpc client task {:?} has no ext_buf",
+                                "{:?} rpc client reader read ext_buf err: {:?}",
                                 self,
-                                task,
+                                e
                             );
-                            task.set_result(Err(RPC_ERR_DECODE));
-                            return self._recv_and_dump(blob_len as usize).await;
+                            factory.error_handle(task, RPC_ERR_COMM);
+                            return Err(RPC_ERR_COMM);
                         }
                     }
                 }

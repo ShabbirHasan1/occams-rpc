@@ -2,7 +2,6 @@ use super::RpcAction;
 pub use super::client_impl::RpcClient;
 pub use super::client_timer::ClientTaskTimer;
 use crate::codec::Codec;
-use crate::io::AllocateBuf;
 use crate::runtime::AsyncIO;
 use crate::*;
 use captains_log::filter::Filter;
@@ -141,9 +140,11 @@ pub trait ClientTaskEncode {
 pub trait ClientTaskDecode {
     fn decode_resp<C: Codec>(&mut self, codec: &C, buf: &[u8]) -> Result<(), ()>;
 
+    /// You can call crate::io::AllocateBuf::reserve(_size) on:
+    /// Option<Vec<u8>>, Vec<u8>, Option<io_buffer::Buffer>, io_buffer::Buffer
     #[inline(always)]
-    fn get_resp_blob_mut(&mut self) -> Option<&mut impl AllocateBuf> {
-        None::<&mut Option<Vec<u8>>>
+    fn reserve_resp_blob(&mut self, _size: i32) -> Option<&mut [u8]> {
+        None
     }
 }
 
