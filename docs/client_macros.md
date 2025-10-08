@@ -1,12 +1,23 @@
 # Rpc Client Task Macro Design
 
-The `#[client_task]` procedural macro simplifies the implementation of client-side RPC tasks by automatically generating necessary trait implementations and boilerplate code. It allows users to define a struct representing an RPC task and specify its common fields, request, response, and optional blob data using `#[field(...)]` attributes.
+The `#[client_task_enum]` and `#[client_task]` procedural macro simplifies the implementation of client-side RPC tasks by automatically generating necessary trait implementations and boilerplate code.
+
+`#[client_task]` attribute allows users to define a struct representing an RPC task and specify its common fields, request, response, and optional blob data using `#[field(...)]` attributes.
+
+`#[client_task_enum]` attribute allow user to wrap an enum and delegate the ClienTask trait requirements to it's variants.
 
 ## Usage Example
 
 Here's an example of a struct using the `#[client_task]` macro:
 
 ```rust
+
+#[client_task_enum]
+pub enum FileTask {
+    Open(FileOpenTask),
+    IO(FileIOTask)
+}
+
 #[client_task]
 pub struct FileIOTask {
     #[field(action)]
@@ -23,7 +34,7 @@ pub struct FileIOTask {
 }
 
 #[client_task]
-pub struct FileOpen {
+pub struct FileOpenTask {
     #[action(Action::Open)]
     #[field(common)]
     common: TaskCommon,
@@ -44,7 +55,7 @@ pub enum Action {
 
 ```
 
-## Field Attributes
+## Field Attributes of `#[client_task]`
 
 The macro processes specific fields within the task struct based on the `#[field(...)]` attributes:
 
@@ -90,6 +101,8 @@ The `#[client_task]` macro automatically generates the following trait implement
 *   `ClientTaskDecode`:
     *   `decode_resp<C: occams_rpc::codec::Codec>(&mut self, codec: &C, buffer: &[u8]) -> Result<(), ()>`: Decodes the response buffer using the provided codec and stores the result in the `#[field(resp)]` field.
     *   `get_resp_blob_mut(&mut self) -> Option<&mut impl occams_rpc::io::AllocateBuf>`: If `#[field(resp_blob)]` is present, returns `Some` mutable reference to the response blob `Option<T>`; otherwise, it returns `None`.
+
+The `#[client_task_enum]` will implement `From` to assist convertion from it's variants to parent enum, and delegating ClienTaskEnode, ClientTaskDecode, ClientTaskAction, RpcClientTask to it's variants.
 
 ## User Responsibilities
 
