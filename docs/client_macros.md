@@ -9,9 +9,11 @@ Here's an example of a struct using the `#[client_task]` macro:
 ```rust
 #[client_task]
 pub struct FileIOTask {
+    #[field(action)]
+    action: u8,
     #[field(common)]
     common: TaskCommon,
-    sender: MTx<Self>,
+    sender: MTx<FileTask>,
     #[field(req)]
     req: FileIOReq,
     #[field(resp)]
@@ -19,6 +21,27 @@ pub struct FileIOTask {
     action: i32,
     res: Option<Result<(), RpcError>>,
 }
+
+#[client_task]
+pub struct FileOpen {
+    #[action(Action::Open)]
+    #[field(common)]
+    common: TaskCommon,
+    sender: MTx<FileTask>,
+    #[field(req)]
+    req: String,
+    #[field(resp)]
+    resp: Option<()>,
+    action: i32,
+    res: Option<Result<(), RpcError>>,
+}
+
+pub enum Action {
+    Open=1,
+    Read=2,
+    Write=3,
+}
+
 ```
 
 ## Field Attributes
@@ -28,6 +51,14 @@ The macro processes specific fields within the task struct based on the `#[field
 *   `#[field(common)]`:
     *   **Purpose:** Designates a field that holds common task-related information.
     *   **Requirements:** This field is mandatory. The macro generates `Deref` and `DerefMut` implementations for the task struct, delegating to this `common` field. This allows direct access to the common fields of the task struct.
+
+*   `#[field(action)]`
+    *   Purpose: implement ClientTaskAction trait to return RpcAction according to the field
+    *   Requirements: there's no `action=` specified within the client_task attribute. the field is a numeric or string type, or an enum type that repr by number.
+
+*   attribute parameter action in `#[client_task(action=...)]`
+    *   Purpose: implement ClientTaskAction trait with a static value
+    *   Requirements: there's no `#[field(action)]` specified within the struct.  `action()` parameter must be only one, can be numeric, or string, or an enum repr by number.
 
 *   `#[field(req)]`:
     *   **Purpose:** Designates the field containing the request payload for the RPC call.
@@ -62,4 +93,4 @@ The `#[client_task]` macro automatically generates the following trait implement
 
 ## User Responsibilities
 
-While the macro handles much of the boilerplate for encoding and decoding, users are still responsible for implementing other aspects of their `RpcClientTask`, such as the `action()` method (if part of a higher-level `RpcClientTask` trait) and any logic for handling the task's result (e.g., `set_result()`).
+While the macro handles much of the boilerplate for encoding and decoding, users are still responsible for implementing other aspects of their `RpcClientTask`, such as any logic for handling the task's result (e.g., `set_result()`).

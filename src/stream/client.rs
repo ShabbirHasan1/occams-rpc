@@ -112,7 +112,8 @@ pub trait ClientTransport<F: ClientFactory>: fmt::Debug + Send + Sized + 'static
 }
 
 pub trait ClientTask:
-    ClientTaskEncode
+    ClientTaskAction
+    + ClientTaskEncode
     + ClientTaskDecode
     + DerefMut<Target = ClientTaskCommon>
     + Send
@@ -121,8 +122,6 @@ pub trait ClientTask:
     + fmt::Debug
     + Unpin
 {
-    fn action<'a>(&'a self) -> RpcAction<'a>;
-
     fn set_result(self, res: Result<(), RpcError>);
 }
 
@@ -146,6 +145,10 @@ pub trait ClientTaskDecode {
     fn get_resp_blob_mut(&mut self) -> Option<&mut impl AllocateBuf> {
         None::<&mut Option<Vec<u8>>>
     }
+}
+
+pub trait ClientTaskAction {
+    fn action<'a>(&'a self) -> RpcAction<'a>;
 }
 
 #[derive(Debug, Default)]
