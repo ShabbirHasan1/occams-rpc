@@ -71,11 +71,7 @@ where
                                         &factory,
                                         conn_ref_count.clone(),
                                     );
-                                    <F::ConnHandle as ServerHandle<F>>::run(
-                                        conn,
-                                        &factory,
-                                        server_close_rx.clone(),
-                                    )
+                                    Self::server_conn(conn, &factory, server_close_rx.clone())
                                 }
                             }
                         }
@@ -95,47 +91,7 @@ where
         }
     }
 
-    #[inline]
-    fn get_alive_conn(&self) -> usize {
-        Arc::strong_count(&self.conn_ref_count) - 1
-    }
-
-    pub async fn close(&mut self) {
-        // close listeners
-        for h in &self.listeners_abort {
-            h.0.abort();
-            logger_info!(self.logger, "{} has closed", h.1);
-        }
-        // Notify all reader connection exit
-        let _ = self.server_close_tx.lock().unwrap().take();
-
-        let mut exists_count = self.get_alive_conn();
-        // wait client close all connections
-        let mut close_timeout = 0;
-        while exists_count > 0 {
-            close_timeout += 1;
-            <F::IO as AsyncIO>::sleep(Duration::from_secs(1)).await;
-            exists_count = self.get_alive_conn();
-            if close_timeout > 90 {
-                logger_warn!(
-                    self.logger,
-                    "closed as wait too long for all conn closed voluntarily({} conn left)",
-                    exists_count,
-                );
-                break;
-            }
-        }
-        logger_info!(self.logger, "server closed with alive conn {}", exists_count);
-    }
-}
-
-/// This ServerHandle impl two coroutines, one to read task, and one to write task.
-///
-/// When task is done, it will dispatched back to writer through a channel. The task may be an enum that impl ServerTaskResp.
-pub struct ServerHandleTaskStream();
-
-impl<F: ServerFactory> ServerHandle<F> for ServerHandleTaskStream {
-    fn run(conn: F::Transport, factory: &F, server_close_rx: crossfire::MAsyncRx<()>) {
+    fn server_conn(conn: F::Transport, factory: &F, server_close_rx: crossfire::MAsyncRx<()>) {
         let conn = Arc::new(conn);
 
         let dispatch = Arc::new(factory.new_dispatcher());
@@ -231,6 +187,39 @@ impl<F: ServerFactory> ServerHandle<F> for ServerHandleTaskStream {
         }
         let writer = Writer::<F, _, _> { done_rx, conn, dispatch };
         factory.spawn_detach(async move { writer.run().await });
+    }
+
+    #[inline]
+    fn get_alive_conn(&self) -> usize {
+        Arc::strong_count(&self.conn_ref_count) - 1
+    }
+
+    pub async fn close(&mut self) {
+        // close listeners
+        for h in &self.listeners_abort {
+            h.0.abort();
+            logger_info!(self.logger, "{} has closed", h.1);
+        }
+        // Notify all reader connection exit
+        let _ = self.server_close_tx.lock().unwrap().take();
+
+        let mut exists_count = self.get_alive_conn();
+        // wait client close all connections
+        let mut close_timeout = 0;
+        while exists_count > 0 {
+            close_timeout += 1;
+            <F::IO as AsyncIO>::sleep(Duration::from_secs(1)).await;
+            exists_count = self.get_alive_conn();
+            if close_timeout > 90 {
+                logger_warn!(
+                    self.logger,
+                    "closed as wait too long for all conn closed voluntarily({} conn left)",
+                    exists_count,
+                );
+                break;
+            }
+        }
+        logger_info!(self.logger, "server closed with alive conn {}", exists_count);
     }
 }
 

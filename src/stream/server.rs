@@ -30,9 +30,6 @@ pub trait ServerFactory: Sync + Send + 'static + Sized {
     fn new_logger(&self) -> Self::Logger;
     /// TODO Fix the logger interface
 
-    /// Define how the server connection is served
-    type ConnHandle: ServerHandle<Self>;
-
     type RespReceiver: RespReceiver;
 
     /// The dispatch is likely to be a closure or object, in order to dispatch task to different worker
@@ -92,11 +89,6 @@ pub struct RpcSvrResp {
     pub blob: Option<Buffer>,
 
     pub res: Result<(), RpcError>,
-}
-
-pub trait ServerHandle<F: ServerFactory> {
-    /// It's expect to spawn coroutine to process
-    fn run(conn: F::Transport, factory: &F, server_close_rx: MAsyncRx<()>);
 }
 
 pub trait ReqDispatch<R: RespReceiver>: Send + Sync + Sized + 'static {
