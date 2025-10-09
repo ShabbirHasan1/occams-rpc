@@ -38,6 +38,12 @@ test: init
 	@${RUNTESTCASE}; _run_test_case
 	@echo "Done"
 
+.PHONY: test-integration
+test-integration: init
+	@echo "Run integration tests"
+	cargo test -p integration_test -- --nocapture --test-threads=1
+	@echo "Done"
+
 .PHONY: bench
 bench:
 	@${RUNBENCHCASE}; _run_bench_case
