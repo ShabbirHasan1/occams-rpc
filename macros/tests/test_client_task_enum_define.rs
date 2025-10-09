@@ -27,7 +27,7 @@ fn test_client_task_enum_define() {
         fn set_result(self, _res: Result<(), RpcError>) {}
     }
 
-    #[client_task(action = 2)] // This action will be used as the variant doesn't specify one
+    #[client_task(2)] // This action will be used as the variant doesn't specify one
     #[derive(Debug)]
     pub struct FileCloseTask {
         #[field(common)]

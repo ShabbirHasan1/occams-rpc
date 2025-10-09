@@ -9,7 +9,7 @@ use occams_rpc::{
 };
 use occams_rpc_macros::{client_task, client_task_enum};
 
-#[client_task(action = 1)]
+#[client_task(1)]
 #[derive(Debug)]
 struct TaskA {
     #[field(common)]
@@ -27,7 +27,7 @@ impl ClientTaskDone for TaskA {
     }
 }
 
-#[client_task(action = "task_b")]
+#[client_task("task_b")]
 #[derive(Debug)]
 struct TaskB {
     #[field(common)]
@@ -45,7 +45,7 @@ impl ClientTaskDone for TaskB {
     }
 }
 
-#[client_task(action = 3)]
+#[client_task(3)]
 #[derive(Debug)]
 struct TaskC {
     #[field(common)]
@@ -133,7 +133,7 @@ fn test_client_task_enum_delegation() {
 
 #[test]
 fn test_client_task_enum_with_action_attribute() {
-    #[client_task(action = 999)] // Dummy action
+    #[client_task(999)] // Dummy action
     #[derive(Debug)]
     struct TaskNoAction {
         #[field(common)]

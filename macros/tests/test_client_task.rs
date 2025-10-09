@@ -224,7 +224,7 @@ fn test_client_task_macro_static_action() {
         pub result: bool,
     }
 
-    #[client_task(action = 10)] // Numeric static action
+    #[client_task(10)] // Numeric static action
     #[derive(Debug)]
     pub struct StaticActionTaskNum {
         #[field(common)]
@@ -235,7 +235,7 @@ fn test_client_task_macro_static_action() {
         resp: Option<MyResp>,
     }
 
-    #[client_task(action = "static_str_action")] // String static action
+    #[client_task("static_str_action")] // String static action
     #[derive(Debug)]
     pub struct StaticActionTaskStr {
         #[field(common)]
@@ -246,7 +246,7 @@ fn test_client_task_macro_static_action() {
         resp: Option<MyResp>,
     }
 
-    #[client_task(action(Action::Open))] // Enum static action
+    #[client_task(Action::Open)] // Enum static action
     #[derive(Debug)]
     pub struct StaticActionTaskEnum {
         #[field(common)]
@@ -280,4 +280,68 @@ fn test_client_task_macro_static_action() {
         resp: None,
     };
     assert_eq!(task_enum.get_action(), occams_rpc::stream::RpcAction::Num(Action::Open as i32));
+
+    // New syntax tests
+    #[client_task(100)] // Numeric static action (new syntax)
+    #[derive(Debug)]
+    pub struct NewStaticActionTaskNum {
+        #[field(common)]
+        common: ClientTaskCommon,
+        #[field(req)]
+        req: MyReq,
+        #[field(resp)]
+        resp: Option<MyResp>,
+    }
+
+    #[client_task("new_static_str_action")] // String static action (new syntax)
+    #[derive(Debug)]
+    pub struct NewStaticActionTaskStr {
+        #[field(common)]
+        common: ClientTaskCommon,
+        #[field(req)]
+        req: MyReq,
+        #[field(resp)]
+        resp: Option<MyResp>,
+    }
+
+    #[client_task(Action::Write)] // Enum static action (new syntax)
+    #[derive(Debug)]
+    pub struct NewStaticActionTaskEnum {
+        #[field(common)]
+        common: ClientTaskCommon,
+        #[field(req)]
+        req: MyReq,
+        #[field(resp)]
+        resp: Option<MyResp>,
+    }
+
+    // Test NewStaticActionTaskNum
+    let new_task_num = NewStaticActionTaskNum {
+        common: ClientTaskCommon { seq: 4, ..Default::default() },
+        req: MyReq { data: 40 },
+        resp: None,
+    };
+    assert_eq!(new_task_num.get_action(), occams_rpc::stream::RpcAction::Num(100));
+
+    // Test NewStaticActionTaskStr
+    let new_task_str = NewStaticActionTaskStr {
+        common: ClientTaskCommon { seq: 5, ..Default::default() },
+        req: MyReq { data: 50 },
+        resp: None,
+    };
+    assert_eq!(
+        new_task_str.get_action(),
+        occams_rpc::stream::RpcAction::Str("new_static_str_action")
+    );
+
+    // Test NewStaticActionTaskEnum
+    let new_task_enum = NewStaticActionTaskEnum {
+        common: ClientTaskCommon { seq: 6, ..Default::default() },
+        req: MyReq { data: 60 },
+        resp: None,
+    };
+    assert_eq!(
+        new_task_enum.get_action(),
+        occams_rpc::stream::RpcAction::Num(Action::Write as i32)
+    );
 }

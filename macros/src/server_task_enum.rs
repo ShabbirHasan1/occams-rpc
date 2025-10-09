@@ -98,18 +98,22 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
             let actions = get_action_attribute(variant);
             variant.attrs.retain(|attr| !attr.path.is_ident("action"));
             // Logic for decode_arms
-            for action_lit in &actions {
-                let action_token_stream = match action_lit {
-                    Lit::Str(s) => {
+            for action_meta in &actions {
+                let action_token_stream = match action_meta {
+                    NestedMeta::Lit(syn::Lit::Str(s)) => {
                         let action_str = s.value();
                         quote! { occams_rpc::stream::RpcAction::Str(#action_str) }
                     }
-                    Lit::Int(i) => {
-                        let action_int =
-                            i.base10_parse::<i32>().expect("Invalid integer literal for action");
+                    NestedMeta::Lit(syn::Lit::Int(i)) => {
+                        let action_int = i
+                            .base10_parse::<i32>()
+                            .expect("Invalid integer literal for action");
                         quote! { occams_rpc::stream::RpcAction::Num(#action_int) }
                     }
-                    _ => panic!("Unsupported action literal type for decode_arms"),
+                    NestedMeta::Meta(syn::Meta::Path(p)) => {
+                        quote! { occams_rpc::stream::RpcAction::Num(val) if val == (#p as i32) }
+                    }
+                    _ => panic!("Unsupported action type for decode_arms. Only string/integer literals and enum variants are supported."),
                 };
                 decode_arms.push(quote! {
                             #action_token_stream => {
@@ -141,18 +145,22 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
                     #enum_name::#variant_name(inner) => inner.get_action(),
                 });
             } else if actions.len() == 1 {
-                let action_lit = &actions[0];
-                let action_token_stream = match action_lit {
-                    Lit::Str(s) => {
+                let action_meta = &actions[0];
+                let action_token_stream = match action_meta {
+                    NestedMeta::Lit(syn::Lit::Str(s)) => {
                         let action_str = s.value();
                         quote! { occams_rpc::stream::RpcAction::Str(#action_str) }
                     }
-                    Lit::Int(i) => {
-                        let action_int =
-                            i.base10_parse::<i32>().expect("Invalid integer literal for action");
+                    NestedMeta::Lit(syn::Lit::Int(i)) => {
+                        let action_int = i
+                            .base10_parse::<i32>()
+                            .expect("Invalid integer literal for action");
                         quote! { occams_rpc::stream::RpcAction::Num(#action_int) }
                     }
-                    _ => panic!("Unsupported action literal type for get_action"),
+                    NestedMeta::Meta(syn::Meta::Path(p)) => {
+                        quote! { occams_rpc::stream::RpcAction::Num(#p as i32) }
+                    }
+                    _ => panic!("Unsupported action type for get_action. Only string/integer literals and enum variants are supported."),
                 };
                 get_action_arms.push(quote! {
                     #enum_name::#variant_name(_) => #action_token_stream,
@@ -270,21 +278,11 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
     TokenStream::from(expanded)
 }
 
-fn get_action_attribute(variant: &Variant) -> Vec<Lit> {
+fn get_action_attribute(variant: &Variant) -> Vec<NestedMeta> {
     for attr in &variant.attrs {
         if attr.path.is_ident("action") {
             if let Ok(Meta::List(meta_list)) = attr.parse_meta() {
-                let actions: Vec<Lit> = meta_list
-                    .nested
-                    .iter()
-                    .filter_map(|nested| {
-                        if let NestedMeta::Lit(lit) = nested {
-                            Some(lit.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
+                let actions: Vec<NestedMeta> = meta_list.nested.into_iter().collect();
                 if !actions.is_empty() {
                     return actions;
                 }

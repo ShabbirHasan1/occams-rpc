@@ -34,33 +34,12 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
 
     // Iterate through the arguments to find the action.
     // We expect at most one action argument, either direct or with `action =` / `action(...)`.
-    for arg in args.into_iter() {
-        match arg {
-            NestedMeta::Meta(Meta::NameValue(nv)) if nv.path.is_ident("action") => {
-                if static_action.is_some() {
-                    panic!("Duplicate `action` attribute");
-                }
-                static_action = Some(NestedMeta::Lit(nv.lit));
-            }
-            NestedMeta::Meta(Meta::List(ml)) if ml.path.is_ident("action") => {
-                if static_action.is_some() {
-                    panic!("Duplicate `action` attribute");
-                }
-                if ml.nested.len() != 1 {
-                    panic!("`action` attribute list must have exactly one value");
-                }
-                static_action = Some(ml.nested.first().unwrap().clone());
-            }
-            // New case: if it's not an `action =` or `action(...)` and we haven't found an action yet,
-            // treat it as a direct action argument.
-            _ if static_action.is_none() => {
-                static_action = Some(arg);
-            }
-            // If we already have an action and this is another argument, it's an error.
-            _ => {
-                panic!("`client_task` macro expects at most one action argument.");
-            }
-        }
+    if args.len() > 1 {
+        panic!("`client_task` macro expects at most one argument for action.");
+    }
+
+    if let Some(arg) = args.into_iter().next() {
+        static_action = Some(arg);
     }
 
     if let syn::Data::Struct(syn::DataStruct { fields: Fields::Named(fields), .. }) = &mut ast.data
