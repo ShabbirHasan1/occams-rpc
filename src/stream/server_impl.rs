@@ -44,13 +44,14 @@ where
         }
     }
 
-    pub fn listen(&mut self, addr: &str) -> io::Result<()> {
+    pub fn listen(&mut self, addr: &str) -> io::Result<std::net::SocketAddr> {
         match <<F::Transport as ServerTransport<F>>::Listener as AsyncListener>::bind(addr) {
             Err(e) => {
                 error!("bind addr {:?} err: {:?}", addr, e);
                 return Err(e);
             }
             Ok(mut listener) => {
+                let local_addr = listener.local_addr().unwrap();
                 let (abort_handle, abort_registration) = AbortHandle::new_pair();
                 let factory = self.factory.clone();
                 let conn_ref_count = self.conn_ref_count.clone();
@@ -86,7 +87,7 @@ where
                 });
                 self.factory.spawn_detach(abrt);
                 self.listeners_abort.push((abort_handle, listener_info));
-                return Ok(());
+                return Ok(local_addr);
             }
         }
     }
