@@ -113,4 +113,4 @@ The `#[client_task_enum]` will implement `From` to assist convertion from it's v
 
 ## User Responsibilities
 
-While the macro handles much of the boilerplate for encoding and decoding, users are still responsible for implementing other aspects of their `RpcClientTask`, such as any logic for handling the task's result (e.g., `set_result()`).
+While the macro handles much of the boilerplate for encoding and decoding, users are still responsible for implementing other aspects of their `RpcClientTaskDone`, define logic for handling the task's result (e.g., `set_result()`).

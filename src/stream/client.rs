@@ -114,6 +114,7 @@ pub trait ClientTask:
     ClientTaskAction
     + ClientTaskEncode
     + ClientTaskDecode
+    + ClientTaskDone
     + DerefMut<Target = ClientTaskCommon>
     + Send
     + Sized
@@ -121,7 +122,6 @@ pub trait ClientTask:
     + fmt::Debug
     + Unpin
 {
-    fn set_result(self, res: Result<(), RpcError>);
 }
 
 /// Encode the request to buffer that can be send to server
@@ -146,6 +146,10 @@ pub trait ClientTaskDecode {
     fn reserve_resp_blob(&mut self, _size: i32) -> Option<&mut [u8]> {
         None
     }
+}
+
+pub trait ClientTaskDone: Sized + 'static {
+    fn set_result(self, res: Result<(), RpcError>);
 }
 
 pub trait ClientTaskAction {
