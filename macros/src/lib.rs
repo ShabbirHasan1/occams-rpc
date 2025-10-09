@@ -56,7 +56,7 @@ Fields within the struct must be annotated with `#[field(...)]` to specify their
 ### Example:
 
 ```rust
-use occams_rpc::stream::client::{ClientTask, ClientTaskCommon, ClientTaskAction, ClientTaskEncode, ClientTaskDecode};
+use occams_rpc::stream::client::{ClientTask, ClientTaskCommon};
 use occams_rpc::error::RpcError;
 use occams_rpc_macros::client_task;
 use serde_derive::{Deserialize, Serialize};
@@ -73,13 +73,38 @@ pub struct FileIOResp {
     pub bytes_read: u64,
 }
 
+#[derive(PartialEq)]
 #[repr(u8)]
-enum Action {
+enum FileAction {
     Read = 1,
     Write = 2,
 }
 
-#[client_task(action = 1)]
+#[client_task(action = FileAction::Write)]
+#[derive(Debug)]
+pub struct FileWriteTask {
+    #[field(common)]
+    common: ClientTaskCommon,
+    #[field(req)]
+    req: FileIOReq,
+    #[field(req_blob)]
+    req_blob: Vec<u8>,
+    #[field(resp)]
+    resp: Option<FileIOResp>,
+    // Field to store the final result
+    res: Option<Result<(), RpcError>>,
+}
+
+impl ClientTask for FileWriteTask {
+    fn set_result(mut self, res: Result<(), RpcError>) {
+        // Custom logic to handle the task's result
+        self.res = Some(res);
+        // Send to done channel
+        todo!();
+    }
+}
+
+#[client_task(action = FileAction::Read)]
 #[derive(Debug)]
 pub struct FileReadTask {
     #[field(common)]
@@ -88,8 +113,6 @@ pub struct FileReadTask {
     req: FileIOReq,
     #[field(resp)]
     resp: Option<FileIOResp>,
-    #[field(req_blob)]
-    req_blob: Vec<u8>,
     #[field(resp_blob)]
     resp_blob: Option<Vec<u8>>,
     // Field to store the final result
@@ -149,12 +172,18 @@ but if it does, the enum's action will take precedence.
 ### Example:
 
 ```rust
-use occams_rpc::stream::client::{ClientTask, ClientTaskCommon, ClientTaskAction, ClientTaskEncode, ClientTaskDecode};
+use occams_rpc::stream::client::{ClientTask, ClientTaskCommon, ClientTaskAction};
 use occams_rpc::error::RpcError;
 use occams_rpc_macros::{client_task, client_task_enum};
 use serde_derive::{Deserialize, Serialize};
 
-#[client_task(action = 999)] // Action can be a dummy one, it will be overridden
+#[derive(PartialEq)]
+#[repr(u8)]
+enum FileAction {
+    Open = 1,
+    Close = 2,
+}
+
 #[derive(Debug)]
 pub struct FileOpenTask {
     #[field(common)]
@@ -168,7 +197,7 @@ impl ClientTask for FileOpenTask {
     fn set_result(self, _res: Result<(), RpcError>) {}
 }
 
-#[client_task(action = 3)] // This action will be used as the variant doesn't specify one
+#[client_task(FileAction::Close)] // This action will be used as the variant doesn't specify one
 #[derive(Debug)]
 pub struct FileCloseTask {
     #[field(common)]
@@ -182,11 +211,10 @@ impl ClientTask for FileCloseTask {
     fn set_result(self, _res: Result<(), RpcError>) {}
 }
 
-
 #[client_task_enum]
 #[derive(Debug)]
 pub enum FileTask {
-    #[action(1)]
+    #[action(FileAction::Open)]
     Open(FileOpenTask),
     // This variant delegates action to the inner type
     Close(FileCloseTask),
@@ -250,12 +278,20 @@ struct FileOpenReq { pub path: String, }
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
 struct FileReadReq { pub path: String, pub offset: u64, pub len: u64, }
 
+#[derive(PartialEq)]
+#[repr(u8)]
+enum FileAction {
+    Open=1,
+    Read=2,
+}
+
+
 #[server_task_enum(req, resp)]
 #[derive(Debug)]
 pub enum FileTask {
-    #[action(1)]
+    #[action(FileAction::Open)]
     Open(ServerTaskVariant<FileTask, FileOpenReq>),
-    #[action("read_file")]
+    #[action(FileAction::Read)]
     Read(ServerTaskVariant<FileTask, FileReadReq>),
 }
 ```
