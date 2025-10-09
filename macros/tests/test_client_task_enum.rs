@@ -2,7 +2,8 @@ use occams_rpc::{
     codec::MsgpCodec,
     error::RpcError,
     stream::client::{
-        ClientTask, ClientTaskAction, ClientTaskCommon, ClientTaskDecode, ClientTaskEncode,
+        ClientTask, ClientTaskAction, ClientTaskCommon, ClientTaskDecode, ClientTaskDone,
+        ClientTaskEncode,
     },
     stream::RpcAction,
 };
@@ -20,7 +21,7 @@ struct TaskA {
     res: Option<Result<(), RpcError>>,
 }
 
-impl ClientTask for TaskA {
+impl ClientTaskDone for TaskA {
     fn set_result(mut self, res: Result<(), RpcError>) {
         self.res = Some(res);
     }
@@ -38,7 +39,7 @@ struct TaskB {
     res: Option<Result<(), RpcError>>,
 }
 
-impl ClientTask for TaskB {
+impl ClientTaskDone for TaskB {
     fn set_result(mut self, res: Result<(), RpcError>) {
         self.res = Some(res);
     }
@@ -60,7 +61,7 @@ struct TaskC {
     res: Option<Result<(), RpcError>>,
 }
 
-impl ClientTask for TaskC {
+impl ClientTaskDone for TaskC {
     fn set_result(mut self, res: Result<(), RpcError>) {
         self.res = Some(res);
     }
@@ -144,7 +145,7 @@ fn test_client_task_enum_with_action_attribute() {
         res: Option<Result<(), RpcError>>,
     }
 
-    impl ClientTask for TaskNoAction {
+    impl ClientTaskDone for TaskNoAction {
         fn set_result(mut self, res: Result<(), RpcError>) {
             self.res = Some(res);
         }

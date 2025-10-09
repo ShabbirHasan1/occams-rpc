@@ -85,29 +85,31 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
                 _ => panic!("Unsupported action type"),
             }
         } else {
-            quote! { #enum_name::#variant_name(inner) => inner.get_action(), }
+            quote! {
+                #enum_name::#variant_name(inner) => occams_rpc::stream::client::ClientTaskAction::get_action(inner),
+            }
         };
 
         get_action_arms.push(action_arm);
 
         encode_req_arms.push(quote! {
-            #enum_name::#variant_name(inner) => inner.encode_req(codec),
+            #enum_name::#variant_name(inner) => occams_rpc::stream::client::ClientTaskEncode::encode_req(inner, codec),
         });
 
         get_req_blob_arms.push(quote! {
-            #enum_name::#variant_name(inner) => inner.get_req_blob(),
+            #enum_name::#variant_name(inner) => occams_rpc::stream::client::ClientTaskEncode::get_req_blob(inner),
         });
 
         decode_resp_arms.push(quote! {
-            #enum_name::#variant_name(inner) => inner.decode_resp(codec, buffer),
+            #enum_name::#variant_name(inner) => occams_rpc::stream::client::ClientTaskDecode::decode_resp(inner, codec, buffer),
         });
 
         reserve_resp_blob_arms.push(quote! {
-            #enum_name::#variant_name(inner) => inner.reserve_resp_blob(size),
+            #enum_name::#variant_name(inner) => occams_rpc::stream::client::ClientTaskDecode::reserve_resp_blob(inner, size),
         });
 
         set_result_arms.push(quote! {
-            #enum_name::#variant_name(inner) => inner.set_result(res),
+            #enum_name::#variant_name(inner) => occams_rpc::stream::client::ClientTask::set_result(inner, res),
         });
 
         deref_arms.push(quote! {
@@ -177,13 +179,15 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
             }
         }
 
-        impl occams_rpc::stream::client::ClientTask for #enum_name {
+        impl occams_rpc::stream::client::ClientTaskDone for #enum_name {
             fn set_result(self, res: Result<(), occams_rpc::error::RpcError>) {
                 match self {
                     #(#set_result_arms)*
                 }
             }
         }
+
+        impl occams_rpc::stream::client::ClientTask for #enum_name {}
     };
 
     TokenStream::from(expanded)

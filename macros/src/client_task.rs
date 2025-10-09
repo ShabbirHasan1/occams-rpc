@@ -196,7 +196,7 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
             }
         }
 
-        impl ClientTaskEncode for #struct_name {
+        impl occams_rpc::stream::client::ClientTaskEncode for #struct_name {
             fn encode_req<C: occams_rpc::codec::Codec>(&self, codec: &C) -> Result<Vec<u8>, ()> {
                 codec.encode(&self.#req_field_name)
             }
@@ -204,7 +204,7 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
             #get_req_blob_body
         }
 
-        impl ClientTaskDecode for #struct_name {
+        impl occams_rpc::stream::client::ClientTaskDecode for #struct_name {
             fn decode_resp<C: occams_rpc::codec::Codec>(&mut self, codec: &C, buffer: &[u8]) -> Result<(), ()> {
                 let resp = codec.decode(buffer)?;
                 self.#resp_field_name = Some(resp);
