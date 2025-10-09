@@ -106,7 +106,7 @@ impl From<SubTask1> for ServerTask {
 }
 ```
 
-The macro should filter potential duplicate types inside the variants.
+The macro should forbid potential duplicate types inside the variants.
 
 ## Requirements
 

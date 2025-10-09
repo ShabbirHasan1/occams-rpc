@@ -171,7 +171,8 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
         }
 
         let inner_type_str = quote! {#inner_type}.to_string();
-        if *inner_type_counts.get(&inner_type_str).unwrap_or(&0) == 1 {
+        let count = *inner_type_counts.get(&inner_type_str).unwrap_or(&0);
+        if count == 1 {
             // Only generate if count is 1, prevent duplicate sub-types
             from_impls.push(quote! {
                 impl From<#inner_type> for #enum_name {
@@ -181,6 +182,9 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
                     }
                 }
             });
+        } else if count > 1 {
+            // Explicitly panic if a duplicate sub-type is found
+            panic!("Duplicate sub-type `{}` found in enum `{}`. `From` implementation cannot be generated for duplicate sub-types.", inner_type_str, enum_name);
         }
         if has_resp {
             encode_arms.push(quote! {
@@ -360,9 +364,34 @@ fn test_missing_resp_type() {}
 /// struct MyMsg;
 /// #[server_task_enum(req)]
 /// pub enum MissingActionAttribute {
-///     Task1(MyMsg), // Missing #[action]
+///     Task1(MyMsg),
 /// }
 /// ```
 #[doc(hidden)]
 #[allow(dead_code)]
 fn test_missing_action_attribute() {}
+
+/// ```compile_fail
+/// use occams_rpc_macros::server_task_enum;
+/// use occams_rpc::stream::server_impl::ServerTaskVariant;
+/// use occams_rpc::stream::server::RespNoti;
+/// use occams_rpc::stream::RpcActionOwned;
+/// use serde_derive::{Deserialize, Serialize};
+///
+/// #[derive(Default, Deserialize, Serialize)]
+/// pub struct MyServerReq;
+///
+/// #[server_task_enum(req, resp_type=MyServerResp)]
+/// pub enum MyServerEnumTask {
+///     #[action(1)]
+///     VariantA(ServerTaskVariant<MyServerResp, MyServerReq>),
+///     #[action(2)]
+///     VariantB(ServerTaskVariant<MyServerResp, MyServerReq>), // Duplicate sub-type MyServerReq
+/// }
+///
+/// #[derive(Default, Debug)]
+/// pub struct MyServerResp;
+/// ```
+#[doc(hidden)]
+#[allow(dead_code)]
+fn test_server_task_enum_duplicate_subtype() {}

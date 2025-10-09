@@ -72,7 +72,8 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
         };
 
         let inner_type_str = quote! {#inner_type}.to_string();
-        if *inner_type_counts.get(&inner_type_str).unwrap_or(&0) == 1 {
+        let count = *inner_type_counts.get(&inner_type_str).unwrap_or(&0);
+        if count == 1 {
             from_impls.push(quote! {
                 impl From<#inner_type> for #enum_name {
                     #[inline]
@@ -81,6 +82,9 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
                     }
                 }
             });
+        } else if count > 1 {
+            // Explicitly panic if a duplicate sub-type is found
+            panic!("Duplicate sub-type `{}` found in enum `{}`. `From` implementation cannot be generated for duplicate sub-types.", inner_type_str, enum_name);
         }
 
         let action_meta = get_action_attribute(variant);
@@ -227,3 +231,40 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
 
     TokenStream::from(expanded)
 }
+
+/// ```compile_fail
+/// use occams_rpc_macros::{client_task, client_task_enum};
+/// use occams_rpc::stream::client::ClientTaskCommon;
+/// use occams_rpc::error::RpcError;
+/// use crossfire::MTx;
+/// use serde_derive::{Deserialize, Serialize};
+///
+/// #[derive(Default, Deserialize, Serialize)]
+/// pub struct MyTaskReq;
+///
+/// #[derive(Default, Deserialize, Serialize)]
+/// pub struct MyTaskResp;
+///
+/// #[client_task]
+/// pub struct TaskA {
+///     #[field(common)]
+///     common: ClientTaskCommon,
+///     #[field(req)]
+///     req: MyTaskReq,
+///     #[field(resp)]
+///     resp: Option<MyTaskResp>,
+///     #[field(res)]
+///     res: Option<Result<(), RpcError>>,
+///     #[field(noti)]
+///     noti: Option<MTx<MyEnumTask>>,
+/// }
+///
+/// #[client_task_enum]
+/// pub enum MyEnumTask {
+///     VariantA(TaskA),
+///     VariantB(TaskA), // Duplicate sub-type TaskA
+/// }
+/// ```
+#[doc(hidden)]
+#[allow(dead_code)]
+fn test_client_task_enum_duplicate_subtype() {}
