@@ -425,13 +425,13 @@ where
     R: Send + Unpin + 'static,
     P: Send + Unpin + 'static,
 {
-    seq: u64,
-    action: RpcActionOwned,
-    req: R,
-    req_blob: Option<Buffer>,
-    resp: Option<P>,
-    resp_blob: Option<Buffer>,
-    res: Option<Result<(), RpcError>>,
+    pub seq: u64,
+    pub action: RpcActionOwned,
+    pub req: R,
+    pub req_blob: Option<Buffer>,
+    pub resp: Option<P>,
+    pub resp_blob: Option<Buffer>,
+    pub res: Option<Result<(), RpcError>>,
     done_tx: Option<RespNoti<T>>,
 }
 

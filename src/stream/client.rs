@@ -10,7 +10,6 @@ use std::fmt;
 use std::future::Future;
 use std::io;
 use std::ops::DerefMut;
-use std::sync::{Arc, atomic::AtomicU64};
 
 pub trait ClientFactory: Send + Sync + Sized + 'static {
     /// Define the codec to serialization and deserialization
