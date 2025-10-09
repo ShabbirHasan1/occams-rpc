@@ -219,6 +219,47 @@ pub fn client_task_enum(
     client_task_enum::client_task_enum_impl(attrs, input)
 }
 
+/**
+# `#[server_task_enum]`
+
+The `#[server_task_enum]` macro streamlines the creation of server-side task enums.
+When applied to an enum, it automatically implements necessary traits for processing RPC requests,
+reducing boilerplate and improving code maintainability.
+
+### Macro Arguments:
+
+* `req`: Indicates that the enum handles requests. When specified, each variant must have an `#[action(...)]` attribute.
+* `resp`: Indicates that the enum handles responses.
+* `resp_type = <Type>`: Required if `req` is specified but `resp` is not. Defines the response type.
+
+### Variant Attributes:
+
+* `#[action(...)]`: Associates an RPC action (numeric, string, or enum value) with an enum variant.
+  Multiple actions can be specified (e.g., `#[action(1, 2, "read")]`).
+
+### Example:
+
+```rust
+use occams_rpc::stream::server_impl::ServerTaskVariant;
+use occams_rpc_macros::server_task_enum;
+use serde_derive::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
+struct FileOpenReq { pub path: String, }
+
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
+struct FileReadReq { pub path: String, pub offset: u64, pub len: u64, }
+
+#[server_task_enum(req, resp)]
+#[derive(Debug)]
+pub enum FileTask {
+    #[action(1)]
+    Open(ServerTaskVariant<FileTask, FileOpenReq>),
+    #[action("read_file")]
+    Read(ServerTaskVariant<FileTask, FileReadReq>),
+}
+```
+*/
 #[proc_macro_attribute]
 pub fn server_task_enum(
     attrs: proc_macro::TokenStream, input: proc_macro::TokenStream,
