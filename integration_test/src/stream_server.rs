@@ -12,7 +12,7 @@ use occams_rpc::*;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 
-use super::stream_client::{FileIOReq, FileIOResp, FileOpenReq};
+use super::stream_client::{FileAction, FileIOReq, FileIOResp, FileOpenReq};
 use captains_log::filter::LogFilter;
 
 pub struct FileServer {
@@ -20,8 +20,6 @@ pub struct FileServer {
 }
 
 impl ServerFactory for FileServer {
-    type Codec = MsgpCodec;
-
     type Logger = captains_log::filter::LogFilter;
 
     type Transport = occams_rpc_tcp::TcpServer<Self>;
@@ -30,6 +28,17 @@ impl ServerFactory for FileServer {
     type IO = occams_rpc_tokio::TokioRT;
     #[cfg(not(feature = "tokio"))]
     type IO = occams_rpc_smol::SmolRT;
+
+    type RespReceiver = RespReceiverTask<FileServerTask>;
+
+    fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespReceiver> {
+        async fn dispatch(task: FileServerTask) -> Result<(), ()> {
+            todo!();
+        }
+        return TaskReqDispatch::<MsgpCodec, FileServerTask, Self::RespReceiver, _, _>::new(
+            dispatch,
+        );
+    }
 
     #[inline]
     fn spawn_detach<F, R>(&self, f: F)
@@ -59,13 +68,13 @@ impl ServerFactory for FileServer {
     }
 }
 
-#[server_task_enum]
+#[server_task_enum(req, resp)]
 pub enum FileServerTask {
+    #[action(FileAction::Open)]
     Open(ServerTaskOpen),
-    Read(ServerTaskRead),
-    Write(ServerTaskWrite),
+    #[action(FileAction::Read, FileAction::Write)]
+    IO(ServerTaskIO),
 }
 
 pub type ServerTaskOpen = ServerTaskVariantFull<FileServerTask, FileOpenReq, ()>;
-pub type ServerTaskRead = ServerTaskVariantFull<FileServerTask, FileIOReq, FileIOResp>;
-pub type ServerTaskWrite = ServerTaskVariantFull<FileServerTask, FileIOReq, FileIOResp>;
+pub type ServerTaskIO = ServerTaskVariantFull<FileServerTask, FileIOReq, FileIOResp>;

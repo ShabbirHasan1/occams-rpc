@@ -15,3 +15,4 @@ captains-log = "0.14"
 crossfire = "2.1"
 smol = "2"
 tokio = { version = "1", features = ["net", "time", "rt"] }
+io-buffer = "1"

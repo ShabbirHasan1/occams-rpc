@@ -292,6 +292,7 @@ where
     }
 }
 
+/// For the stream interface
 pub struct RespReceiverTask<T: ServerTaskResp>(PhantomData<fn(&T)>);
 
 impl<T: ServerTaskResp> RespReceiver for RespReceiverTask<T> {
@@ -305,6 +306,7 @@ impl<T: ServerTaskResp> RespReceiver for RespReceiverTask<T> {
     }
 }
 
+/// For the API interface
 pub struct RespReceiverBuf();
 impl RespReceiver for RespReceiverBuf {
     type ChannelItem = RpcSvrResp;

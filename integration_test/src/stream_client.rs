@@ -66,28 +66,15 @@ pub enum FileAction {
     Write = 3,
 }
 
+#[derive(Debug)]
 #[client_task_enum]
 pub enum FileClientTask {
+    #[action(FileAction::Open)]
     Open(FileClientTaskOpen),
+    #[action(FileAction::Read)]
     Read(FileClientTaskRead),
+    #[action(FileAction::Write)]
     Write(FileClientTaskWrite),
-}
-
-macro_rules! impl_client_task {
-    ($cls: path) => {
-        impl ClientTaskDone for $cls {
-            fn set_result(self, res: Result<(), RpcError>) {
-                self.res.replace(res);
-                self.sender.send(self.into());
-            }
-        }
-
-        impl fmt::Debug for $cls {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                write!(f, "{} seq={} {}", $cls, self.common.seq, self.req)
-            }
-        }
-    };
 }
 
 #[derive(Default, Deserialize, Serialize, Debug)]
@@ -95,23 +82,29 @@ pub struct FileOpenReq {
     pub path: String,
 }
 
-#[client_task(action=FileAction::Open)]
+#[client_task(debug)]
 pub struct FileClientTaskOpen {
     #[field(common)]
     common: ClientTaskCommon,
     #[field(req)]
     req: FileOpenReq,
     #[field(resp)]
-    resp: (),
+    resp: Option<()>,
+    #[field(res)]
     res: Option<Result<(), RpcError>>,
-    sender: MTx<FileClientTask>,
+    #[field(noti)]
+    sender: Option<MTx<FileClientTask>>,
 }
 
-impl_client_task!(FileClientTaskOpen);
-
 impl FileClientTaskOpen {
-    pub fn new(sender: MTx<Self>, path: String) -> Self {
-        Self { common: Default::default(), sender, req: FileOpenReq { path }, res: None, resp: () }
+    pub fn new(sender: MTx<FileClientTask>, path: String) -> Self {
+        Self {
+            common: Default::default(),
+            sender: Some(sender),
+            req: FileOpenReq { path },
+            res: None,
+            resp: None,
+        }
     }
 }
 
@@ -127,7 +120,7 @@ pub struct FileIOResp {
     pub ret_size: u64,
 }
 
-#[client_task(action=FileAction::Read)]
+#[client_task(debug)]
 pub struct FileClientTaskRead {
     #[field(common)]
     common: ClientTaskCommon,
@@ -136,27 +129,27 @@ pub struct FileClientTaskRead {
     #[field(resp)]
     resp: Option<FileIOResp>,
     #[field(resp_blob)]
-    read_result: Option<Buffer>,
+    read_data: Option<Buffer>,
+    #[field(res)]
     res: Option<Result<(), RpcError>>,
-    sender: MTx<Self>,
+    #[field(noti)]
+    sender: Option<MTx<FileClientTask>>,
 }
 
-impl_client_task!(FileClientTaskRead);
-
 impl FileClientTaskRead {
-    pub fn new(sender: MTx<Self>, inode: u64, offset: i64, len: usize) -> Self {
+    pub fn new(sender: MTx<FileClientTask>, inode: u64, offset: i64, len: usize) -> Self {
         Self {
             common: Default::default(),
-            sender,
+            sender: Some(sender),
             res: None,
             req: FileIOReq { inode, offset, len },
             resp: None,
-            data: None,
+            read_data: None,
         }
     }
 }
 
-#[client_task(action=FileAction::Write)]
+#[client_task(debug)]
 pub struct FileClientTaskWrite {
     #[field(common)]
     common: ClientTaskCommon,
@@ -166,17 +159,17 @@ pub struct FileClientTaskWrite {
     data: Buffer,
     #[field(resp)]
     resp: Option<FileIOResp>,
+    #[field(res)]
     res: Option<Result<(), RpcError>>,
-    sender: MTx<Self>,
+    #[field(noti)]
+    sender: Option<MTx<FileClientTask>>,
 }
 
-impl_client_task!(FileClientTaskWrite);
-
 impl FileClientTaskWrite {
-    pub fn new(sender: MTx<Self>, inode: u64, offset: i64, data: Buffer) -> Self {
+    pub fn new(sender: MTx<FileClientTask>, inode: u64, offset: i64, data: Buffer) -> Self {
         Self {
             common: Default::default(),
-            sender,
+            sender: Some(sender),
             res: None,
             req: FileIOReq { inode, offset, len: data.len() },
             data,
