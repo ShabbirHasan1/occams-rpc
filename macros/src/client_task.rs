@@ -31,6 +31,8 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
     let mut resp_blob_field: Option<(Ident, Type)> = None;
     let mut field_action: Option<(Ident, Type)> = None; // For #[field(action)]
     let mut static_action: Option<NestedMeta> = None; // For #[client_task(action)]
+    let mut res_field: Option<(Ident, Type)> = None;
+    let mut noti_field: Option<(Ident, Type)> = None;
 
     // Iterate through the arguments to find the action.
     // We expect at most one action argument, either direct or with `action =` / `action(...)`.
@@ -67,6 +69,8 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
                                             }
                                             field_action = Some((f_name, f_type));
                                         }
+                                        "res" => res_field = Some((f_name, f_type)),
+                                        "noti" => noti_field = Some((f_name, f_type)),
                                         _ => {}
                                     }
                                 }
@@ -84,6 +88,10 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
     // Check for mutual exclusivity
     if field_action.is_some() && static_action.is_some() {
         panic!("Cannot specify both #[field(action)] and #[client_task(action = ...)] attributes.");
+    }
+
+    if res_field.is_some() != noti_field.is_some() {
+        panic!("#[field(res)] and #[field(noti)] must be specified together.");
     }
 
     let (common_field_name, common_field_type) =
@@ -167,10 +175,28 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
         quote! {}
     };
 
+    let client_task_done_impl = if let (Some((res_field_name, _)), Some((noti_field_name, _))) =
+        (&res_field, &noti_field)
+    {
+        quote! {
+            impl occams_rpc::stream::client::ClientTaskDone for #struct_name {
+                fn set_result(mut self, res: Result<(), occams_rpc::error::RpcError>) {
+                    self.#res_field_name.replace(res);
+                    let noti = self.#noti_field_name.take().unwrap();
+                    let _ = noti.send(self.into());
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let expanded = quote! {
         #ast
 
         #client_task_action_impl
+
+        #client_task_done_impl
 
         impl std::ops::Deref for #struct_name {
             type Target = #common_field_type;

@@ -1,6 +1,10 @@
+use crossfire::*;
 use occams_rpc::{
     codec::{Codec, MsgpCodec},
-    stream::client::{ClientTaskAction, ClientTaskCommon, ClientTaskDecode, ClientTaskEncode},
+    error::RpcError,
+    stream::client::{
+        ClientTaskAction, ClientTaskCommon, ClientTaskDecode, ClientTaskDone, ClientTaskEncode,
+    },
 };
 use occams_rpc_macros::client_task;
 use serde_derive::{Deserialize, Serialize};
@@ -344,4 +348,55 @@ fn test_client_task_macro_static_action() {
         new_task_enum.get_action(),
         occams_rpc::stream::RpcAction::Num(Action::Write as i32)
     );
+}
+
+#[test]
+fn test_client_task_macro_with_done() {
+    #[client_task]
+    #[derive(Debug)]
+    pub struct TaskWithDone {
+        #[field(common)]
+        common: ClientTaskCommon,
+        #[field(req)]
+        req: (),
+        #[field(resp)]
+        resp: Option<()>,
+        #[field(res)]
+        res: Option<Result<(), RpcError>>,
+        #[field(noti)]
+        noti: Option<MTx<Self>>,
+    }
+
+    // Test with Ok result
+    let (done_tx, done_rx) = mpsc::unbounded_blocking();
+    let task_ok = TaskWithDone {
+        common: ClientTaskCommon { seq: 1, ..Default::default() },
+        req: (),
+        resp: None,
+        res: None,
+        noti: Some(done_tx.clone()),
+    };
+
+    task_ok.set_result(Ok(()));
+
+    let received_task_ok = done_rx.recv().unwrap();
+    assert_eq!(received_task_ok.common.seq, 1);
+    assert_eq!(received_task_ok.res, Some(Ok(())));
+    assert!(received_task_ok.noti.is_none());
+
+    // Test with Err result
+    let task_err = TaskWithDone {
+        common: ClientTaskCommon { seq: 2, ..Default::default() },
+        req: (),
+        resp: None,
+        res: None,
+        noti: Some(done_tx.clone()),
+    };
+
+    task_err.set_result(Err(RpcError::Num(2)));
+
+    let received_task_err = done_rx.recv().unwrap();
+    assert_eq!(received_task_err.common.seq, 2);
+    assert_eq!(received_task_err.res, Some(Err(RpcError::Num(2))));
+    assert!(received_task_err.noti.is_none());
 }

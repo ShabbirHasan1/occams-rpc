@@ -17,125 +17,92 @@ mod server_task_enum;
 /// # `#[client_task]`
 ///
 /// The `#[client_task]` attribute macro is used on a struct to designate it as a client-side RPC task.
-/// It automatically implements `ClientTaskAction`, `ClientTaskEncode`, `ClientTaskDecode`, and `Deref`/`DerefMut`
-/// to a common field.
+/// It simplifies implementation by generating boilerplate code for several traits.
 ///
-/// To make the struct a complete RPC task, you must also implement the `ClientTask` trait, which primarily
-/// involves providing a `set_result` method. By implementing `ClientTask` and using the macro,
-/// the struct will automatically satisfy the bounds for `RpcClientTask`.
+/// The macro always generates:
+/// - `Deref` and `DerefMut` to the field marked `#[field(common)]`.
+/// - `ClientTaskEncode` for the `#[field(req)]` and `#[field(req_blob)]` fields.
+/// - `ClientTaskDecode` for the `#[field(resp)]` and `#[field(resp_blob)]` fields.
 ///
-/// Optionally you can define a static action for the task, with syntax `#[client_task(...)]`, which can be a number, a string,
-///  or an enum variant. This is an exclusive with the syntax `#[field(action)]`.
-///
-///
-/// Fields within the struct must be annotated with `#[field(...)]` to specify their role.
+/// The macro can also conditionally generate:
+/// - `ClientTaskAction`: Generated if a static action is provided (e.g., `#[client_task(1)]`) or if a field is marked `#[field(action)]`.
+/// - `ClientTaskDone`: Generated if both `#[field(res)]` and `#[field(noti)]` are present. If not generated, you must implement this trait manually.
 ///
 /// ### Field Attributes:
 ///
 /// * `#[field(common)]`: **(Mandatory)** Marks a field that holds common task information (e.g., `ClientTaskCommon`).
-///   The macro generates `Deref` and `DerefMut` implementations that delegate to this field,
-///   allowing direct access to its members (like `seq`).
+///   Allows direct access to members like `seq` via `Deref`.
 ///
-/// * `#[field(action)]`: Specifies a field that dynamicly represent the RPC action. The field's value will be
-///   used to identify the task on the server. This is mutually exclusive with `#[client_task(action = ...)]`.
+/// * `#[field(action)]`: Specifies a field that dynamically provides the RPC action. Mutually exclusive with a static action in `#[client_task(...)`.
 ///
-/// * `#[field(req)]`: **(Mandatory)** Designates the field containing the request payload for the RPC call.
-///   This field's content is serialized for the request.
+/// * `#[field(req)]`: **(Mandatory)** Designates the field for the request payload.
 ///
-/// * `#[field(resp)]`: **(Mandatory)** Designates the field where the decoded response will be stored.
-///   This field must be of type `Option<T>`.
+/// * `#[field(resp)]`: **(Mandatory)** Designates the field for the response payload, which must be an `Option<T>`.
 ///
-/// * `#[field(req_blob)]`: (Optional) Marks a field for sending additional binary data (blob)
-///   with the request. The field type must implement `AsRef<[u8]>`.
+/// * `#[field(req_blob)]`: (Optional) Marks a field for an optional request blob. Must implement `AsRef<[u8]>`.
 ///
-/// * `#[field(resp_blob)]`: (Optional) Marks a field for receiving additional binary data (blob)
-///   with the response. The field type must be `Option<T>` where `T` implements `occams_rpc::io::AllocateBuf`.
+/// * `#[field(resp_blob)]`: (Optional) Marks a field for an optional response blob. Must be `Option<T>` where `T` implements `occams_rpc::io::AllocateBuf`.
 ///
-/// ### Example:
+/// * `#[field(res)]`: (Optional) When used with `#[field(noti)]`, triggers automatic `ClientTaskDone` implementation.
+///   Must be of type `Option<Result<(), RpcError>>`. Stores the final result of the task.
+///
+/// * `#[field(noti)]`: (Optional) When used with `#[field(res)]`, triggers automatic `ClientTaskDone` implementation.
+///   Must be an `Option` wrapping a channel sender (e.g., `Option<crossfire::mpsc::MTx<Self>>`) to notify of task completion.
+///
+/// ### Example of Automatic `ClientTaskDone`
 ///
 /// ```rust
-/// use occams_rpc::stream::client::{ClientTask, ClientTaskCommon, ClientTaskDone};
+/// use occams_rpc::stream::client::{ClientTaskCommon, ClientTaskDone};
 /// use occams_rpc::error::RpcError;
 /// use occams_rpc_macros::client_task;
 /// use serde_derive::{Deserialize, Serialize};
-/// use std::ops::{Deref, DerefMut};
+/// use crossfire::mpsc;
 ///
-/// #[derive(Default, Deserialize, Serialize, Debug, PartialEq, Clone)]
-/// pub struct FileIOReq {
+/// #[derive(Default, Deserialize, Serialize)]
+/// pub struct FileReadReq {
 ///     pub path: String,
 ///     pub offset: u64,
+///     pub len: u64,
 /// }
 ///
-/// #[derive(Default, Deserialize, Serialize, Debug, PartialEq)]
-/// pub struct FileIOResp {
+/// #[derive(Default, Deserialize, Serialize)]
+/// pub struct FileReadResp {
 ///     pub bytes_read: u64,
 /// }
 ///
-/// #[derive(PartialEq)]
-/// #[repr(u8)]
-/// enum FileAction {
-///     Read = 1,
-///     Write = 2,
-/// }
-///
-/// #[client_task(FileAction::Write)]
-/// #[derive(Debug)]
-/// pub struct FileWriteTask {
-///     #[field(common)]
-///     common: ClientTaskCommon,
-///     #[field(req)]
-///     req: FileIOReq,
-///     #[field(req_blob)]
-///     req_blob: Vec<u8>,
-///     #[field(resp)]
-///     resp: Option<FileIOResp>,
-///     // Field to store the final result
-///     res: Option<Result<(), RpcError>>,
-/// }
-///
-/// impl ClientTaskDone for FileWriteTask {
-///     fn set_result(mut self, res: Result<(), RpcError>) {
-///         // Custom logic to handle the task's result
-///         self.res = Some(res);
-///         // Send to done channel
-///         todo!();
-///     }
-/// }
-///
-/// #[client_task(FileAction::Read)]
+/// // A task with automatic `ClientTaskDone` implementation.
+/// #[client_task(1)]
 /// #[derive(Debug)]
 /// pub struct FileReadTask {
 ///     #[field(common)]
 ///     common: ClientTaskCommon,
 ///     #[field(req)]
-///     req: FileIOReq,
+///     req: FileReadReq,
 ///     #[field(resp)]
-///     resp: Option<FileIOResp>,
-///     #[field(resp_blob)]
-///     resp_blob: Option<Vec<u8>>,
-///     // Field to store the final result
+///     resp: Option<FileReadResp>,
+///     #[field(res)]
 ///     res: Option<Result<(), RpcError>>,
-/// }
-///
-/// impl ClientTaskDone for FileReadTask {
-///     fn set_result(mut self, res: Result<(), RpcError>) {
-///         // Custom logic to handle the task's result
-///         self.res = Some(res);
-///     }
+///     #[field(noti)]
+///     noti: Option<mpsc::MTx<Self>>,
 /// }
 ///
 /// // Usage
-/// let mut task = FileReadTask {
+/// let (tx, rx) = mpsc::unbounded_blocking::<FileReadTask>();
+/// let task = FileReadTask {
 ///     common: ClientTaskCommon { seq: 1, ..Default::default() },
-///     req: FileIOReq { path: "/path/to/file".to_string(), offset: 0 },
+///     req: FileReadReq { path: "/path/to/file".to_string(), offset: 0, len: 1024 },
 ///     resp: None,
-///     resp_blob: Some(Vec::new()),
 ///     res: None,
+///     noti: Some(tx),
 /// };
 ///
-/// // Access common fields directly
-/// task.set_seq(123);
-/// assert_eq!(task.seq, 123);
+/// // When the task is done, `set_result` is called.
+/// // The macro-generated implementation will populate `res` and send the task through `noti`.
+/// task.set_result(Ok(()));
+///
+/// let completed_task = rx.recv().unwrap();
+/// assert_eq!(completed_task.common.seq, 1);
+/// assert!(completed_task.res.is_some() && completed_task.res.as_ref().unwrap().is_ok());
 /// ```
 #[proc_macro_attribute]
 pub fn client_task(
@@ -187,6 +154,7 @@ pub fn client_task(
 ///     req: String,
 ///     #[field(resp)]
 ///     resp: Option<()>,
+///     #[field(res)]
 ///     res: Option<Result<(), RpcError>>,
 /// }
 /// impl ClientTaskDone for FileOpenTask {
@@ -206,7 +174,8 @@ pub fn client_task(
 ///     req: (),
 ///     #[field(resp)]
 ///     resp: Option<()>,
-///     resp: Option<()>,
+///     #[field(res)]
+///     res: Option<()>,
 /// }
 /// impl ClientTaskDone for FileCloseTask {
 ///     fn set_result(self, res: Result<(), RpcError>) {

@@ -97,8 +97,10 @@ The macro processes specific fields within the task struct based on the `#[field
     *   **Requirements:** This field is optional. If present, its type *must* be `Option<T>`, where `T` implements `occams_rpc::io::AllocateBuf`. The macro implements `ClientTaskDecode::get_resp_blob_mut`, returning a mutable reference to this `Option<T>`.
 
 *  `#[field(res)]` and `#[field(noti)]`:
-    *   Purpose: When both present, Generate ClientTaskDone trait
-    *   requirements: the `res` fielid required to be `Option<Result<(), RpcError>>`, and the `noti` field require to be `Option<crossfire::MTx>`, or other unbounded channel has a send() method:
+    *   **Purpose:** When both are present, the macro generates an implementation of the `ClientTaskDone` trait. This is used to signal the completion of a task and deliver its result.
+    *   **Requirements:**
+        *   The field marked with `#[field(res)]` must be of type `Option<Result<(), RpcError>>`. This field will be populated with the task's outcome (`Ok(())` for success, `Err(RpcError)` for failure).
+        *   The field marked with `#[field(noti)]` must be an `Option` wrapping a channel sender (e.g., `Option<crossfire::mpsc::MTx<Self>>`). When the task is completed, the entire task struct (with the `res` field populated) is sent through this channel.
 
 
 ## Generated Trait Implementations
@@ -117,11 +119,14 @@ The `#[client_task]` macro automatically generates the following trait implement
     *   `get_resp_blob_mut(&mut self) -> Option<&mut impl occams_rpc::io::AllocateBuf>`: If `#[field(resp_blob)]` is present, returns `Some` mutable reference to the response blob `Option<T>`; otherwise, it returns `None`.
 
 *   `ClientTaskDone`:
+    *   This trait is implemented when `#[field(res)]` and `#[field(noti)]` are present.
     ```rust
     impl occams_rpc::stream::client::ClientTaskDone for T {
-        fn set_result(self, res: Result<(), Error>) {
-            let noti = self.noti.take();
-            let _ = crossfire::BlockingTxTrait::send(&noti, self.into());
+        fn set_result(mut self, res: Result<(), RpcError>) {
+            self.res = Some(res);
+            if let Some(noti) = self.noti.take() {
+                noti.send(self.into()).ok();
+            }
         }
     }
     ```
@@ -144,6 +149,8 @@ The `#[client_task_enum]` will implement `From` to assist convertion from it's v
 
 ## User Responsibilities
 
-While the macro handles much of the boilerplate for encoding and decoding, users are still responsible for implementing other aspects of their `RpcClientTaskDone`, define logic for handling the task's result (e.g., `set_result()`).
+Users are always responsible for calling `set_result()` to signal task completion.
+
+If the `#[field(res)]` and `#[field(noti)]` attributes are not used, the user must also implement the `ClientTaskDone` trait, which provides the `set_result()` method. When these attributes are used, the macro generates this implementation automatically.
 
 **Note:** The implementation of `ClientTaskAction` is optional for structs decorated with `#[client_task]`. If `ClientTaskAction` is not implemented by the struct, then the `#[client_task_enum]` variant wrapping it must provide an `#[action]` attribute.
