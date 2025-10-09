@@ -56,23 +56,22 @@ mod server_task_enum;
 /// use occams_rpc::error::RpcError;
 /// use occams_rpc_macros::client_task;
 /// use serde_derive::{Deserialize, Serialize};
-/// use crossfire::mpsc;
+/// use crossfire::{mpsc, MTx};
 ///
-/// #[derive(Default, Deserialize, Serialize)]
+/// #[derive(Debug, Default, Deserialize, Serialize)]
 /// pub struct FileReadReq {
 ///     pub path: String,
 ///     pub offset: u64,
 ///     pub len: u64,
 /// }
 ///
-/// #[derive(Default, Deserialize, Serialize)]
+/// #[derive(Debug, Default, Deserialize, Serialize)]
 /// pub struct FileReadResp {
 ///     pub bytes_read: u64,
 /// }
 ///
 /// // A task with automatic `ClientTaskDone` implementation.
-/// #[client_task(1)]
-/// #[derive(Debug)]
+/// #[client_task(1, debug)]
 /// pub struct FileReadTask {
 ///     #[field(common)]
 ///     common: ClientTaskCommon,
@@ -83,7 +82,7 @@ mod server_task_enum;
 ///     #[field(res)]
 ///     res: Option<Result<(), RpcError>>,
 ///     #[field(noti)]
-///     noti: Option<mpsc::MTx<Self>>,
+///     noti: Option<MTx<Self>>,
 /// }
 ///
 /// // Usage
@@ -137,16 +136,17 @@ pub fn client_task(
 /// use occams_rpc::error::RpcError;
 /// use occams_rpc_macros::{client_task, client_task_enum};
 /// use serde_derive::{Deserialize, Serialize};
+/// use crossfire::{mpsc, MTx};
 ///
-/// #[derive(PartialEq)]
+/// #[derive(PartialEq, Debug)]
 /// #[repr(u8)]
 /// enum FileAction {
 ///     Open = 1,
 ///     Close = 2,
 /// }
 ///
-/// #[client_task]
-/// #[derive(Debug)]
+/// // Action can be specified in the FileTask enum
+/// #[client_task(debug)]
 /// pub struct FileOpenTask {
 ///     #[field(common)]
 ///     common: ClientTaskCommon,
@@ -156,17 +156,12 @@ pub fn client_task(
 ///     resp: Option<()>,
 ///     #[field(res)]
 ///     res: Option<Result<(), RpcError>>,
-/// }
-/// impl ClientTaskDone for FileOpenTask {
-///     fn set_result(self, res: Result<(), RpcError>) {
-///         self.res.replace(res);
-///         // Set the res and send the task through a channel
-///         todo!();
-///     }
+///     #[field(noti)]
+///     noti: Option<MTx<FileTask>>,
 /// }
 ///
-/// #[client_task(FileAction::Close)] // This action will be used as the variant doesn't specify one
-/// #[derive(Debug)]
+/// // Action can be either with client_task
+/// #[client_task(FileAction::Close, debug)]
 /// pub struct FileCloseTask {
 ///     #[field(common)]
 ///     common: ClientTaskCommon,
@@ -175,14 +170,9 @@ pub fn client_task(
 ///     #[field(resp)]
 ///     resp: Option<()>,
 ///     #[field(res)]
-///     res: Option<()>,
-/// }
-/// impl ClientTaskDone for FileCloseTask {
-///     fn set_result(self, res: Result<(), RpcError>) {
-///         self.res.replace(res);
-///         // send the task through a channel
-///         todo!();
-///     }
+///     res: Option<Result<(), RpcError>>,
+///     #[field(noti)]
+///     noti: Option<MTx<FileTask>>,
 /// }
 ///
 /// #[client_task_enum]
@@ -190,28 +180,43 @@ pub fn client_task(
 /// pub enum FileTask {
 ///     #[action(FileAction::Open)]
 ///     Open(FileOpenTask),
-///     // This variant delegates action to the inner type
 ///     Close(FileCloseTask),
 /// }
 ///
 /// // Usage
+/// let (tx, rx) = mpsc::unbounded_blocking();
+///
+/// // Test Open Task
 /// let open_task = FileOpenTask {
 ///     common: ClientTaskCommon::default(),
 ///     req: "/path/to/file".to_string(),
 ///     resp: None,
+///     res: None,
+///     noti: Some(tx.clone()),
 /// };
 ///
 /// let mut file_task: FileTask = open_task.into();
 /// assert_eq!(file_task.get_action(), occams_rpc::stream::RpcAction::Num(1));
+/// file_task.set_result(Ok(()));
 ///
+/// let received = rx.recv().unwrap();
+/// assert!(matches!(received, FileTask::Open(_)));
+///
+/// // Test Close Task
 /// let close_task = FileCloseTask {
 ///     common: ClientTaskCommon::default(),
 ///     req: (),
 ///     resp: None,
+///     res: None,
+///     noti: Some(tx),
 /// };
 ///
 /// let mut file_task: FileTask = close_task.into();
 /// assert_eq!(file_task.get_action(), occams_rpc::stream::RpcAction::Num(2));
+/// file_task.set_result(Ok(()));
+///
+/// let received = rx.recv().unwrap();
+/// assert!(matches!(received, FileTask::Close(_)));
 /// ```
 #[proc_macro_attribute]
 pub fn client_task_enum(

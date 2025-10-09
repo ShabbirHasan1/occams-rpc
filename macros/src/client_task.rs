@@ -33,15 +33,23 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
     let mut static_action: Option<NestedMeta> = None; // For #[client_task(action)]
     let mut res_field: Option<(Ident, Type)> = None;
     let mut noti_field: Option<(Ident, Type)> = None;
+    let mut gen_debug = false;
 
-    // Iterate through the arguments to find the action.
-    // We expect at most one action argument, either direct or with `action =` / `action(...)`.
-    if args.len() > 1 {
-        panic!("`client_task` macro expects at most one argument for action.");
-    }
-
-    if let Some(arg) = args.into_iter().next() {
-        static_action = Some(arg);
+    for arg in args {
+        match arg {
+            NestedMeta::Meta(Meta::Path(path)) if path.is_ident("debug") => {
+                if gen_debug {
+                    panic!("Duplicate `debug` attribute argument");
+                }
+                gen_debug = true;
+            }
+            action_arg => {
+                if static_action.is_some() {
+                    panic!("Only one action can be specified.");
+                }
+                static_action = Some(action_arg);
+            }
+        }
     }
 
     if let syn::Data::Struct(syn::DataStruct { fields: Fields::Named(fields), .. }) = &mut ast.data
@@ -191,8 +199,26 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
         quote! {}
     };
 
+    let debug_impl = if gen_debug {
+        quote! {
+            impl std::fmt::Debug for #struct_name {
+                fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    write!(f, "{}(seq={} req={:?}", stringify!(#struct_name), self.seq, &self.#req_field_name)?;
+                    if let Some(resp) = &self.#resp_field_name {
+                        write!(f, " resp={:?}", resp)?;
+                    }
+                    write!(f, ")")
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let expanded = quote! {
         #ast
+
+        #debug_impl
 
         #client_task_action_impl
 

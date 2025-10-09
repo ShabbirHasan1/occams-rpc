@@ -400,3 +400,54 @@ fn test_client_task_macro_with_done() {
     assert_eq!(received_task_err.res, Some(Err(RpcError::Num(2))));
     assert!(received_task_err.noti.is_none());
 }
+
+#[test]
+fn test_client_task_macro_with_debug() {
+    // Test with debug attribute and no action
+    #[client_task(debug)]
+    pub struct TaskWithDebug {
+        #[field(common)]
+        common: ClientTaskCommon,
+        #[field(req)]
+        req: FileIOReq,
+        #[field(resp)]
+        resp: Option<FileIOResp>,
+    }
+
+    let task1 = TaskWithDebug {
+        common: ClientTaskCommon { seq: 1, ..Default::default() },
+        req: FileIOReq { inode: 10, offset: 100 },
+        resp: None,
+    };
+    let debug_output1 = format!("{:?}", task1);
+    assert!(debug_output1.contains("TaskWithDebug(seq=1 req=FileIOReq { inode: 10, offset: 100 }"));
+    assert!(!debug_output1.contains(" resp="));
+
+    let task2 = TaskWithDebug {
+        common: ClientTaskCommon { seq: 2, ..Default::default() },
+        req: FileIOReq { inode: 20, offset: 200 },
+        resp: Some(FileIOResp { read_size: 512 }),
+    };
+    let debug_output2 = format!("{:?}", task2);
+    assert!(debug_output2.contains("TaskWithDebug(seq=2 req=FileIOReq { inode: 20, offset: 200 } resp=FileIOResp { read_size: 512 })"));
+
+    // Test with debug attribute and an action
+    #[client_task(123, debug)]
+    pub struct TaskWithDebugAndAction {
+        #[field(common)]
+        common: ClientTaskCommon,
+        #[field(req)]
+        req: (),
+        #[field(resp)]
+        resp: Option<()>,
+    }
+
+    let task3 = TaskWithDebugAndAction {
+        common: ClientTaskCommon { seq: 3, ..Default::default() },
+        req: (),
+        resp: None,
+    };
+    let debug_output3 = format!("{:?}", task3);
+    assert!(debug_output3.contains("TaskWithDebugAndAction(seq=3 req=()"));
+    assert_eq!(task3.get_action(), occams_rpc::stream::RpcAction::Num(123));
+}
