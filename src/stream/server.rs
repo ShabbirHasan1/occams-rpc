@@ -170,8 +170,19 @@ pub trait ServerTaskEncode {
     ) -> (u64, Result<(Vec<u8>, Option<&'a Buffer>), &'a RpcError>);
 }
 
-pub trait ServerTaskDone<T: Send + 'static> {
+pub trait ServerTaskDone<T: Send + 'static>: Sized + 'static {
     fn set_result(&mut self, res: Result<(), RpcError>) -> RespNoti<T>;
+
+    #[inline]
+    fn set_result_done(mut self, res: Result<(), RpcError>)
+    where
+        T: std::convert::From<Self>,
+    {
+        // NOTE: To allow a trait to consume self, must require Sized
+        let noti = self.set_result(res);
+        let parent: T = self.into();
+        noti.done(parent);
+    }
 }
 
 pub trait ServerTaskAction {

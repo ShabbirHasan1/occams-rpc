@@ -236,13 +236,6 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
                     }
                 }
             }
-
-            impl #enum_name {
-                pub fn set_result_done(mut self, res: Result<(), occams_rpc::error::RpcError>) {
-                    let noti = self.set_result(res);
-                    noti.done(self);
-                }
-            }
         }
     } else {
         quote! {}
