@@ -44,14 +44,14 @@ pub enum ServerTask {
 
 #[server_task_enum(req, resp_type = RpcResp)] // Example with only req, resp_type is required
 #[derive(Debug)]
-pub enum ServerTaskReqOnly {
+pub enum ServerTask {
     #[action(1)]
     Task1(SubTask1),
 }
 
 #[server_task_enum(resp)] // Example with only resp, resp_type and action is not required
 #[derive(Debug)]
-pub enum ServerTaskReqOnly {
+pub enum ServerTask {
     Task1(SubTask1),
 }
 ```
@@ -62,7 +62,7 @@ In this case the SubType is required to impl `ServerTaskAction` trait to return 
 ```rust
 #[server_task_enum(req, resp_type = RpcResp)] // Example with only req, resp_type is required
 #[derive(Debug)]
-pub enum ServerTaskReqOnly {
+pub enum ServerTask {
     #[action(1, 2, 3)]
     Task1(SubTask1),
 }
@@ -77,7 +77,7 @@ When the `#[action()]` item is not numeric, nor string, it can be an one or mult
 ``` rust
 #[server_task_enum(req, resp_type = RpcResp)] // Example with only req, resp_type is required
 #[derive(Debug)]
-pub enum ServerTaskReqOnly {
+pub enum ServerTask {
     #[action(Action::Read, Action::Write)]
     Task1(SubTask1),
 }

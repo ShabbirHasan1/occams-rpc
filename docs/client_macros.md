@@ -96,6 +96,11 @@ The macro processes specific fields within the task struct based on the `#[field
     *   **Purpose:** Designates an optional field for receiving additional binary data (a "response blob") with the RPC response.
     *   **Requirements:** This field is optional. If present, its type *must* be `Option<T>`, where `T` implements `occams_rpc::io::AllocateBuf`. The macro implements `ClientTaskDecode::get_resp_blob_mut`, returning a mutable reference to this `Option<T>`.
 
+*  `#[field(res)]` and `#[field(noti)]`:
+    *   Purpose: When both present, Generate ClientTaskDone trait
+    *   requirements: the `res` fielid required to be `Option<Result<(), RpcError>>`, and the `noti` field require to be `Option<crossfire::MTx>`, or other unbounded channel has a send() method:
+
+
 ## Generated Trait Implementations
 
 The `#[client_task]` macro automatically generates the following trait implementations for the decorated struct:
@@ -111,7 +116,31 @@ The `#[client_task]` macro automatically generates the following trait implement
     *   `decode_resp<C: occams_rpc::codec::Codec>(&mut self, codec: &C, buffer: &[u8]) -> Result<(), ()>`: Decodes the response buffer using the provided codec and stores the result in the `#[field(resp)]` field.
     *   `get_resp_blob_mut(&mut self) -> Option<&mut impl occams_rpc::io::AllocateBuf>`: If `#[field(resp_blob)]` is present, returns `Some` mutable reference to the response blob `Option<T>`; otherwise, it returns `None`.
 
-The `#[client_task_enum]` will implement `From` to assist convertion from it's variants to parent enum, and delegating ClienTaskEnode, ClientTaskDecode, ClientTaskAction, RpcClientTask to it's variants.
+*   `ClientTaskDone`:
+    ```rust
+    impl occams_rpc::stream::client::ClientTaskDone for T {
+        fn set_result(self, res: Result<(), Error>) {
+            let noti = self.noti.take();
+            let _ = crossfire::BlockingTxTrait::send(&noti, self.into());
+        }
+    }
+    ```
+
+*   when `#[client_task(debug)]` is specified, you will get a more specified Debug generated according to `req` and `resp` field
+    ```rust
+    impl std::fmt::Debug for T {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(f, "{}(seq={} {:?}", std::any::type_name::<Self>(), self.seq, self.req)?;
+            if let Some(resp) = self.resp.as_ref() {
+                write!(f, " {:?})", self.resp)?;
+            }
+            Ok(())
+        }
+    }
+    ```
+
+
+The `#[client_task_enum]` will implement `From` to assist convertion from it's variants to parent enum, and delegating `ClienTaskEnode`, `ClientTaskDecode`, `ClientTaskAction`, `RpcClientTask` to it's variants.
 
 ## User Responsibilities
 
