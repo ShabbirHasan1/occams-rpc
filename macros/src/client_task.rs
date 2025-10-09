@@ -188,6 +188,10 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
     {
         quote! {
             impl occams_rpc::stream::client::ClientTaskDone for #struct_name {
+                fn get_result(&self) -> Option<&Result<(), occams_rpc::error::RpcError>> {
+                    self.#res_field_name.as_ref()
+                }
+
                 fn set_result(mut self, res: Result<(), occams_rpc::error::RpcError>) {
                     self.#res_field_name.replace(res);
                     let noti = self.#noti_field_name.take().unwrap();
@@ -305,19 +309,42 @@ fn test_missing_resp() {}
 /// ```compile_fail
 /// use occams_rpc_macros::*;
 /// use occams_rpc::stream::client::ClientTaskCommon;
+/// use occams_rpc::error::RpcError;
 ///
-/// #[client_task(action = 1)]
-/// pub struct ConflictingActionTask {
+/// #[client_task]
+/// pub struct MissingNotiField {
 ///     #[field(common)]
 ///     common: ClientTaskCommon,
-///     #[field(action)]
-///     action: u8,
 ///     #[field(req)]
 ///     req: (),
 ///     #[field(resp)]
-///     resp: Option<()>
+///     resp: Option<()>,
+///     #[field(res)]
+///     res: Option<Result<(), RpcError>>,
 /// }
 /// ```
 #[doc(hidden)]
 #[allow(dead_code)]
-fn test_conflicting_action() {}
+fn test_missing_noti_field() {}
+
+/// ```compile_fail
+/// use occams_rpc_macros::*;
+/// use occams_rpc::stream::client::ClientTaskCommon;
+/// use occams_rpc::error::RpcError;
+/// use crossfire::MTx;
+///
+/// #[client_task]
+/// pub struct MissingResField {
+///     #[field(common)]
+///     common: ClientTaskCommon,
+///     #[field(req)]
+///     req: (),
+///     #[field(resp)]
+///     resp: Option<()>,
+///     #[field(noti)]
+///     noti: Option<MTx<Self>>,
+/// }
+/// ```
+#[doc(hidden)]
+#[allow(dead_code)]
+fn test_missing_res_field() {}

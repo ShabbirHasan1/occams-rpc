@@ -47,6 +47,7 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
     let mut reserve_resp_blob_arms = Vec::new();
     let mut get_action_arms = Vec::new();
     let mut set_result_arms = Vec::new();
+    let mut get_result_arms = Vec::new();
     let mut deref_arms = Vec::new();
     let mut deref_mut_arms = Vec::new();
 
@@ -126,6 +127,10 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
             #enum_name::#variant_name(inner) => occams_rpc::stream::client::ClientTaskDone::set_result(inner, res),
         });
 
+        get_result_arms.push(quote! {
+            #enum_name::#variant_name(inner) => occams_rpc::stream::client::ClientTaskDone::get_result(inner),
+        });
+
         deref_arms.push(quote! {
             #enum_name::#variant_name(inner) => inner,
         });
@@ -194,6 +199,12 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
         }
 
         impl occams_rpc::stream::client::ClientTaskDone for #enum_name {
+            fn get_result(&self) -> Option<&Result<(), occams_rpc::error::RpcError>> {
+                match self {
+                    #(#get_result_arms)*
+                }
+            }
+
             fn set_result(self, res: Result<(), occams_rpc::error::RpcError>) {
                 match self {
                     #(#set_result_arms)*

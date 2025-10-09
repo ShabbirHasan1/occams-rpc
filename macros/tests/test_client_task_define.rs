@@ -2,8 +2,9 @@
 #[test]
 #[allow(dead_code)]
 fn test_client_task_define() {
+    use crossfire::MTx;
     use occams_rpc::error::RpcError;
-    use occams_rpc::stream::client::{ClientTaskCommon, ClientTaskDone};
+    use occams_rpc::stream::client::ClientTaskCommon;
     use occams_rpc_macros::client_task;
     use serde_derive::{Deserialize, Serialize};
 
@@ -25,8 +26,7 @@ fn test_client_task_define() {
         Write = 2,
     }
 
-    #[client_task(FileAction::Write)]
-    #[derive(Debug)]
+    #[client_task(FileAction::Write, debug)]
     pub struct FileWriteTask {
         #[field(common)]
         common: ClientTaskCommon,
@@ -36,21 +36,13 @@ fn test_client_task_define() {
         req_blob: Vec<u8>,
         #[field(resp)]
         resp: Option<FileIOResp>,
-        // Field to store the final result
+        #[field(res)]
         res: Option<Result<(), RpcError>>,
+        #[field(noti)]
+        noti: Option<MTx<Self>>,
     }
 
-    impl ClientTaskDone for FileWriteTask {
-        fn set_result(mut self, res: Result<(), RpcError>) {
-            // Custom logic to handle the task's result
-            self.res = Some(res);
-            // Send to done channel
-            todo!();
-        }
-    }
-
-    #[client_task(FileAction::Read)]
-    #[derive(Debug)]
+    #[client_task(FileAction::Read, debug)]
     pub struct FileReadTask {
         #[field(common)]
         common: ClientTaskCommon,
@@ -60,14 +52,9 @@ fn test_client_task_define() {
         resp: Option<FileIOResp>,
         #[field(resp_blob)]
         resp_blob: Option<Vec<u8>>,
-        // Field to store the final result
+        #[field(res)]
         res: Option<Result<(), RpcError>>,
-    }
-
-    impl ClientTaskDone for FileReadTask {
-        fn set_result(mut self, res: Result<(), RpcError>) {
-            // Custom logic to handle the task's result
-            self.res = Some(res);
-        }
+        #[field(noti)]
+        noti: Option<MTx<Self>>,
     }
 }

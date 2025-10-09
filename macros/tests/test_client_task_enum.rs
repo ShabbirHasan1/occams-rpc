@@ -1,3 +1,4 @@
+use crossfire::{mpsc, MTx};
 use occams_rpc::{
     codec::MsgpCodec,
     error::RpcError,
@@ -8,8 +9,7 @@ use occams_rpc::{
 };
 use occams_rpc_macros::{client_task, client_task_enum};
 
-#[client_task(1)]
-#[derive(Debug)]
+#[client_task(1, debug)]
 struct TaskA {
     #[field(common)]
     common: ClientTaskCommon,
@@ -17,17 +17,13 @@ struct TaskA {
     req: String,
     #[field(resp)]
     resp: Option<String>,
+    #[field(res)]
     res: Option<Result<(), RpcError>>,
+    #[field(noti)]
+    noti: Option<MTx<MyTask>>,
 }
 
-impl ClientTaskDone for TaskA {
-    fn set_result(mut self, res: Result<(), RpcError>) {
-        self.res = Some(res);
-    }
-}
-
-#[client_task("task_b")]
-#[derive(Debug)]
+#[client_task("task_b", debug)]
 struct TaskB {
     #[field(common)]
     common: ClientTaskCommon,
@@ -35,17 +31,13 @@ struct TaskB {
     req: u32,
     #[field(resp)]
     resp: Option<u32>,
+    #[field(res)]
     res: Option<Result<(), RpcError>>,
+    #[field(noti)]
+    noti: Option<MTx<MyTask>>,
 }
 
-impl ClientTaskDone for TaskB {
-    fn set_result(mut self, res: Result<(), RpcError>) {
-        self.res = Some(res);
-    }
-}
-
-#[client_task(3)]
-#[derive(Debug)]
+#[client_task(3, debug)]
 struct TaskC {
     #[field(common)]
     common: ClientTaskCommon,
@@ -57,13 +49,10 @@ struct TaskC {
     req_blob: Vec<u8>,
     #[field(resp_blob)]
     resp_blob: Option<Vec<u8>>,
+    #[field(res)]
     res: Option<Result<(), RpcError>>,
-}
-
-impl ClientTaskDone for TaskC {
-    fn set_result(mut self, res: Result<(), RpcError>) {
-        self.res = Some(res);
-    }
+    #[field(noti)]
+    noti: Option<MTx<MyTask>>,
 }
 
 #[client_task_enum]
@@ -76,14 +65,22 @@ enum MyTask {
 
 #[test]
 fn test_client_task_enum_delegation() {
+    let (tx, rx) = mpsc::unbounded_blocking();
     let task_a = TaskA {
         common: ClientTaskCommon::default(),
         req: "hello".to_string(),
         resp: None,
         res: None,
+        noti: Some(tx.clone()),
     };
 
-    let task_b = TaskB { common: ClientTaskCommon::default(), req: 123, resp: None, res: None };
+    let task_b = TaskB {
+        common: ClientTaskCommon::default(),
+        req: 123,
+        resp: None,
+        res: None,
+        noti: Some(tx.clone()),
+    };
 
     let task_c = TaskC {
         common: ClientTaskCommon::default(),
@@ -92,6 +89,7 @@ fn test_client_task_enum_delegation() {
         req_blob: vec![1, 2, 3],
         resp_blob: Some(vec![]),
         res: None,
+        noti: Some(tx.clone()),
     };
 
     // Test From impls
@@ -109,7 +107,11 @@ fn test_client_task_enum_delegation() {
     assert_eq!(enum_task_c.get_action(), RpcAction::Num(3));
 
     // Test ClientTask delegation
+    assert!(enum_task_a.get_result().is_none());
     enum_task_a.set_result(Ok(()));
+    let received = rx.recv().unwrap();
+    assert!(matches!(received, MyTask::A(_)));
+    assert_eq!(received.get_result(), Some(&Ok(())));
 
     // Test ClientTaskEncode/Decode delegation
     let codec = MsgpCodec::default();
@@ -130,8 +132,7 @@ fn test_client_task_enum_delegation() {
     assert!(enum_task_c.reserve_resp_blob(10).is_some());
 }
 
-#[client_task(999)] // Dummy action
-#[derive(Debug)]
+#[client_task(999, debug)] // Dummy action
 struct TaskActionOverwrite {
     #[field(common)]
     common: ClientTaskCommon,
@@ -139,17 +140,13 @@ struct TaskActionOverwrite {
     req: String,
     #[field(resp)]
     resp: Option<String>,
+    #[field(res)]
     res: Option<Result<(), RpcError>>,
+    #[field(noti)]
+    noti: Option<MTx<MyTaskWithAction>>,
 }
 
-impl ClientTaskDone for TaskActionOverwrite {
-    fn set_result(mut self, res: Result<(), RpcError>) {
-        self.res = Some(res);
-    }
-}
-
-#[client_task(999)] // Dummy action
-#[derive(Debug)]
+#[client_task(999, debug)] // Dummy action
 struct TaskActionDelegate {
     #[field(common)]
     common: ClientTaskCommon,
@@ -157,13 +154,24 @@ struct TaskActionDelegate {
     req: String,
     #[field(resp)]
     resp: Option<String>,
+    #[field(res)]
     res: Option<Result<(), RpcError>>,
+    #[field(noti)]
+    noti: Option<MTx<MyTaskWithAction>>,
 }
 
-impl ClientTaskDone for TaskActionDelegate {
-    fn set_result(mut self, res: Result<(), RpcError>) {
-        self.res = Some(res);
-    }
+#[client_task("task_b", debug)]
+struct TaskBWithAction {
+    #[field(common)]
+    common: ClientTaskCommon,
+    #[field(req)]
+    req: u32,
+    #[field(resp)]
+    resp: Option<u32>,
+    #[field(res)]
+    res: Option<Result<(), RpcError>>,
+    #[field(noti)]
+    noti: Option<MTx<MyTaskWithAction>>,
 }
 
 #[client_task_enum]
@@ -172,20 +180,28 @@ enum MyTaskWithAction {
     #[action(100)]
     A(TaskActionOverwrite),
     #[action("action_b")]
-    B(TaskB),
+    B(TaskBWithAction),
     C(TaskActionDelegate),
 }
 
 #[test]
 fn test_client_task_enum_with_action_attribute() {
+    let (tx, _rx) = mpsc::unbounded_blocking();
     let task_a = TaskActionOverwrite {
         common: ClientTaskCommon::default(),
         req: "hello".to_string(),
         resp: None,
         res: None,
+        noti: Some(tx.clone()),
     };
 
-    let task_b = TaskB { common: ClientTaskCommon::default(), req: 123, resp: None, res: None };
+    let task_b = TaskBWithAction {
+        common: ClientTaskCommon::default(),
+        req: 123,
+        resp: None,
+        res: None,
+        noti: Some(tx.clone()),
+    };
 
     let enum_task_a: MyTaskWithAction = task_a.into();
     assert_eq!(enum_task_a.get_action(), RpcAction::Num(100));
@@ -198,6 +214,7 @@ fn test_client_task_enum_with_action_attribute() {
         req: "hello".to_string(),
         resp: None,
         res: None,
+        noti: Some(tx.clone()),
     };
 
     let enum_task_c: MyTaskWithAction = task_c.into();

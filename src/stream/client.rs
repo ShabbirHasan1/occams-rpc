@@ -150,6 +150,7 @@ pub trait ClientTaskDecode {
 }
 
 pub trait ClientTaskDone: Sized + 'static {
+    fn get_result(&self) -> Option<&Result<(), RpcError>>;
     fn set_result(self, res: Result<(), RpcError>);
 }
 

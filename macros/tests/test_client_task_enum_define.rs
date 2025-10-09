@@ -2,8 +2,9 @@
 #[test]
 #[allow(dead_code)]
 fn test_client_task_enum_define() {
+    use crossfire::MTx;
     use occams_rpc::error::RpcError;
-    use occams_rpc::stream::client::{ClientTaskCommon, ClientTaskDone};
+    use occams_rpc::stream::client::ClientTaskCommon;
     use occams_rpc_macros::{client_task, client_task_enum};
 
     #[derive(PartialEq)]
@@ -13,8 +14,7 @@ fn test_client_task_enum_define() {
         Close = 2,
     }
 
-    #[client_task]
-    #[derive(Debug)]
+    #[client_task(debug)]
     pub struct FileOpenTask {
         #[field(common)]
         common: ClientTaskCommon,
@@ -22,13 +22,13 @@ fn test_client_task_enum_define() {
         req: String,
         #[field(resp)]
         resp: Option<()>,
-    }
-    impl ClientTaskDone for FileOpenTask {
-        fn set_result(self, _res: Result<(), RpcError>) {}
+        #[field(res)]
+        res: Option<Result<(), RpcError>>,
+        #[field(noti)]
+        noti: Option<MTx<FileTask>>,
     }
 
-    #[client_task(2)] // This action will be used as the variant doesn't specify one
-    #[derive(Debug)]
+    #[client_task(2, debug)] // This action will be used as the variant doesn't specify one
     pub struct FileCloseTask {
         #[field(common)]
         common: ClientTaskCommon,
@@ -36,9 +36,10 @@ fn test_client_task_enum_define() {
         req: (),
         #[field(resp)]
         resp: Option<()>,
-    }
-    impl ClientTaskDone for FileCloseTask {
-        fn set_result(self, _res: Result<(), RpcError>) {}
+        #[field(res)]
+        res: Option<Result<(), RpcError>>,
+        #[field(noti)]
+        noti: Option<MTx<FileTask>>,
     }
 
     #[client_task_enum]
