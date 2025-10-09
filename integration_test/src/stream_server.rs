@@ -6,7 +6,8 @@ use occams_rpc::codec::MsgpCodec;
 use occams_rpc::stream::server::*;
 use occams_rpc::stream::server_impl::*;
 use occams_rpc::stream::*;
-use std::sync::Arc;
+use std::net::SocketAddr;
+use std::sync::Arc; // New import
 
 use occams_rpc::macros::*;
 use occams_rpc::*;
@@ -16,15 +17,15 @@ use captains_log::filter::LogFilter;
 
 pub fn init_server<H, FH>(
     server_handle: H, config: RpcConfig, addr: &str,
-) -> Result<RpcServer<FileServer<H, FH>>, std::io::Error>
+) -> Result<(RpcServer<FileServer<H, FH>>, SocketAddr), std::io::Error>
 where
     H: Fn(FileServerTask) -> FH + Send + Sync + 'static + Clone,
     FH: Future<Output = Result<(), ()>> + Send + 'static,
 {
     let factory = Arc::new(FileServer::new(server_handle, config));
     let mut server = RpcServer::new(factory);
-    server.listen(addr)?;
-    Ok(server)
+    let local_addr = server.listen(addr)?;
+    Ok((server, local_addr))
 }
 
 pub struct FileServer<H, FH>
