@@ -8,7 +8,7 @@ The `#[client_task_enum]` and `#[client_task]` procedural macro simplifies the i
 
 ### `#[action]` on enum variants
 
-As an alternative to defining the action inside the subtype, you can specify a static action directly on an enum variant using the `#[action(...)]` attribute. Only one action (numeric or string literal) is allowed per variant.
+As an alternative to defining the action inside the subtype, you can specify a static action directly on an enum variant using the `#[action(...)]` attribute. Only one action (numeric, string literal, or a numeric `repr` enum variant) is allowed per variant.
 
 When `#[action(...)]` is used on a variant, the `get_action()` method for that variant will return the specified static action, and the inner type does not need to provide an action.
 
@@ -114,3 +114,5 @@ The `#[client_task_enum]` will implement `From` to assist convertion from it's v
 ## User Responsibilities
 
 While the macro handles much of the boilerplate for encoding and decoding, users are still responsible for implementing other aspects of their `RpcClientTaskDone`, define logic for handling the task's result (e.g., `set_result()`).
+
+**Note:** The implementation of `ClientTaskAction` is optional for structs decorated with `#[client_task]`. If `ClientTaskAction` is not implemented by the struct, then the `#[client_task_enum]` variant wrapping it must provide an `#[action]` attribute.

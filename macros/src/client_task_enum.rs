@@ -1,9 +1,9 @@
 use proc_macro::TokenStream;
-use quote::quote;
+use quote::{quote, ToTokens};
 use std::collections::HashMap;
 use syn::{parse_macro_input, Data, DeriveInput, Fields, Lit, Meta, NestedMeta, Variant};
 
-fn get_action_attribute(variant: &Variant) -> Option<Lit> {
+fn get_action_attribute(variant: &Variant) -> Option<Meta> {
     for attr in &variant.attrs {
         if attr.path.is_ident("action") {
             if let Ok(Meta::List(meta_list)) = attr.parse_meta() {
@@ -12,7 +12,17 @@ fn get_action_attribute(variant: &Variant) -> Option<Lit> {
                     if meta_list.nested.len() > 1 {
                         panic!("Only one action is allowed per variant");
                     }
-                    return Some(lit);
+                    return Some(Meta::NameValue(syn::MetaNameValue {
+                        path: syn::Path::from(syn::Ident::new(
+                            "action",
+                            proc_macro2::Span::call_site(),
+                        )),
+                        eq_token: syn::token::Eq::default(),
+                        lit,
+                    }));
+                } else if let Some(NestedMeta::Meta(Meta::Path(path))) = nested {
+                    // Handle enum variant like Action::Open
+                    return Some(Meta::Path(path));
                 }
             }
         }
@@ -71,23 +81,27 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
             });
         }
 
-        let action_lit = get_action_attribute(variant);
+        let action_meta = get_action_attribute(variant);
         variant.attrs.retain(|attr| !attr.path.is_ident("action"));
 
-        let action_arm = if let Some(lit) = action_lit {
-            match lit {
-                Lit::Int(val) => {
-                    quote! { #enum_name::#variant_name(..) => occams_rpc::stream::RpcAction::Num(#val), }
-                }
-                Lit::Str(val) => {
-                    quote! { #enum_name::#variant_name(..) => occams_rpc::stream::RpcAction::Str(#val), }
+        let action_arm = if let Some(meta) = action_meta {
+            match meta {
+                Meta::NameValue(nv) => match nv.lit {
+                    Lit::Int(val) => {
+                        quote! { #enum_name::#variant_name(..) => occams_rpc::stream::RpcAction::Num(#val), }
+                    }
+                    Lit::Str(val) => {
+                        quote! { #enum_name::#variant_name(..) => occams_rpc::stream::RpcAction::Str(#val), }
+                    }
+                    _ => panic!("Unsupported action type"),
+                },
+                Meta::Path(val) => {
+                    quote! { #enum_name::#variant_name(..) => occams_rpc::stream::RpcAction::Num(#val as i32), }
                 }
                 _ => panic!("Unsupported action type"),
             }
         } else {
-            quote! {
-                #enum_name::#variant_name(inner) => occams_rpc::stream::client::ClientTaskAction::get_action(inner),
-            }
+            quote! { #enum_name::#variant_name(inner) => occams_rpc::stream::client::ClientTaskAction::get_action(inner), }
         };
 
         get_action_arms.push(action_arm);
@@ -109,7 +123,7 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
         });
 
         set_result_arms.push(quote! {
-            #enum_name::#variant_name(inner) => occams_rpc::stream::client::ClientTask::set_result(inner, res),
+            #enum_name::#variant_name(inner) => occams_rpc::stream::client::ClientTaskDone::set_result(inner, res),
         });
 
         deref_arms.push(quote! {

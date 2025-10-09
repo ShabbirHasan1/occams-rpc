@@ -24,7 +24,7 @@ fn test_client_task_define() {
         Write = 2,
     }
 
-    #[client_task(action = 2)]
+    #[client_task(action = FileAction::Write)]
     #[derive(Debug)]
     pub struct FileWriteTask {
         #[field(common)]
@@ -48,7 +48,7 @@ fn test_client_task_define() {
         }
     }
 
-    #[client_task(action = 1)]
+    #[client_task(action = FileAction::Read)]
     #[derive(Debug)]
     pub struct FileReadTask {
         #[field(common)]
