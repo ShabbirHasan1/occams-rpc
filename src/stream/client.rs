@@ -65,23 +65,6 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
     }
 
     fn get_config(&self) -> &RpcConfig;
-
-    /// Make a streaming connection to the server, returns [RpcClient] on success
-    #[inline(always)]
-    fn client_connect(
-        self: Arc<Self>, addr: &str, server_id: u64, last_resp_ts: Option<Arc<AtomicU64>>,
-    ) -> impl Future<Output = Result<RpcClient<Self>, RpcError>> + Send {
-        async move {
-            let client_id = self.get_client_id();
-            let timeout = &self.get_config().timeout;
-            let logger = self.new_logger(client_id, server_id);
-            let conn = <Self::Transport as ClientTransport<Self>>::connect(
-                addr, timeout, client_id, server_id, logger,
-            )
-            .await?;
-            Ok(RpcClient::new(self, conn, client_id, server_id, last_resp_ts))
-        }
-    }
 }
 
 /// A ClientTransport implements network transport layer protocol

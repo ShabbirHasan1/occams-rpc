@@ -10,10 +10,23 @@ use occams_rpc::macros::*;
 use occams_rpc::*;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, atomic::AtomicU64};
 
 pub struct FileClient {
     config: RpcConfig,
+}
+
+impl FileClient {
+    pub fn new(config: RpcConfig) -> Self {
+        Self { config }
+    }
+}
+
+pub async fn init_client(
+    config: RpcConfig, addr: &str, last_resp_ts: Option<Arc<AtomicU64>>,
+) -> Result<RpcClient<FileClient>, RpcError> {
+    let factory = Arc::new(FileClient::new(config));
+    RpcClient::connect(factory, addr, 0, last_resp_ts).await
 }
 
 impl ClientFactory for FileClient {

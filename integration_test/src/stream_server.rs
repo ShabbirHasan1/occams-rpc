@@ -6,20 +6,51 @@ use occams_rpc::codec::MsgpCodec;
 use occams_rpc::stream::server::*;
 use occams_rpc::stream::server_impl::*;
 use occams_rpc::stream::*;
+use std::sync::Arc;
 
 use occams_rpc::macros::*;
 use occams_rpc::*;
-use serde_derive::{Deserialize, Serialize};
-use std::fmt;
 
 use super::stream_client::{FileAction, FileIOReq, FileIOResp, FileOpenReq};
 use captains_log::filter::LogFilter;
 
-pub struct FileServer {
-    config: RpcConfig,
+pub fn init_server<H, FH>(
+    server_handle: H, config: RpcConfig, addr: &str,
+) -> Result<RpcServer<FileServer<H, FH>>, std::io::Error>
+where
+    H: Fn(FileServerTask) -> FH + Send + Sync + 'static + Clone,
+    FH: Future<Output = Result<(), ()>> + Send + 'static,
+{
+    let factory = Arc::new(FileServer::new(server_handle, config));
+    let mut server = RpcServer::new(factory);
+    server.listen(addr)?;
+    Ok(server)
 }
 
-impl ServerFactory for FileServer {
+pub struct FileServer<H, FH>
+where
+    H: Fn(FileServerTask) -> FH + Send + Sync + 'static + Clone,
+    FH: Future<Output = Result<(), ()>> + Send + 'static,
+{
+    config: RpcConfig,
+    server_handle: H,
+}
+
+impl<H, FH> FileServer<H, FH>
+where
+    H: Fn(FileServerTask) -> FH + Send + Sync + 'static + Clone,
+    FH: Future<Output = Result<(), ()>> + Send + 'static,
+{
+    pub fn new(server_handle: H, config: RpcConfig) -> Self {
+        Self { config, server_handle }
+    }
+}
+
+impl<H, FH> ServerFactory for FileServer<H, FH>
+where
+    H: Fn(FileServerTask) -> FH + Send + Sync + 'static + Clone,
+    FH: Future<Output = Result<(), ()>> + Send + 'static,
+{
     type Logger = captains_log::filter::LogFilter;
 
     type Transport = occams_rpc_tcp::TcpServer<Self>;
@@ -31,12 +62,10 @@ impl ServerFactory for FileServer {
 
     type RespReceiver = RespReceiverTask<FileServerTask>;
 
+    #[inline]
     fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespReceiver> {
-        async fn dispatch(task: FileServerTask) -> Result<(), ()> {
-            todo!();
-        }
         return TaskReqDispatch::<MsgpCodec, FileServerTask, Self::RespReceiver, _, _>::new(
-            dispatch,
+            self.server_handle.clone(),
         );
     }
 
