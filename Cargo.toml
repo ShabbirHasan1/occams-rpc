@@ -20,7 +20,6 @@ with a low-level streaming interface, and high-level remote API call interface.
 occams-rpc-macros = { path = "macros" }
 log = { version = "0.4", features = ["std", "kv_unstable"] }
 captains-log = "0.14"
-close_fds = "0.3.2"
 async-trait = "0.1"
 futures = "0.3"
 zerocopy = "0.2"
@@ -37,7 +36,4 @@ default = []
 #msgp = [dep:rpm-serde]
 
 [dev-dependencies]
-tokio = { version = "1", features = ["net", "io-util", "time", "sync", "rt", "rt-multi-thread"] }
-rmp-serde = "1.1"
-display_attr = "0.1"
 serde_derive = "1"

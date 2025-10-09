@@ -49,6 +49,7 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
 
     /// Construct a logger filter to oganize log of a client
     fn new_logger(&self, client_id: u64, server_id: u64) -> Self::Logger;
+    /// TODO Fix the logger interface
 
     /// How to deal with RpcError
     ///

@@ -46,8 +46,8 @@ bench:
 build: init
 	cargo build
 	cargo build -p occams-rpc-tcp
-	cargo build -p occams-tokio
-	cargo build -p occams-smol
+	cargo build -p occams-rpc-tokio
+	cargo build -p occams-rpc-smol --features async_io
 
 .DEFAULT_GOAL = build
 

@@ -1,5 +1,5 @@
 [package]
-name = "occams-smol"
+name = "occams-rpc-smol"
 version = "0.1.0"
 edition = "2024"
 authors = ["plan <frostyplanet@gmail.com>"]
@@ -20,7 +20,6 @@ async-io = {version="2.6", optional=true}
 smol = {version="2", optional=true}
 
 [features]
-default = ["async_io"]
 # Minimal dep with only async_io
 async_io = ["dep:async-io"]
 # Use smol global executor

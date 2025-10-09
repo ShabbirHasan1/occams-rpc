@@ -10,7 +10,7 @@ use captains_log::filter::Filter;
 use crossfire::*;
 use io_buffer::Buffer;
 
-pub trait ServerFactory: Clone + Sync + Send + 'static + Sized {
+pub trait ServerFactory: Sync + Send + 'static + Sized {
     /// A [captains-log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/index.html) implementation
     type Logger: Filter + Send;
 
@@ -28,6 +28,7 @@ pub trait ServerFactory: Clone + Sync + Send + 'static + Sized {
 
     /// Construct a logger filter to oganize log of a client
     fn new_logger(&self) -> Self::Logger;
+    /// TODO Fix the logger interface
 
     /// Define how the server connection is served
     type ConnHandle: ServerHandle<Self>;

@@ -1,5 +1,5 @@
 [package]
-name = "occams-tokio"
+name = "occams-rpc-tokio"
 version = "0.1.0"
 edition = "2024"
 authors = ["plan <frostyplanet@gmail.com>"]
