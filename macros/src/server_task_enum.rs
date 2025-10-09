@@ -175,13 +175,13 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
             // Only generate if count is 1, prevent duplicate sub-types
             from_impls.push(quote! {
                 impl From<#inner_type> for #enum_name {
+                    #[inline]
                     fn from(task: #inner_type) -> Self {
                         #enum_name::#variant_name(task)
                     }
                 }
             });
         }
-
         if has_resp {
             encode_arms.push(quote! {
                 #enum_name::#variant_name(task) => task.encode_resp(codec),
@@ -200,6 +200,7 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
             where
                 #(#where_clauses_for_decode),*
             {
+                #[inline]
                 fn decode_req<'a, C: occams_rpc::codec::Codec>(
                     codec: &'a C,
                     action: occams_rpc::stream::RpcAction<'a>,
@@ -227,6 +228,7 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
             impl occams_rpc::stream::server::ServerTaskResp for #enum_name {}
 
             impl occams_rpc::stream::server::ServerTaskEncode for #enum_name {
+                #[inline]
                 fn encode_resp<'a, C: occams_rpc::codec::Codec>(
                     &'a self,
                     codec: &'a C,
@@ -238,6 +240,7 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
             }
 
             impl occams_rpc::stream::server::ServerTaskDone<#enum_name> for #enum_name {
+                #[inline]
                 fn set_result(&mut self, res: Result<(), occams_rpc::error::RpcError>) -> occams_rpc::stream::server::RespNoti<#enum_name> {
                     match self {
                         #(#set_result_arms)*
@@ -252,6 +255,7 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
     let get_action_impl = if has_req {
         quote! {
             impl occams_rpc::stream::server::ServerTaskAction for #enum_name {
+                #[inline]
                 fn get_action<'a>(&'a self) -> occams_rpc::stream::RpcAction<'a> {
                     match self {
                         #(#get_action_arms)*

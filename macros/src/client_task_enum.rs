@@ -75,6 +75,7 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
         if *inner_type_counts.get(&inner_type_str).unwrap_or(&0) == 1 {
             from_impls.push(quote! {
                 impl From<#inner_type> for #enum_name {
+                    #[inline]
                     fn from(task: #inner_type) -> Self {
                         #enum_name::#variant_name(task)
                     }
@@ -147,6 +148,7 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
 
         impl std::ops::Deref for #enum_name {
             type Target = occams_rpc::stream::client::ClientTaskCommon;
+            #[inline]
             fn deref(&self) -> &Self::Target {
                 match self {
                     #(#deref_arms)*
@@ -155,6 +157,7 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
         }
 
         impl std::ops::DerefMut for #enum_name {
+            #[inline]
             fn deref_mut(&mut self) -> &mut Self::Target {
                 match self {
                     #(#deref_mut_arms)*
@@ -163,12 +166,14 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
         }
 
         impl occams_rpc::stream::client::ClientTaskEncode for #enum_name {
+            #[inline]
             fn encode_req<C: occams_rpc::codec::Codec>(&self, codec: &C) -> Result<Vec<u8>, ()> {
                 match self {
                     #(#encode_req_arms)*
                 }
             }
 
+            #[inline]
             fn get_req_blob(&self) -> Option<&[u8]> {
                 match self {
                     #(#get_req_blob_arms)*
@@ -177,12 +182,14 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
         }
 
         impl occams_rpc::stream::client::ClientTaskDecode for #enum_name {
+            #[inline]
             fn decode_resp<C: occams_rpc::codec::Codec>(&mut self, codec: &C, buffer: &[u8]) -> Result<(), ()> {
                 match self {
                     #(#decode_resp_arms)*
                 }
             }
 
+            #[inline]
             fn reserve_resp_blob(&mut self, size: i32) -> Option<&mut [u8]> {
                 match self {
                     #(#reserve_resp_blob_arms)*
@@ -191,6 +198,7 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
         }
 
         impl occams_rpc::stream::client::ClientTaskAction for #enum_name {
+            #[inline]
             fn get_action<'a>(&'a self) -> occams_rpc::stream::RpcAction<'a> {
                 match self {
                     #(#get_action_arms)*
@@ -199,12 +207,14 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
         }
 
         impl occams_rpc::stream::client::ClientTaskDone for #enum_name {
+            #[inline]
             fn get_result(&self) -> Option<&Result<(), occams_rpc::error::RpcError>> {
                 match self {
                     #(#get_result_arms)*
                 }
             }
 
+            #[inline]
             fn set_result(self, res: Result<(), occams_rpc::error::RpcError>) {
                 match self {
                     #(#set_result_arms)*

@@ -114,6 +114,7 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
 
     let get_req_blob_body = if let Some(req_blob_field_name) = req_blob_field {
         quote! {
+            #[inline]
             fn get_req_blob(&self) -> Option<&[u8]> {
                 Some(self.#req_blob_field_name.as_ref())
             }
@@ -124,6 +125,7 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
 
     let reserve_resp_blob_body = if let Some((resp_blob_field_name, _)) = &resp_blob_field {
         quote! {
+            #[inline]
             fn reserve_resp_blob(&mut self, size: i32) -> Option<&mut [u8]> {
                 occams_rpc::io::AllocateBuf::reserve(&mut self.#resp_blob_field_name, size)
             }
@@ -150,6 +152,7 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
 
         quote! {
             impl occams_rpc::stream::client::ClientTaskAction for #struct_name {
+                #[inline]
                 fn get_action<'a>(&'a self) -> occams_rpc::stream::RpcAction<'a> {
                     #action_conversion
                 }
@@ -174,6 +177,7 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
         };
         quote! {
             impl occams_rpc::stream::client::ClientTaskAction for #struct_name {
+                #[inline]
                 fn get_action<'a>(&'a self) -> occams_rpc::stream::RpcAction<'a> {
                     #action_token_stream
                 }
@@ -188,10 +192,12 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
     {
         quote! {
             impl occams_rpc::stream::client::ClientTaskDone for #struct_name {
+                #[inline]
                 fn get_result(&self) -> Option<&Result<(), occams_rpc::error::RpcError>> {
                     self.#res_field_name.as_ref()
                 }
 
+                #[inline]
                 fn set_result(mut self, res: Result<(), occams_rpc::error::RpcError>) {
                     self.#res_field_name.replace(res);
                     let noti = self.#noti_field_name.take().unwrap();
@@ -230,18 +236,21 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
 
         impl std::ops::Deref for #struct_name {
             type Target = #common_field_type;
+            #[inline]
             fn deref(&self) -> &Self::Target {
                 &self.#common_field_name
             }
         }
 
         impl std::ops::DerefMut for #struct_name {
+            #[inline]
             fn deref_mut(&mut self) -> &mut Self::Target {
                 &mut self.#common_field_name
             }
         }
 
         impl occams_rpc::stream::client::ClientTaskEncode for #struct_name {
+            #[inline]
             fn encode_req<C: occams_rpc::codec::Codec>(&self, codec: &C) -> Result<Vec<u8>, ()> {
                 codec.encode(&self.#req_field_name)
             }
@@ -250,6 +259,7 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
         }
 
         impl occams_rpc::stream::client::ClientTaskDecode for #struct_name {
+            #[inline]
             fn decode_resp<C: occams_rpc::codec::Codec>(&mut self, codec: &C, buffer: &[u8]) -> Result<(), ()> {
                 let resp = codec.decode(buffer)?;
                 self.#resp_field_name = Some(resp);
