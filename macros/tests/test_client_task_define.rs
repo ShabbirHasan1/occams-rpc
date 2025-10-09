@@ -1,5 +1,6 @@
 /// This test is to be sure that macro use full path calls without any trait imported
 #[test]
+#[allow(dead_code)]
 fn test_client_task_define() {
     use occams_rpc::error::RpcError;
     use occams_rpc::stream::client::{ClientTaskCommon, ClientTaskDone};

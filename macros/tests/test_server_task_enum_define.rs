@@ -1,6 +1,7 @@
 /// This test is to be sure that macro use full path calls without any trait imported
 #[test]
-fn test_server_task_enum_just_define() {
+#[allow(dead_code)]
+fn test_server_task_enum_define() {
     use occams_rpc::stream::server_impl::ServerTaskVariantFull;
     use occams_rpc_macros::server_task_enum;
     use serde_derive::{Deserialize, Serialize};

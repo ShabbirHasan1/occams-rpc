@@ -2,8 +2,7 @@ use occams_rpc::{
     codec::MsgpCodec,
     error::RpcError,
     stream::client::{
-        ClientTask, ClientTaskAction, ClientTaskCommon, ClientTaskDecode, ClientTaskDone,
-        ClientTaskEncode,
+        ClientTaskAction, ClientTaskCommon, ClientTaskDecode, ClientTaskDone, ClientTaskEncode,
     },
     stream::RpcAction,
 };
@@ -131,36 +130,55 @@ fn test_client_task_enum_delegation() {
     assert!(enum_task_c.reserve_resp_blob(10).is_some());
 }
 
+#[client_task(999)] // Dummy action
+#[derive(Debug)]
+struct TaskActionOverwrite {
+    #[field(common)]
+    common: ClientTaskCommon,
+    #[field(req)]
+    req: String,
+    #[field(resp)]
+    resp: Option<String>,
+    res: Option<Result<(), RpcError>>,
+}
+
+impl ClientTaskDone for TaskActionOverwrite {
+    fn set_result(mut self, res: Result<(), RpcError>) {
+        self.res = Some(res);
+    }
+}
+
+#[client_task(999)] // Dummy action
+#[derive(Debug)]
+struct TaskActionDelegate {
+    #[field(common)]
+    common: ClientTaskCommon,
+    #[field(req)]
+    req: String,
+    #[field(resp)]
+    resp: Option<String>,
+    res: Option<Result<(), RpcError>>,
+}
+
+impl ClientTaskDone for TaskActionDelegate {
+    fn set_result(mut self, res: Result<(), RpcError>) {
+        self.res = Some(res);
+    }
+}
+
+#[client_task_enum]
+#[derive(Debug)]
+enum MyTaskWithAction {
+    #[action(100)]
+    A(TaskActionOverwrite),
+    #[action("action_b")]
+    B(TaskB),
+    C(TaskActionDelegate),
+}
+
 #[test]
 fn test_client_task_enum_with_action_attribute() {
-    #[client_task(999)] // Dummy action
-    #[derive(Debug)]
-    struct TaskNoAction {
-        #[field(common)]
-        common: ClientTaskCommon,
-        #[field(req)]
-        req: String,
-        #[field(resp)]
-        resp: Option<String>,
-        res: Option<Result<(), RpcError>>,
-    }
-
-    impl ClientTaskDone for TaskNoAction {
-        fn set_result(mut self, res: Result<(), RpcError>) {
-            self.res = Some(res);
-        }
-    }
-
-    #[client_task_enum]
-    #[derive(Debug)]
-    enum MyTaskWithAction {
-        #[action(100)]
-        A(TaskNoAction),
-        #[action("action_b")]
-        B(TaskB),
-    }
-
-    let task_a = TaskNoAction {
+    let task_a = TaskActionOverwrite {
         common: ClientTaskCommon::default(),
         req: "hello".to_string(),
         resp: None,
@@ -174,4 +192,14 @@ fn test_client_task_enum_with_action_attribute() {
 
     let enum_task_b: MyTaskWithAction = task_b.into();
     assert_eq!(enum_task_b.get_action(), RpcAction::Str("action_b"));
+
+    let task_c = TaskActionDelegate {
+        common: ClientTaskCommon::default(),
+        req: "hello".to_string(),
+        resp: None,
+        res: None,
+    };
+
+    let enum_task_c: MyTaskWithAction = task_c.into();
+    assert_eq!(enum_task_c.get_action(), RpcAction::Num(999));
 }

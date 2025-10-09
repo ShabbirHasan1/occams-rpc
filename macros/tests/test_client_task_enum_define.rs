@@ -1,10 +1,10 @@
 /// This test is to be sure that macro use full path calls without any trait imported
 #[test]
+#[allow(dead_code)]
 fn test_client_task_enum_define() {
     use occams_rpc::error::RpcError;
     use occams_rpc::stream::client::{ClientTaskCommon, ClientTaskDone};
     use occams_rpc_macros::{client_task, client_task_enum};
-    use serde_derive::{Deserialize, Serialize};
 
     #[derive(PartialEq)]
     #[repr(u8)]
