@@ -3,8 +3,10 @@
 The `#[client_task_enum]` and `#[client_task]` procedural macro simplifies the implementation of client-side RPC tasks by automatically generating necessary trait implementations and boilerplate code.
 
 `#[client_task]` attribute allows users to define a struct representing an RPC task and specify its common fields, request, response, and optional blob data using `#[field(...)]` attributes.
+It will not generate ClientTask trait because the ClientTaskAction is optional for task variants.
 
 `#[client_task_enum]` attribute allow user to wrap an enum and delegate the ClienTask trait requirements to it's variants.
+It will generate ClientTask trait and the ClientTaskAction according to #[action()] specified for enum variants.
 
 ### `#[action]` on enum variants
 
