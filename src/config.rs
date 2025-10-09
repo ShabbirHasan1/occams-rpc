@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+#[derive(Clone)]
 pub struct RpcConfig {
     pub timeout: TimeoutSetting,
     /// How many async RpcTask in the queue, prevent overflow server capacity
@@ -12,7 +13,7 @@ impl Default for RpcConfig {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct TimeoutSetting {
     /// timeout of RpcTask waiting for response, in seconds.
     pub task_timeout: usize,

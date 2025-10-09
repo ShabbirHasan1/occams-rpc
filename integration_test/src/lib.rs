@@ -17,7 +17,7 @@ pub struct TestRunnner {
 }
 
 impl TestRunnner {
-    pub fn setup() -> Self {
+    pub fn new() -> Self {
         recipe::raw_file_logger("/tmp/rpc_test.log", Level::Trace).test().build().expect("log");
         Self {
             #[cfg(feature = "tokio")]
@@ -25,7 +25,7 @@ impl TestRunnner {
         }
     }
 
-    pub fn block_on<F: Future<Output = ()> + Send + 'static>(f: F) {
+    pub fn block_on<F: Future<Output = ()> + Send + 'static>(&self, f: F) {
         #[cfg(feature = "tokio")]
         {
             self.rt.block_on(f);
@@ -36,3 +36,6 @@ impl TestRunnner {
         }
     }
 }
+
+#[cfg(test)]
+pub mod tests;
