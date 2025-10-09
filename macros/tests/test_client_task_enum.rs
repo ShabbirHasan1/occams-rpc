@@ -129,3 +129,48 @@ fn test_client_task_enum_delegation() {
     assert_eq!(enum_task_c.get_req_blob(), Some(vec![1, 2, 3].as_slice()));
     assert!(enum_task_c.reserve_resp_blob(10).is_some());
 }
+
+#[test]
+fn test_client_task_enum_with_action_attribute() {
+    #[client_task(action = 999)] // Dummy action
+    #[derive(Debug)]
+    struct TaskNoAction {
+        #[field(common)]
+        common: ClientTaskCommon,
+        #[field(req)]
+        req: String,
+        #[field(resp)]
+        resp: Option<String>,
+        res: Option<Result<(), RpcError>>,
+    }
+
+    impl ClientTask for TaskNoAction {
+        fn set_result(mut self, res: Result<(), RpcError>) {
+            self.res = Some(res);
+        }
+    }
+
+    #[client_task_enum]
+    #[derive(Debug)]
+    enum MyTaskWithAction {
+        #[action(100)]
+        A(TaskNoAction),
+        #[action("action_b")]
+        B(TaskB),
+    }
+
+    let task_a = TaskNoAction {
+        common: ClientTaskCommon::default(),
+        req: "hello".to_string(),
+        resp: None,
+        res: None,
+    };
+
+    let task_b = TaskB { common: ClientTaskCommon::default(), req: 123, resp: None, res: None };
+
+    let enum_task_a: MyTaskWithAction = task_a.into();
+    assert_eq!(enum_task_a.get_action(), RpcAction::Num(100));
+
+    let enum_task_b: MyTaskWithAction = task_b.into();
+    assert_eq!(enum_task_b.get_action(), RpcAction::Str("action_b"));
+}

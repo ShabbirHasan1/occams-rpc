@@ -1,14 +1,31 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use std::collections::HashMap;
-use syn::{parse_macro_input, Data, DeriveInput, Fields};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, Lit, Meta, NestedMeta, Variant};
+
+fn get_action_attribute(variant: &Variant) -> Option<Lit> {
+    for attr in &variant.attrs {
+        if attr.path.is_ident("action") {
+            if let Ok(Meta::List(meta_list)) = attr.parse_meta() {
+                let nested = meta_list.nested.first().cloned();
+                if let Some(NestedMeta::Lit(lit)) = nested {
+                    if meta_list.nested.len() > 1 {
+                        panic!("Only one action is allowed per variant");
+                    }
+                    return Some(lit);
+                }
+            }
+        }
+    }
+    None
+}
 
 pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStream {
-    let ast = parse_macro_input!(input as DeriveInput);
+    let mut ast = parse_macro_input!(input as DeriveInput);
     let enum_name = &ast.ident;
 
-    let variants = if let Data::Enum(data) = &ast.data {
-        &data.variants
+    let variants = if let Data::Enum(data) = &mut ast.data {
+        &mut data.variants
     } else {
         panic!("#[client_task_enum] can only be applied to enums");
     };
@@ -24,7 +41,7 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
     let mut deref_mut_arms = Vec::new();
 
     let mut inner_type_counts: HashMap<String, usize> = HashMap::new();
-    for variant in variants {
+    for variant in variants.iter() {
         if let Fields::Unnamed(fields) = &variant.fields {
             if fields.unnamed.len() == 1 {
                 let inner_type = &fields.unnamed.first().unwrap().ty;
@@ -34,7 +51,7 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
         }
     }
 
-    for variant in variants {
+    for variant in variants.iter_mut() {
         let variant_name = &variant.ident;
         let inner_type = match &variant.fields {
             Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
@@ -54,6 +71,25 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
             });
         }
 
+        let action_lit = get_action_attribute(variant);
+        variant.attrs.retain(|attr| !attr.path.is_ident("action"));
+
+        let action_arm = if let Some(lit) = action_lit {
+            match lit {
+                Lit::Int(val) => {
+                    quote! { #enum_name::#variant_name(..) => occams_rpc::stream::RpcAction::Num(#val), }
+                }
+                Lit::Str(val) => {
+                    quote! { #enum_name::#variant_name(..) => occams_rpc::stream::RpcAction::Str(#val), }
+                }
+                _ => panic!("Unsupported action type"),
+            }
+        } else {
+            quote! { #enum_name::#variant_name(inner) => inner.get_action(), }
+        };
+
+        get_action_arms.push(action_arm);
+
         encode_req_arms.push(quote! {
             #enum_name::#variant_name(inner) => inner.encode_req(codec),
         });
@@ -68,10 +104,6 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
 
         reserve_resp_blob_arms.push(quote! {
             #enum_name::#variant_name(inner) => inner.reserve_resp_blob(size),
-        });
-
-        get_action_arms.push(quote! {
-            #enum_name::#variant_name(inner) => inner.get_action(),
         });
 
         set_result_arms.push(quote! {

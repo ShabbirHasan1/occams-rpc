@@ -56,7 +56,7 @@ Fields within the struct must be annotated with `#[field(...)]` to specify their
 ### Example:
 
 ```rust
-use occams_rpc::stream::client::{ClientTask, ClientTaskCommon};
+use occams_rpc::stream::client::{ClientTask, ClientTaskCommon, ClientTaskAction, ClientTaskEncode, ClientTaskDecode};
 use occams_rpc::error::RpcError;
 use occams_rpc_macros::client_task;
 use serde_derive::{Deserialize, Serialize};
@@ -79,7 +79,7 @@ enum Action {
     Write = 2,
 }
 
-#[client_task(action = Action::Read)]
+#[client_task(action = 1)]
 #[derive(Debug)]
 pub struct FileReadTask {
     #[field(common)]
@@ -130,91 +130,86 @@ pub fn client_task(
 
 The `#[client_task_enum]` attribute is applied to an enum to delegate `ClientTask` related trait
 implementations to its variants. Each variant must wrap a struct that is a valid client task
-(often decorated with `#[client_task]`).
+(often decorated with `#[client_task]`)
 
 This macro generates `From` implementations for each variant, allowing for easy conversion
 from a specific task struct to the enum. It also delegates methods from `ClientTask`,
-`ClientTaskAction`, `ClientTaskEncode`, and `ClientTaskDecode` to the inner task.
+`ClientTaskEncode`, and `ClientTaskDecode` to the inner task.
+
+### `#[action]` on enum variants
+
+As an alternative to defining the action inside the subtype, you can specify a static action
+directly on an enum variant using the `#[action(...)]` attribute. Only one action (numeric or
+string literal) is allowed per variant.
+
+When `#[action(...)]` is used on a variant, the `get_action()` method for that variant will
+return the specified static action. The inner type does not need to define an action in this case,
+but if it does, the enum's action will take precedence.
 
 ### Example:
 
 ```rust
-use occams_rpc::stream::client::{ClientTask, ClientTaskCommon};
+use occams_rpc::stream::client::{ClientTask, ClientTaskCommon, ClientTaskAction, ClientTaskEncode, ClientTaskDecode};
 use occams_rpc::error::RpcError;
 use occams_rpc_macros::{client_task, client_task_enum};
 use serde_derive::{Deserialize, Serialize};
-use std::ops::{Deref, DerefMut};
 
-#[derive(Default, Deserialize, Serialize, Debug, PartialEq, Clone)]
-pub struct FileReq {
-    pub path: String,
-}
-
-#[repr(u8)]
-enum Action {
-    Read = 1,
-    Write = 2,
-}
-
-#[client_task(action = Action::Read)]
+#[client_task(action = 999)] // Action can be a dummy one, it will be overridden
 #[derive(Debug)]
-pub struct FileReadTask {
+pub struct FileOpenTask {
     #[field(common)]
     common: ClientTaskCommon,
     #[field(req)]
-    req: FileReq,
+    req: String,
     #[field(resp)]
-    resp: Option<Vec<u8>>,
-    res: Option<Result<(), RpcError>>,
+    resp: Option<()>
+}
+impl ClientTask for FileOpenTask {
+    fn set_result(self, _res: Result<(), RpcError>) {}
 }
 
-impl ClientTask for FileReadTask {
-    fn set_result(mut self, res: Result<(), RpcError>) {
-        self.res = Some(res);
-    }
-}
-
-#[client_task(action = Action::Write)]
+#[client_task(action = 3)] // This action will be used as the variant doesn't specify one
 #[derive(Debug)]
-pub struct FileWriteTask {
+pub struct FileCloseTask {
     #[field(common)]
     common: ClientTaskCommon,
     #[field(req)]
-    req: FileReq,
-    #[field(req_blob)]
-    blob: Vec<u8>,
+    req: (),
     #[field(resp)]
-    resp: Option<()>,
-    res: Option<Result<(), RpcError>>,
+    resp: Option<()>
+}
+impl ClientTask for FileCloseTask {
+    fn set_result(self, _res: Result<(), RpcError>) {}
 }
 
-impl ClientTask for FileWriteTask {
-    fn set_result(mut self, res: Result<(), RpcError>) {
-        self.res = Some(res);
-    }
-}
 
 #[client_task_enum]
 #[derive(Debug)]
 pub enum FileTask {
-    Read(FileReadTask),
-    Write(FileWriteTask),
+    #[action(1)]
+    Open(FileOpenTask),
+    // This variant delegates action to the inner type
+    Close(FileCloseTask),
 }
 
 // Usage
-let read_task = FileReadTask {
+let open_task = FileOpenTask {
     common: ClientTaskCommon::default(),
-    req: FileReq { path: "/path/to/file".to_string() },
+    req: "/path/to/file".to_string(),
     resp: None,
-    res: None,
 };
 
-// Convert specific task into the enum
-let mut file_task: FileTask = read_task.into();
+let mut file_task: FileTask = open_task.into();
+assert_eq!(file_task.get_action(), occams_rpc::stream::RpcAction::Num(1));
 
-// The enum now delegates trait methods
-file_task.set_seq(100);
-assert_eq!(file_task.seq, 100);
+let close_task = FileCloseTask {
+    common: ClientTaskCommon::default(),
+    req: (),
+    resp: None,
+};
+
+let mut file_task: FileTask = close_task.into();
+assert_eq!(file_task.get_action(), occams_rpc::stream::RpcAction::Num(3));
 ```
 */
 #[proc_macro_attribute]
@@ -224,87 +219,6 @@ pub fn client_task_enum(
     client_task_enum::client_task_enum_impl(attrs, input)
 }
 
-/**
-# `#[server_task_enum]`
-
-The `#[server_task_enum]` macro streamlines the creation of server-side task enums.
-When applied to an enum, it automatically implements `ServerTaskDecode`, `ServerTaskEncode`,
-`ServerTaskDone`, and `ServerTaskAction`, delegating the logic to the enum's variants.
-
-### Macro Arguments:
-
-* `req`: Implements `ServerTaskDecode` for the enum. When this is specified, each variant must have an `#[action(...)]` attribute.
-* `resp`: Implements `ServerTaskEncode` and `ServerTaskDone` for the enum.
-* `resp_type = <Type>`: Required if only `req` is specified. It defines the response type `R` for `ServerTaskDecode<R>` and `ServerTaskDone<R>`.
-
-### Variant Attributes:
-
-* `#[action(...)]`: Associates an RPC action (numeric, string, or enum value) with an enum variant.
-  Multiple actions can be specified (e.g., `#[action(1, 2, "read")]`).
-
-### Example:
-
-```rust
-use occams_rpc::{
-    codec::{Codec, MsgpCodec},
-    error::RpcError,
-    stream::server_impl::ServerTaskVariant,
-    stream::{
-        server::*,
-        RpcAction, RpcActionOwned,
-    },
-};
-use occams_rpc_macros::server_task_enum;
-use serde_derive::{Deserialize, Serialize};
-
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
-struct OpenFileReq { pub path: String, }
-
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
-struct OpenFileResp { pub fd: u64, }
-
-#[server_task_enum(req, resp)]
-#[derive(Debug)]
-pub enum FileTask {
-    #[action(1)]
-    Open(ServerTaskVariant<FileTask, OpenFileReq, OpenFileResp>),
-}
-
-// The macro generates the following (conceptual) implementations:
-// - `From<ServerTaskVariant<...>> for FileTask`
-// - `ServerTaskDecode<FileTask> for FileTask`
-// - `ServerTaskEncode for FileTask`
-// - `ServerTaskDone<FileTask> for FileTask`
-// - `ServerTaskAction for FileTask`
-
-// Usage
-let (tx, _rx) = crossfire::mpsc::unbounded_async();
-let noti: RespNoti<FileTask> = RespNoti::new(tx);
-let codec = MsgpCodec::default();
-
-let req_msg = OpenFileReq { path: "/tmp/file".to_string() };
-let req_buf = codec.encode(&req_msg).unwrap();
-
-// 1. Decode request into the enum
-let mut server_task = <FileTask as ServerTaskDecode<FileTask>>::decode_req(
-    &codec, RpcAction::Num(1), 123, &req_buf, None, noti
-).unwrap();
-
-assert_eq!(server_task.get_action(), RpcAction::Num(1));
-
-// 2. Process task and set result
-if let FileTask::Open(task) = &mut server_task {
-    task.res = Some(Ok(OpenFileResp { fd: 1024 }));
-}
-
-// 3. Encode response
-let (seq, resp_result) = server_task.encode_resp(&codec);
-assert_eq!(seq, 123);
-let resp_buf = resp_result.unwrap().unwrap(); // Result<Result<Vec<u8>,...>>
-let resp_msg: OpenFileResp = codec.decode(&resp_buf).unwrap();
-assert_eq!(resp_msg.fd, 1024);
-```
-*/
 #[proc_macro_attribute]
 pub fn server_task_enum(
     attrs: proc_macro::TokenStream, input: proc_macro::TokenStream,

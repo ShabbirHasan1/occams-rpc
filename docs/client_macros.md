@@ -6,6 +6,12 @@ The `#[client_task_enum]` and `#[client_task]` procedural macro simplifies the i
 
 `#[client_task_enum]` attribute allow user to wrap an enum and delegate the ClienTask trait requirements to it's variants.
 
+### `#[action]` on enum variants
+
+As an alternative to defining the action inside the subtype, you can specify a static action directly on an enum variant using the `#[action(...)]` attribute. Only one action (numeric or string literal) is allowed per variant.
+
+When `#[action(...)]` is used on a variant, the `get_action()` method for that variant will return the specified static action, and the inner type does not need to provide an action.
+
 ## Usage Example
 
 Here's an example of a struct using the `#[client_task]` macro:
@@ -14,43 +20,44 @@ Here's an example of a struct using the `#[client_task]` macro:
 
 #[client_task_enum]
 pub enum FileTask {
+    #[action(1)]
     Open(FileOpenTask),
-    IO(FileIOTask)
+    #[action("io_op")]
+    IO(FileIOTask),
+    // This variant delegates action to the inner type
+    Close(FileCloseTask),
+}
+
+// This task does not need to specify an action, as it's handled by the enum variant.
+#[client_task]
+pub struct FileOpenTask {
+    #[field(common)]
+    common: TaskCommon,
+    #[field(req)]
+    req: String,
+    #[field(resp)]
+    resp: Option<()>
 }
 
 #[client_task]
 pub struct FileIOTask {
-    #[field(action)]
-    action: u8,
     #[field(common)]
     common: TaskCommon,
-    sender: MTx<FileTask>,
     #[field(req)]
     req: FileIOReq,
     #[field(resp)]
     resp: Option<FileIOResp>,
-    action: i32,
-    res: Option<Result<(), RpcError>>,
 }
 
-#[client_task]
-pub struct FileOpenTask {
-    #[action(Action::Open)]
+// This task must specify its own action because the enum variant does not.
+#[client_task(action = 3)]
+pub struct FileCloseTask {
     #[field(common)]
     common: TaskCommon,
-    sender: MTx<FileTask>,
     #[field(req)]
-    req: String,
+    req: (),
     #[field(resp)]
-    resp: Option<()>,
-    action: i32,
-    res: Option<Result<(), RpcError>>,
-}
-
-pub enum Action {
-    Open=1,
-    Read=2,
-    Write=3,
+    resp: Option<()>
 }
 
 ```
