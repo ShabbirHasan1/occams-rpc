@@ -169,6 +169,17 @@ impl<IO: AsyncIO> AsyncListener for UnifyListener<IO> {
             },
         }
     }
+
+    #[inline]
+    fn local_addr(&self) -> io::Result<std::net::SocketAddr> {
+        match self {
+            UnifyListener::Tcp(l) => l.local_addr(),
+            UnifyListener::Unix(_) => Err(io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                "Unix listener does not have a standard SocketAddr",
+            )),
+        }
+    }
 }
 
 impl<IO: AsyncIO> std::fmt::Debug for UnifyListener<IO> {

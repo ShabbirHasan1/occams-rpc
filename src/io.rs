@@ -172,6 +172,8 @@ pub trait AsyncListener: Send + Sized + 'static + fmt::Debug {
     fn bind(addr: &str) -> io::Result<Self>;
 
     fn accept(&mut self) -> impl Future<Output = io::Result<Self::Conn>> + Send;
+
+    fn local_addr(&self) -> io::Result<std::net::SocketAddr>;
 }
 
 ///// Buffered IO for UnifyStream
