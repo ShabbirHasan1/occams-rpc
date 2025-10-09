@@ -48,6 +48,7 @@ build: init
 	cargo build -p occams-rpc-tcp
 	cargo build -p occams-rpc-tokio
 	cargo build -p occams-rpc-smol --features async_io
+	cargo build -p integration_test
 
 .DEFAULT_GOAL = build
 

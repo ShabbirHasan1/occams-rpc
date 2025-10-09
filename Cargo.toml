@@ -1,5 +1,5 @@
 [workspace]
-members = ["macros", "runtime/tokio", "runtime/smol", "transport_tcp"]
+members = ["macros", "runtime/tokio", "runtime/smol", "transport_tcp", "integration_test"]
 
 [package]
 name = "occams-rpc"
