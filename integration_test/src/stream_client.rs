@@ -1,16 +1,13 @@
 use crossfire::*;
-use log::*;
 use occams_rpc::codec::MsgpCodec;
 use occams_rpc::stream::client::*;
-use occams_rpc::stream::*;
 
 use captains_log::filter::LogFilter;
 use io_buffer::Buffer;
 use occams_rpc::macros::*;
 use occams_rpc::*;
 use serde_derive::{Deserialize, Serialize};
-use std::fmt;
-use std::sync::{Arc, atomic::AtomicU64};
+use std::sync::{Arc, atomic::AtomicU64}; // Re-added
 
 pub struct FileClient {
     config: RpcConfig,
@@ -55,12 +52,12 @@ impl ClientFactory for FileClient {
         }
         #[cfg(not(feature = "tokio"))]
         {
-            let _ = smol::spawn(f);
+            let _ = smol::spawn(f).detach();
         }
     }
 
     #[inline]
-    fn new_logger(&self, client_id: u64, server_id: u64) -> Self::Logger {
+    fn new_logger(&self, _client_id: u64, _server_id: u64) -> Self::Logger {
         // TODO fixme
         LogFilter::new()
     }
@@ -77,6 +74,19 @@ pub enum FileAction {
     Open = 1,
     Read = 2,
     Write = 3,
+}
+
+impl TryFrom<u8> for FileAction {
+    type Error = RpcError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(FileAction::Open),
+            2 => Ok(FileAction::Read),
+            3 => Ok(FileAction::Write),
+            _ => Err(RpcError::Text(format!("Invalid FileAction value: {}", value))),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -98,15 +108,15 @@ pub struct FileOpenReq {
 #[client_task(debug)]
 pub struct FileClientTaskOpen {
     #[field(common)]
-    common: ClientTaskCommon,
+    pub common: ClientTaskCommon,
     #[field(req)]
-    req: FileOpenReq,
+    pub req: FileOpenReq,
     #[field(resp)]
-    resp: Option<()>,
+    pub resp: Option<()>,
     #[field(res)]
-    res: Option<Result<(), RpcError>>,
+    pub res: Option<Result<(), RpcError>>,
     #[field(noti)]
-    sender: Option<MTx<FileClientTask>>,
+    pub sender: Option<MTx<FileClientTask>>,
 }
 
 impl FileClientTaskOpen {
@@ -136,17 +146,17 @@ pub struct FileIOResp {
 #[client_task(debug)]
 pub struct FileClientTaskRead {
     #[field(common)]
-    common: ClientTaskCommon,
+    pub common: ClientTaskCommon,
     #[field(req)]
-    req: FileIOReq,
+    pub req: FileIOReq,
     #[field(resp)]
-    resp: Option<FileIOResp>,
+    pub resp: Option<FileIOResp>,
     #[field(resp_blob)]
-    read_data: Option<Buffer>,
+    pub read_data: Option<Buffer>,
     #[field(res)]
-    res: Option<Result<(), RpcError>>,
+    pub res: Option<Result<(), RpcError>>,
     #[field(noti)]
-    sender: Option<MTx<FileClientTask>>,
+    pub sender: Option<MTx<FileClientTask>>,
 }
 
 impl FileClientTaskRead {
@@ -165,17 +175,17 @@ impl FileClientTaskRead {
 #[client_task(debug)]
 pub struct FileClientTaskWrite {
     #[field(common)]
-    common: ClientTaskCommon,
+    pub common: ClientTaskCommon,
     #[field(req)]
-    req: FileIOReq,
+    pub req: FileIOReq,
     #[field(req_blob)]
-    data: Buffer,
+    pub data: Buffer,
     #[field(resp)]
-    resp: Option<FileIOResp>,
+    pub resp: Option<FileIOResp>,
     #[field(res)]
-    res: Option<Result<(), RpcError>>,
+    pub res: Option<Result<(), RpcError>>,
     #[field(noti)]
-    sender: Option<MTx<FileClientTask>>,
+    pub sender: Option<MTx<FileClientTask>>,
 }
 
 impl FileClientTaskWrite {

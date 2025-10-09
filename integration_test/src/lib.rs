@@ -1,27 +1,29 @@
 pub mod stream_client;
 pub mod stream_server;
 
-#[macro_use]
-extern crate log;
-#[macro_use]
 extern crate captains_log;
+extern crate log;
 
 use captains_log::*;
 
 #[cfg(feature = "tokio")]
 use tokio::runtime::Runtime;
 
-pub struct TestRunnner {
+pub struct TestRunner {
     #[cfg(feature = "tokio")]
     rt: Runtime,
 }
 
-impl TestRunnner {
+impl TestRunner {
     pub fn new() -> Self {
         recipe::raw_file_logger("/tmp/rpc_test.log", Level::Trace).test().build().expect("log");
         Self {
             #[cfg(feature = "tokio")]
-            rt: Builder::new_multi_thread().worker_threads(8).enable_all().build().unwrap(),
+            rt: tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(8)
+                .enable_all()
+                .build()
+                .unwrap(),
         }
     }
 

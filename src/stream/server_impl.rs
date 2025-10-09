@@ -57,9 +57,10 @@ where
                 let conn_ref_count = self.conn_ref_count.clone();
                 let listener_info = format!("listener {:?}", addr);
                 let server_close_rx = self.server_close_rx.clone();
+                debug!("listening on {:?}", listener);
                 let abrt = Abortable::new(
                     async move {
-                        debug!("listening on {:?}", listener);
+                        error!("server running");
                         loop {
                             match listener.accept().await {
                                 Err(e) => {
@@ -78,13 +79,8 @@ where
                         }
                     },
                     abort_registration,
-                )
-                .map(|x| match x {
-                    Ok(_) => {}
-                    Err(e) => {
-                        warn!("rpc server exit listening: {:?}", e);
-                    }
-                });
+                );
+
                 self.factory.spawn_detach(abrt);
                 self.listeners_abort.push((abort_handle, listener_info));
                 return Ok(local_addr);
@@ -230,7 +226,7 @@ where
     C: Codec,
     T: ServerTaskDecode<R::ChannelItem>,
     R: RespReceiver,
-    H: Fn(T) -> F + Send + Sync + 'static,
+    H: FnOnce(T) -> F + Send + Sync + 'static + Clone,
     F: Future<Output = Result<(), ()>> + Send + 'static,
 {
     codec: C,
@@ -243,7 +239,7 @@ where
     C: Codec,
     T: ServerTaskDecode<R::ChannelItem>,
     R: RespReceiver,
-    H: Fn(T) -> F + Send + Sync + 'static,
+    H: FnOnce(T) -> F + Send + Sync + 'static + Clone,
     F: Future<Output = Result<(), ()>> + Send + 'static,
 {
     #[inline]
@@ -257,7 +253,7 @@ where
     C: Codec,
     T: ServerTaskDecode<R::ChannelItem>,
     R: RespReceiver,
-    H: Fn(T) -> F + Send + Sync + 'static,
+    H: FnOnce(T) -> F + Send + Sync + 'static + Clone,
     F: Future<Output = Result<(), ()>> + Send + 'static,
 {
     #[inline]
@@ -277,7 +273,8 @@ where
                 return Err(());
             }
             Ok(task) => {
-                if let Err(_) = (self.task_handle)(task).await {
+                let handle = self.task_handle.clone();
+                if let Err(_) = (handle)(task).await {
                     error!("action {:?} seq={} dispatch err", req.action, req.seq);
                     return Err(());
                 }
