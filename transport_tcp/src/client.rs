@@ -167,18 +167,22 @@ impl<F: ClientFactory> TcpClient<F> {
                     }
                 }
             }
-            logger_debug!(self.logger, "{:?} recv task {:?} ok", self, task);
-            // set result of task, and notify task completed
-            if let Err(_) = task.decode_resp(codec, read_buf) {
-                logger_warn!(self.logger, "{:?} rpc client reader decode resp err", self,);
-                task.set_result(Err(RPC_ERR_DECODE));
+            logger_trace!(self.logger, "{:?} recv task {:?} ok", self, task);
+            if resp_head.msg_len > 0 {
+                // set result of task, and notify task completed
+                if let Err(_) = task.decode_resp(codec, read_buf) {
+                    logger_warn!(self.logger, "{:?} rpc client reader decode resp err", self,);
+                    task.set_result(Err(RPC_ERR_DECODE));
+                } else {
+                    task.set_result(Ok(()));
+                }
             } else {
                 task.set_result(Ok(()));
             }
             return Ok(());
         } else {
             let seq = resp_head.seq;
-            logger_debug!(self.logger, "{:?} timer take_task(seq={}) return None", self, seq);
+            logger_trace!(self.logger, "{:?} timer take_task(seq={}) return None", self, seq);
             let mut data_len = 0;
             if resp_head.flag == 0 {
                 data_len += resp_head.msg_len + resp_head.blob_len as u32;

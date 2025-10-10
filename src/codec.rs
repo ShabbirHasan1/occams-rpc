@@ -33,3 +33,16 @@ impl Codec for MsgpCodec {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_msgp() {
+        let codec = MsgpCodec::default();
+        let encoded = codec.encode(&()).expect("encode");
+        println!("encoded () size :{}", encoded.len());
+        let _decoded: () = codec.decode(&encoded).expect("decode");
+    }
+}
