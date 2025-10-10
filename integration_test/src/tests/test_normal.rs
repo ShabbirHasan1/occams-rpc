@@ -5,6 +5,7 @@ use crossfire::mpsc;
 use io_buffer::{Buffer, rand_buffer}; // Added rand_buffer
 use log::info;
 use occams_rpc::RpcConfig;
+use occams_rpc::error::RpcError;
 use occams_rpc::stream::RpcAction;
 
 use std::convert::TryFrom; // New import
@@ -25,7 +26,7 @@ fn test_client_server() {
                     FileServerTask::Open(mut open_task) => {
                         info!("Server received Open task: {:?}", open_task.req);
                         // Simulate opening a file
-                        open_task.set_result_done(Ok(()));
+                        open_task.set_result(Ok(()));
                         Ok(())
                     }
                     FileServerTask::IO(mut io_task) => {
@@ -57,7 +58,7 @@ fn test_client_server() {
                                         // Set response message
                                         io_task.resp = Some(FileIOResp { ret_size });
 
-                                        io_task.set_result_done(Ok(()));
+                                        io_task.set_result(Ok(()));
                                         Ok(())
                                     }
                                     FileAction::Write => {
@@ -68,14 +69,12 @@ fn test_client_server() {
                                             let ret_size = blob.len() as u64;
                                             _store.lock().unwrap().replace(blob);
                                             io_task.resp = Some(FileIOResp { ret_size });
-                                            io_task.set_result_done(Ok(()));
+                                            io_task.set_result(Ok(()));
                                         } else {
                                             log::error!("Write task received without blob data.");
-                                            io_task.set_result_done(Err(
-                                                occams_rpc::error::RpcError::Text(
-                                                    "No data to write".to_string(),
-                                                ),
-                                            ));
+                                            io_task.set_result(Err(RpcError::Text(
+                                                "No data to write".to_string(),
+                                            )));
                                         }
                                         Ok(())
                                     }
@@ -84,7 +83,7 @@ fn test_client_server() {
                             }
                             _ => {
                                 log::error!("Unexpected RpcAction type for IO task.");
-                                io_task.set_result(Err(occams_rpc::error::RpcError::Text(
+                                io_task.set_result(Err(RpcError::Text(
                                     "Unexpected RpcAction type".to_string(),
                                 )));
                                 Err(())

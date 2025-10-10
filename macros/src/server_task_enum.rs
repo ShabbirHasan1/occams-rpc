@@ -192,7 +192,7 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
             });
 
             set_result_arms.push(quote! {
-                #enum_name::#variant_name(ref mut task) => task.set_result(res),
+                #enum_name::#variant_name(ref mut task) => task._set_result(res),
             });
         }
     }
@@ -245,7 +245,7 @@ pub fn server_task_enum_impl(attrs: TokenStream, input: TokenStream) -> TokenStr
 
             impl occams_rpc::stream::server::ServerTaskDone<#enum_name> for #enum_name {
                 #[inline]
-                fn set_result(&mut self, res: Result<(), occams_rpc::error::RpcError>) -> occams_rpc::stream::server::RespNoti<#enum_name> {
+                fn _set_result(&mut self, res: Result<(), occams_rpc::error::RpcError>) -> occams_rpc::stream::server::RespNoti<#enum_name> {
                     match self {
                         #(#set_result_arms)*
                     }

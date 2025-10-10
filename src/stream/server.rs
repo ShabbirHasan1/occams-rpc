@@ -164,15 +164,17 @@ pub trait ServerTaskEncode {
 }
 
 pub trait ServerTaskDone<T: Send + 'static>: Sized + 'static {
-    fn set_result(&mut self, res: Result<(), RpcError>) -> RespNoti<T>;
+    /// Should implement for enum delegation, not intended for user call
+    fn _set_result(&mut self, res: Result<(), RpcError>) -> RespNoti<T>;
 
+    /// For users, set the result in the task and send it back
     #[inline]
-    fn set_result_done(mut self, res: Result<(), RpcError>)
+    fn set_result(mut self, res: Result<(), RpcError>)
     where
         T: std::convert::From<Self>,
     {
         // NOTE: To allow a trait to consume self, must require Sized
-        let noti = self.set_result(res);
+        let noti = self._set_result(res);
         let parent: T = self.into();
         noti.done(parent);
     }

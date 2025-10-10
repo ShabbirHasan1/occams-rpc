@@ -4,10 +4,7 @@ use crate::codec::Codec;
 use crate::error::*;
 use crate::io::AsyncListener;
 use crate::runtime::AsyncIO;
-use futures::{
-    FutureExt,
-    future::{AbortHandle, Abortable},
-};
+use futures::future::{AbortHandle, Abortable};
 use io_buffer::Buffer;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -356,7 +353,7 @@ where
     T: Send + Unpin + 'static,
     M: Send + Unpin + 'static,
 {
-    fn set_result(&mut self, res: Result<(), RpcError>) -> RespNoti<T> {
+    fn _set_result(&mut self, res: Result<(), RpcError>) -> RespNoti<T> {
         self.res.replace(res);
         return self.noti.take().unwrap();
     }
@@ -451,7 +448,7 @@ where
     R: Send + Unpin + 'static,
     P: Send + Unpin + 'static,
 {
-    fn set_result(&mut self, res: Result<(), RpcError>) -> RespNoti<T> {
+    fn _set_result(&mut self, res: Result<(), RpcError>) -> RespNoti<T> {
         self.res.replace(res);
         return self.done_tx.take().unwrap();
     }
