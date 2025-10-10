@@ -1,29 +1,10 @@
-RUNTESTCASE = _run_test_case() {                                                  \
-    case="$(filter-out $@,$(MAKECMDGOALS))";                                      \
-    if [ -n "$${case}" ]; then                                                    \
-        RUST_BACKTRACE=full cargo test $${case} -- --nocapture --test-threads=1;  \
-    else                                                                          \
-        RUST_BACKTRACE=full cargo test -- --nocapture --test-threads=1;           \
-    fi  \
-}
-
-RUNBENCHCASE = _run_bench_case() {                                                  \
-    case="$(filter-out $@,$(MAKECMDGOALS))";                                      \
-    if [ -n "$${case}" ]; then                                                    \
-        RUST_BACKTRACE=full cargo test $${case} --release -- --nocapture --test-threads=1;  \
-    else                                                                          \
-        echo should specify test case;                                            \
-    fi  \
-}
-
-
-INSTALL_GITHOOKS = _install_githooks() {                \
-	git config core.hooksPath ./git-hooks;              \
-}
+# filter out target and keep the rest as args
+PRIMARY_TARGET := $(firstword $(MAKECMDGOALS))
+ARGS := $(filter-out $(PRIMARY_TARGET), $(MAKECMDGOALS))
 
 .PHONY: git-hooks
 git-hooks:
-	@$(INSTALL_GITHOOKS); _install_githooks
+	git config core.hooksPath ./git-hooks;
 
 .PHONY: init
 init: git-hooks
@@ -39,6 +20,7 @@ test: test-core test-codec test-stream-macros test-stream
 	@echo "Done"
 
 
+
 .PHONY: test-core
 test-core: init
 	cargo check -p occams-rpc-core
@@ -52,10 +34,13 @@ test-core: init
 test-stream-macros: init
 	cargo test -p occams-rpc-stream-macros
 
+# usage:
+# make test-stream "test_normal --features tokio"
+# make test-stream "test_normal --features smol"
 .PHONY: test-stream
 test-stream: init
 	@echo "Run stream integration tests"
-	cargo test -p stream_test $@ -- --nocapture --test-threads=1
+	cargo test -p stream_test ${ARGS} -- --nocapture --test-threads=1
 	@echo "Done"
 
 .PHONY: bench
