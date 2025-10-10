@@ -38,6 +38,12 @@ test: init
 	@${RUNTESTCASE}; _run_test_case
 	@echo "Done"
 
+.PHONY: test-integration
+test-integration: init
+	@echo "Run integration tests"
+	cargo test -p integration_test -- --nocapture --test-threads=1
+	@echo "Done"
+
 .PHONY: bench
 bench:
 	@${RUNBENCHCASE}; _run_bench_case
@@ -48,6 +54,7 @@ build: init
 	cargo build -p occams-rpc-tcp
 	cargo build -p occams-rpc-tokio
 	cargo build -p occams-rpc-smol --features async_io
+	cargo build -p integration_test
 
 .DEFAULT_GOAL = build
 
