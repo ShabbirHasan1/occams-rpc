@@ -14,7 +14,7 @@ log = { version = "0.4", features = ["std", "kv_unstable"] }
 captains-log = "0.14"
 crossfire = "2.1"
 smol = { version="2", optional=true }
-tokio = { version = "1", features = ["net", "time", "rt"], optional=true }
+tokio = { version = "1", features = ["net", "time", "rt", "rt-multi-thread"], optional=true }
 io-buffer = "1"
 
 [features]
