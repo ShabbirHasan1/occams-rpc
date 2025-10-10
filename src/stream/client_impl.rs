@@ -27,8 +27,26 @@ pub struct RpcClient<F: ClientFactory> {
 }
 
 impl<F: ClientFactory> RpcClient<F> {
+    /// Make a streaming connection to the server, returns [RpcClient] on success
+    #[inline]
+    pub fn connect(
+        factory: Arc<F>, addr: &str, server_id: u64, last_resp_ts: Option<Arc<AtomicU64>>,
+    ) -> impl Future<Output = Result<Self, RpcError>> + Send {
+        async move {
+            let client_id = factory.get_client_id();
+            let timeout = &factory.get_config().timeout;
+            let logger = factory.new_logger(client_id, server_id);
+            let conn = <F::Transport as ClientTransport<F>>::connect(
+                addr, timeout, client_id, server_id, logger,
+            )
+            .await?;
+            Ok(RpcClient::new(factory, conn, client_id, server_id, last_resp_ts))
+        }
+    }
+
     /// timeout_setting: only use read_timeout/write_timeout
-    pub fn new(
+    #[inline]
+    fn new(
         factory: Arc<F>, conn: F::Transport, client_id: u64, server_id: u64,
         last_resp_ts: Option<Arc<AtomicU64>>,
     ) -> Self {
