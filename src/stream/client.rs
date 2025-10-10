@@ -132,7 +132,11 @@ pub trait ClientTaskDecode {
 }
 
 pub trait ClientTaskDone: Sized + 'static {
-    fn get_result(&self) -> Option<&Result<(), RpcError>>;
+    /// Check the result of the task
+    fn get_result(&self) -> Result<(), &RpcError>;
+
+    /// Set the result and notify outside the task is done.
+    /// Called by RPC framework
     fn set_result(self, res: Result<(), RpcError>);
 }
 

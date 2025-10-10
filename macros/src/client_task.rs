@@ -193,8 +193,12 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
         quote! {
             impl occams_rpc::stream::client::ClientTaskDone for #struct_name {
                 #[inline]
-                fn get_result(&self) -> Option<&Result<(), occams_rpc::error::RpcError>> {
-                    self.#res_field_name.as_ref()
+                fn get_result(&self) -> Result<(), &occams_rpc::error::RpcError> {
+                    match self.#res_field_name.as_ref() {
+                        Some(Ok(()))=>return Ok(()),
+                        Some(Err(e))=>return Err(e),
+                        None=>Err(&occams_rpc::error::RPC_ERR_INTERNAL)
+                    }
                 }
 
                 #[inline]

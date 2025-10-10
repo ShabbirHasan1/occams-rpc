@@ -1,7 +1,7 @@
 use crossfire::{mpsc, MTx};
 use occams_rpc::{
     codec::MsgpCodec,
-    error::RpcError,
+    error::*,
     stream::client::{
         ClientTaskAction, ClientTaskCommon, ClientTaskDecode, ClientTaskDone, ClientTaskEncode,
     },
@@ -107,11 +107,11 @@ fn test_client_task_enum_delegation() {
     assert_eq!(enum_task_c.get_action(), RpcAction::Num(3));
 
     // Test ClientTask delegation
-    assert!(enum_task_a.get_result().is_none());
+    assert_eq!(enum_task_a.get_result(), Err(&RPC_ERR_INTERNAL));
     enum_task_a.set_result(Ok(()));
     let received = rx.recv().unwrap();
     assert!(matches!(received, MyTask::A(_)));
-    assert_eq!(received.get_result(), Some(&Ok(())));
+    assert_eq!(received.get_result(), Ok(()));
 
     // Test ClientTaskEncode/Decode delegation
     let codec = MsgpCodec::default();

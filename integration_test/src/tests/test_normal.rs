@@ -111,7 +111,7 @@ fn test_client_server() {
         let completed_open_task = rx.recv().await.unwrap();
         assert!(matches!(completed_open_task, FileClientTask::Open(_)));
         assert!(
-            completed_open_task.get_result().unwrap().is_ok(),
+            completed_open_task.get_result().is_ok(),
             "res {:?}",
             completed_open_task.get_result()
         );
@@ -125,7 +125,7 @@ fn test_client_server() {
         client.send_task(write_task.into(), true).await.expect("send write task");
         let completed_write_task = rx.recv().await.unwrap();
         assert!(matches!(completed_write_task, FileClientTask::Write(_)));
-        assert!(completed_write_task.get_result().unwrap().is_ok());
+        assert!(completed_write_task.get_result().is_ok());
         if let FileClientTask::Write(task) = completed_write_task {
             assert_eq!(task.resp.unwrap().ret_size, write_data.len() as u64);
         }
@@ -136,7 +136,7 @@ fn test_client_server() {
         client.send_task(read_task.into(), true).await.expect("send read task");
         let completed_read_task = rx.recv().await.unwrap();
         assert!(matches!(completed_read_task, FileClientTask::Read(_)));
-        assert!(completed_read_task.get_result().unwrap().is_ok());
+        assert!(completed_read_task.get_result().is_ok());
         if let FileClientTask::Read(task) = completed_read_task {
             assert_eq!(task.resp.unwrap().ret_size, data_len as u64);
             assert_eq!(task.read_data.as_ref().unwrap().as_ref(), write_data.as_ref()); // Compare with original random data

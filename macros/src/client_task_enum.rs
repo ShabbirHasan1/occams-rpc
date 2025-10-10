@@ -212,7 +212,7 @@ pub fn client_task_enum_impl(_attr: TokenStream, input: TokenStream) -> TokenStr
 
         impl occams_rpc::stream::client::ClientTaskDone for #enum_name {
             #[inline]
-            fn get_result(&self) -> Option<&Result<(), occams_rpc::error::RpcError>> {
+            fn get_result(&self) -> Result<(), &occams_rpc::error::RpcError> {
                 match self {
                     #(#get_result_arms)*
                 }

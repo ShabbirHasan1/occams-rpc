@@ -11,6 +11,7 @@ pub const ERR_COMM: &'static str = "rpc_error";
 pub const ERR_FAILOVER: &'static str = "rpc_failover";
 pub const ERR_ENCODE: &'static str = "rpc_encode_error";
 pub const ERR_DECODE: &'static str = "rpc_decode_error";
+pub const ERR_INTERNAL: &'static str = "rpc_internal_error";
 
 pub const RPC_ERR_TIMEOUT: RpcError = RpcError::Rpc(ERR_TIMEOUT);
 pub const RPC_ERR_CONNECT: RpcError = RpcError::Rpc(ERR_CONNECT);
@@ -18,6 +19,7 @@ pub const RPC_ERR_COMM: RpcError = RpcError::Rpc(ERR_COMM);
 pub const RPC_ERR_CLOSED: RpcError = RpcError::Rpc(ERR_CLOSED);
 pub const RPC_ERR_ENCODE: RpcError = RpcError::Rpc(ERR_ENCODE);
 pub const RPC_ERR_DECODE: RpcError = RpcError::Rpc(ERR_DECODE);
+pub const RPC_ERR_INTERNAL: RpcError = RpcError::Rpc(ERR_INTERNAL);
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RpcError {
