@@ -1,4 +1,3 @@
-use futures::future::FutureExt;
 use occams_rpc::config::TimeoutSetting;
 use occams_rpc::error::*;
 use occams_rpc::io::{AsyncRead, AsyncWrite, Cancellable, io_with_timeout};
@@ -86,14 +85,7 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
         let idle_timeout = self.timeout.idle_timeout;
         let mut req_header_buf = [0u8; proto::RPC_REQ_HEADER_LEN];
 
-        let cancel_f = async {
-            let sleep_f = F::IO::sleep(idle_timeout);
-            let close_f = close_ch.recv();
-            futures::select! {
-                _=sleep_f.fuse()=>{},
-                _=close_f.fuse()=>{}
-            }
-        };
+        let cancel_f = close_ch.recv_with_timer(F::IO::sleep(idle_timeout));
         match Cancellable::new(reader.read_exact(&mut req_header_buf), cancel_f).await {
             Ok(Err(e)) => {
                 logger_debug!(self.logger, "{:?}: recv_req: err {:?}", self, e);
