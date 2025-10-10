@@ -51,11 +51,13 @@ impl ClientFactory for FileClient {
     {
         #[cfg(feature = "tokio")]
         {
+            println!("spawn client tokio");
             let _ = tokio::spawn(f);
         }
         #[cfg(not(feature = "tokio"))]
         {
-            let _ = smol::spawn(f);
+            println!("spawn client smol");
+            let _ = smol::spawn(f).detach();
         }
     }
 

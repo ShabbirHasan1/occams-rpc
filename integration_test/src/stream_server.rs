@@ -19,7 +19,7 @@ pub fn init_server<H, FH>(
     server_handle: H, config: RpcConfig, addr: &str,
 ) -> Result<(RpcServer<FileServer<H, FH>>, SocketAddr), std::io::Error>
 where
-    H: Fn(FileServerTask) -> FH + Send + Sync + 'static + Clone,
+    H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
     FH: Future<Output = Result<(), ()>> + Send + 'static,
 {
     let factory = Arc::new(FileServer::new(server_handle, config));
@@ -30,7 +30,7 @@ where
 
 pub struct FileServer<H, FH>
 where
-    H: Fn(FileServerTask) -> FH + Send + Sync + 'static + Clone,
+    H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
     FH: Future<Output = Result<(), ()>> + Send + 'static,
 {
     config: RpcConfig,
@@ -39,7 +39,7 @@ where
 
 impl<H, FH> FileServer<H, FH>
 where
-    H: Fn(FileServerTask) -> FH + Send + Sync + 'static + Clone,
+    H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
     FH: Future<Output = Result<(), ()>> + Send + 'static,
 {
     pub fn new(server_handle: H, config: RpcConfig) -> Self {
@@ -49,7 +49,7 @@ where
 
 impl<H, FH> ServerFactory for FileServer<H, FH>
 where
-    H: Fn(FileServerTask) -> FH + Send + Sync + 'static + Clone,
+    H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
     FH: Future<Output = Result<(), ()>> + Send + 'static,
 {
     type Logger = captains_log::filter::LogFilter;
@@ -78,11 +78,13 @@ where
     {
         #[cfg(feature = "tokio")]
         {
+            println!("tokio server spawn");
             let _ = tokio::spawn(f);
         }
         #[cfg(not(feature = "tokio"))]
         {
-            let _ = smol::spawn(f);
+            let _ = smol::spawn(f).detach();
+            println!("smol server spawn");
         }
     }
 
