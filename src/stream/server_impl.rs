@@ -162,6 +162,7 @@ where
                     ($task: expr) => {{
                         match $task {
                             Ok(mut _task) => {
+                                logger_trace!(self.conn.get_logger(), "send_resp {:?}", _task);
                                 let (seq, res) = self.dispatch.encode_resp(&mut _task);
                                 self.conn.send_resp(seq, res).await?;
                             }

@@ -109,7 +109,7 @@ pub trait ReqDispatch<R: RespReceiver>: Send + Sync + Sized + 'static {
 }
 
 pub trait RespReceiver: Send + 'static {
-    type ChannelItem: Send + Unpin + 'static;
+    type ChannelItem: Send + Unpin + 'static + fmt::Debug;
 
     /// NOTE: Because the msg encoded from task resp is not a ref, should return a owned buffer.
     /// In order to return Vec<u8> from RpcSvrResp, should take the msg out, thus require task to
@@ -148,7 +148,7 @@ impl<T: Send + 'static> RespNoti<T> {
 }
 
 /// For enum_dispatch
-pub trait ServerTaskResp: ServerTaskEncode + Send + Sized + Unpin + 'static {}
+pub trait ServerTaskResp: ServerTaskEncode + Send + Sized + Unpin + 'static + fmt::Debug {}
 
 pub trait ServerTaskDecode<R: Send + Unpin + 'static>: Send + Sized + Unpin + 'static {
     fn decode_req<'a, C: Codec>(
