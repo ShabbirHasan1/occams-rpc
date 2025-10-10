@@ -35,7 +35,7 @@ pub fn write_pid_file(run_dir: &str, prog_name: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Call after program is fork. Use a seperate empty file to notify parent that child has started up.
+/// Call after program is fork. Use a separate empty file to notify parent that child has started up.
 fn write_child_pid_file(run_dir: &str, prog_name: &str) -> std::io::Result<()> {
     let pid_file_path = Path::new(run_dir).join(format!("{}_{}", prog_name, process::id()));
     std::fs::File::create(pid_file_path.to_str().unwrap())?;

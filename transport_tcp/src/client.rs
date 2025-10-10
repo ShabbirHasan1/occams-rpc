@@ -2,14 +2,12 @@ use crate::net::{UnifyAddr, UnifyStream};
 use bytes::BytesMut;
 use crossfire::MAsyncRx;
 use io_buffer::Buffer;
-use occams_rpc::io::{AsyncRead, AsyncWrite, Cancellable, io_with_timeout};
-use occams_rpc::runtime::AsyncIO;
-use occams_rpc::stream::client::{
-    ClientFactory, ClientTaskDecode, ClientTaskDone, ClientTransport,
-};
-use occams_rpc::stream::client_timer::ClientTaskTimer;
-use occams_rpc::stream::proto;
-use occams_rpc::{TimeoutSetting, error::*};
+use occams_rpc_core::io::{AsyncRead, AsyncWrite, Cancellable, io_with_timeout};
+use occams_rpc_core::runtime::AsyncIO;
+use occams_rpc_core::{TimeoutSetting, error::*};
+use occams_rpc_stream::client::{ClientFactory, ClientTaskDecode, ClientTaskDone, ClientTransport};
+use occams_rpc_stream::client_timer::ClientTaskTimer;
+use occams_rpc_stream::proto;
 use std::cell::UnsafeCell;
 use std::mem::transmute;
 use std::str::FromStr;
@@ -36,7 +34,7 @@ impl<F: ClientFactory> fmt::Debug for TcpClient<F> {
 }
 
 impl<F: ClientFactory> TcpClient<F> {
-    // Because async runtimes does not support spliting read and write to static handler,
+    // Because async runtimes does not support splitting read and write to static handler,
     // we use unsafe to achieve such goal,
     #[inline(always)]
     fn get_stream_mut(&self) -> &mut UnifyStream<F::IO> {

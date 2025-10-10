@@ -1,8 +1,5 @@
-[workspace]
-members = ["core", "codec", "runtime/tokio", "runtime/smol", "stream", "stream/macros", "transport_tcp", "stream/test"]
-
 [package]
-name = "occams-rpc"
+name = "occams-rpc-stream"
 version = "0.1.0"
 edition = "2024"
 authors = ["plan <frostyplanet@gmail.com>"]
@@ -12,16 +9,20 @@ documentation = "https://docs.rs/occams-rpc"
 keywords = ["networking", "rpc"]
 license = "MIT"
 description = """
-A modular, plugable RPC for high throughput scenario, supports various runtime,
+The streaming interface of occams-rpc.
+occams-rpc is a modular, plugable RPC for high throughput scenario, supports various runtime,
 with a low-level streaming interface, and high-level remote API call interface.
 """
 
 [dependencies]
+occams-rpc-core = {path="../core/", version="0"}
+occams-rpc-stream-macros = {path="macros", version="0"}
 log = { version = "0.4", features = ["std", "kv_unstable"] }
 captains-log = ">=0.15"
-
-[features]
-default = []
-
-[dev-dependencies]
-serde_derive = "1"
+futures = "0.3"
+zerocopy = "0.2"
+io-buffer = "1"
+rustc-hash = "1.1"
+sync-utils = "0"
+serde = "1"
+crossfire = "2.1"

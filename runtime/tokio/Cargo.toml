@@ -14,7 +14,4 @@ occams-rpc runtime adaptor for tokio ecology
 
 [dependencies]
 tokio = { version = "1", features = ["net", "time", "rt"] }
-#occams-rpc = "0"
-occams-rpc = { path = "../../" }
-
-[dev-dependencies]
+occams-rpc-core = { path = "../../core/", version="0" }

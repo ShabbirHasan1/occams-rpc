@@ -1,5 +1,5 @@
-use occams_rpc::io::io_with_timeout;
-use occams_rpc::runtime::{AsyncFdTrait, AsyncIO, TimeInterval};
+use occams_rpc_core::io::io_with_timeout;
+use occams_rpc_core::runtime::{AsyncFdTrait, AsyncIO, TimeInterval};
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;

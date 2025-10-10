@@ -1,8 +1,5 @@
-[workspace]
-members = ["core", "codec", "runtime/tokio", "runtime/smol", "stream", "stream/macros", "transport_tcp", "stream/test"]
-
 [package]
-name = "occams-rpc"
+name = "occams-rpc-codec"
 version = "0.1.0"
 edition = "2024"
 authors = ["plan <frostyplanet@gmail.com>"]
@@ -12,16 +9,17 @@ documentation = "https://docs.rs/occams-rpc"
 keywords = ["networking", "rpc"]
 license = "MIT"
 description = """
-A modular, plugable RPC for high throughput scenario, supports various runtime,
+This is the codec packages for occams_rpc.
+occams_rpc is a modular, plugable RPC for high throughput scenario, supports various runtime,
 with a low-level streaming interface, and high-level remote API call interface.
 """
 
 [dependencies]
-log = { version = "0.4", features = ["std", "kv_unstable"] }
-captains-log = ">=0.15"
+occams-rpc-core = {path="../core", version="0"}
+serde = "1"
+rmp-serde = {version="1.1", optional=true}
+log = "0.4"
 
 [features]
 default = []
-
-[dev-dependencies]
-serde_derive = "1"
+msgpack = ["dep:rmp-serde"]

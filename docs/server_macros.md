@@ -49,15 +49,15 @@ pub enum ServerTask {
     Task1(SubTask1),
 }
 
-#[server_task_enum(resp)] // Example with only resp, resp_type and action is not required
+#[server_task_enum(resp)] // Example with only resp, resp_type and action are not required
 #[derive(Debug)]
 pub enum ServerTask {
     Task1(SubTask1),
 }
 ```
 
-The `#[action()]` can contain multiple items, separated with comma. Then it will call the SubType::decode_req in multiple situtation.
-In this case the SubType is required to impl `ServerTaskAction` trait to return the actual action it stored
+The `#[action()]` can contain multiple items, separated by a comma. It will then call SubType::decode_req in multiple situations.
+In this case, the SubType is required to implement the `ServerTaskAction` trait to return the actual action it stored.
 
 ```rust
 #[server_task_enum(req, resp_type = RpcResp)] // Example with only req, resp_type is required
@@ -72,7 +72,7 @@ pub struct SubTask1 {
     ...
 }
 
-When the `#[action()]` item is not numeric, nor string, it can be an one or multiple Enum value, in this case the value conver to number when parsing.
+When an `#[action()]` item is not numeric or a string, it can be one or more Enum values. In this case, the value is converted to a number when parsing.
 
 ``` rust
 #[server_task_enum(req, resp_type = RpcResp)] // Example with only req, resp_type is required

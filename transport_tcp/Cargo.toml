@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+occams-rpc-core = {path="../core", version="0"}
+occams-rpc-stream = {path="../stream", version="0"}
 log = { version = "0.4", features = ["std", "kv_unstable"] }
-captains-log = "0.14"
+captains-log = ">=0.15"
 close_fds = "0.3.2"
 async-trait = "0.1"
 crossfire = "2.1"
@@ -15,4 +17,3 @@ io-buffer = "1"
 bytes = "1"
 libc = "0"
 signal-hook = { version = "0" }
-occams-rpc = {path="../"}

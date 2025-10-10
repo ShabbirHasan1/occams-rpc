@@ -33,15 +33,29 @@ fmt: init
 	cargo fmt
 
 .PHONY: test
-test: init
+test: test-core test-codec test-stream-macros test-stream
 	@echo "Run test"
 	@${RUNTESTCASE}; _run_test_case
 	@echo "Done"
 
-.PHONY: test-integration
-test-integration: init
-	@echo "Run integration tests"
-	cargo test -p integration_test -- --nocapture --test-threads=1
+
+.PHONY: test-core
+test-core: init
+	cargo check -p occams-rpc-core
+	cargo test -p occams-rpc-core
+
+.PHONY: test-codec
+	cargo check -p occams-rpc-codec
+	cargo test -p occams-rpc-codec
+
+.PHONY: test-stream-macros
+test-stream-macros: init
+	cargo test -p occams-rpc-stream-macros
+
+.PHONY: test-stream
+test-stream: init
+	@echo "Run stream integration tests"
+	cargo test -p stream_test $@ -- --nocapture --test-threads=1
 	@echo "Done"
 
 .PHONY: bench
@@ -50,11 +64,13 @@ bench:
 
 .PHONY: build
 build: init
-	cargo build
-	cargo build -p occams-rpc-tcp
+	cargo build -p occams-rpc-core
 	cargo build -p occams-rpc-tokio
-	cargo build -p occams-rpc-smol --features async_io
-	cargo build -p integration_test
+	cargo build -p occams-rpc-smol
+	cargo build -p occams-rpc-stream-macros
+	cargo build -p occams-rpc-stream
+	cargo build -p occams-rpc-tcp
+	cargo build -p stream_test
 
 .DEFAULT_GOAL = build
 

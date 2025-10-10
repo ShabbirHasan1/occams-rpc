@@ -14,13 +14,6 @@ occams-rpc runtime adaptor for smol-rs ecology
 
 [dependencies]
 futures = "0.3"
-#occams-rpc = "0"
-occams-rpc = { path = "../../" }
-async-io = {version="2.6", optional=true}
+occams-rpc-core = { path = "../../core/", version="0" }
+async-io = {version="2.6"}
 smol = {version="2", optional=true}
-
-[features]
-# Minimal dep with only async_io
-async_io = ["dep:async-io"]
-# Use smol global executor
-global = ["dep:smol"]

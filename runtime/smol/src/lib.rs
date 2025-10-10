@@ -1,5 +1,5 @@
-use occams_rpc::io::*;
-use occams_rpc::runtime::{AsyncFdTrait, AsyncIO, TimeInterval};
+use occams_rpc_core::io::*;
+use occams_rpc_core::runtime::{AsyncFdTrait, AsyncIO, TimeInterval};
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
@@ -12,15 +12,7 @@ use std::pin::Pin;
 use std::task::*;
 use std::time::{Duration, Instant};
 
-#[cfg(all(feature = "global", feature = "async_io"))]
-compile_error!("async_io feature exclusive with global");
-
-#[cfg(all(not(feature = "global"), feature = "async_io"))]
 use async_io::{Async, Timer};
-#[cfg(feature = "global")]
-use smol::{Async, Timer};
-#[cfg(all(not(feature = "global"), not(feature = "async_io")))]
-compile_error!("you must choose a feature");
 
 pub struct SmolRT();
 

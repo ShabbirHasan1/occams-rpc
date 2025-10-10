@@ -5,8 +5,8 @@ The `#[client_task_enum]` and `#[client_task]` procedural macro simplifies the i
 `#[client_task]` attribute allows users to define a struct representing an RPC task and specify its common fields, request, response, and optional blob data using `#[field(...)]` attributes.
 It will not generate ClientTask trait because the ClientTaskAction is optional for task variants.
 
-`#[client_task_enum]` attribute allow user to wrap an enum and delegate the ClienTask trait requirements to it's variants.
-It will generate ClientTask trait and the ClientTaskAction according to #[action()] specified for enum variants.
+`#[client_task_enum]` attribute allows users to wrap an enum and delegate the ClientTask trait requirements to its variants.
+It will generate the ClientTask trait and the ClientTaskAction according to the #[action()] specified for enum variants.
 
 ### `#[action]` on enum variants
 
@@ -30,7 +30,7 @@ pub enum FileTask {
     Close(FileCloseTask),
 }
 
-// This task does not need to specify an action, as it's handled by the enum variant.
+// This task does not need to specify an action, as it is handled by the enum variant.
 #[client_task]
 pub struct FileOpenTask {
     #[field(common)]
@@ -73,12 +73,12 @@ The macro processes specific fields within the task struct based on the `#[field
     *   **Requirements:** This field is mandatory. The macro generates `Deref` and `DerefMut` implementations for the task struct, delegating to this `common` field. This allows direct access to the common fields of the task struct.
 
 *   `#[field(action)]`
-    *   Purpose: implement ClientTaskAction trait to return RpcAction according to the field
-    *   Requirements: there's no `action=` specified within the client_task attribute. the field is a numeric or string type, or an enum type that repr by number.
+    *   Purpose: Implement the ClientTaskAction trait to return an RpcAction according to the field.
+    *   Requirements: There is no `action=` specified within the `client_task` attribute. The field is a numeric or string type, or an enum type that is represented by a number.
 
-*   attribute parameter action in `#[client_task(action=...)]`
-    *   Purpose: implement ClientTaskAction trait with a static value
-    *   Requirements: there's no `#[field(action)]` specified within the struct.  `action()` parameter must be only one, can be numeric, or string, or an enum repr by number.
+*   attribute parameter `action` in `#[client_task(action=...)]`
+    *   Purpose: Implement the ClientTaskAction trait with a static value.
+    *   Requirements: There is no `#[field(action)]` specified within the struct. The `action()` parameter must be only one, and can be numeric, a string, or an enum represented by a number.
 
 *   `#[field(req)]`:
     *   **Purpose:** Designates the field containing the request payload for the RPC call.
@@ -112,11 +112,11 @@ The `#[client_task]` macro automatically generates the following trait implement
 
 *   `ClientTaskEncode`:
     *   `encode_req<C: occams_rpc::codec::Codec>(&self, codec: &C) -> Result<Vec<u8>, ()>`: Encodes the content of the `#[field(req)]` field using the provided codec.
-    *   `get_req_blob(&self) -> Option<&[u8]>`: If `#[field(req_blob)]` is present, returns `Some` reference to the blob data; otherwise, it returns `None`.
+    *   `get_req_blob(&self) -> Option<&[u8]>`: If `#[field(req_blob)]` is present, returns a `Some` reference to the blob data; otherwise, it returns `None`.
 
 *   `ClientTaskDecode`:
     *   `decode_resp<C: occams_rpc::codec::Codec>(&mut self, codec: &C, buffer: &[u8]) -> Result<(), ()>`: Decodes the response buffer using the provided codec and stores the result in the `#[field(resp)]` field.
-    *   `get_resp_blob_mut(&mut self) -> Option<&mut impl occams_rpc::io::AllocateBuf>`: If `#[field(resp_blob)]` is present, returns `Some` mutable reference to the response blob `Option<T>`; otherwise, it returns `None`.
+    *   `get_resp_blob_mut(&mut self) -> Option<&mut impl occams_rpc::io::AllocateBuf>`: If `#[field(resp_blob)]` is present, returns a `Some` mutable reference to the response blob `Option<T>`; otherwise, it returns `None`.
 
 *   `ClientTaskDone`:
     *   This trait is implemented when `#[field(res)]` and `#[field(noti)]` are present.
@@ -131,7 +131,7 @@ The `#[client_task]` macro automatically generates the following trait implement
     }
     ```
 
-*   when `#[client_task(debug)]` is specified, you will get a more specified Debug generated according to `req` and `resp` field
+*   when `#[client_task(debug)]` is specified, you will get a more specific Debug generated according to the `req` and `resp` fields
     ```rust
     impl std::fmt::Debug for T {
         fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -145,7 +145,7 @@ The `#[client_task]` macro automatically generates the following trait implement
     ```
 
 
-The `#[client_task_enum]` will implement `From` to assist convertion from it's variants to parent enum, and delegating `ClienTaskEnode`, `ClientTaskDecode`, `ClientTaskAction`, `RpcClientTask` to it's variants.
+The `#[client_task_enum]` will implement `From` to assist conversion from its variants to the parent enum, and delegate `ClientTaskEncode`, `ClientTaskDecode`, `ClientTaskAction`, and `RpcClientTask` to its variants.
 
 ## User Responsibilities
 

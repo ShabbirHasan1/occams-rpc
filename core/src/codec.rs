@@ -1,0 +1,8 @@
+use serde::{Deserialize, Serialize};
+/// The codec is immutable, if need changing (like setting up cipher), should have inner
+/// mutablilty
+pub trait Codec: Default + Send + Sync + Sized + 'static {
+    fn encode<T: Serialize>(&self, task: &T) -> Result<Vec<u8>, ()>;
+
+    fn decode<'a, T: Deserialize<'a>>(&self, buf: &'a [u8]) -> Result<T, ()>;
+}
