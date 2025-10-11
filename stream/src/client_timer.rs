@@ -1,3 +1,7 @@
+//! The struct that implements a timer for ClientTask
+//!
+//! This module is only for transport implementation, not for the user.
+
 use std::{
     collections::vec_deque::VecDeque,
     future::Future,

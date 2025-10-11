@@ -1,3 +1,14 @@
+//! The RpcClient implementation
+//!
+//! [RpcClient] represents a client-side connection.
+//!
+//! On Drop, will close the connection on write-side, the response reader coroutine not exit
+//! until all the ClientTask have a response or after `task_timeout` is reached.
+//!
+//! The user sends packets in sequence, with a throttler controlling the IO depth of in-flight packets.
+//! An internal timer then registers the request through a channel, and when the response
+//! is received, it can optionally notify the user through a user-defined channel or another mechanism.
+
 use std::{
     cell::UnsafeCell,
     fmt,
@@ -19,7 +30,14 @@ use std::time::Duration;
 use sync_utils::{time::DelayedTime, waitgroup::WaitGroupGuard};
 use zerocopy::AsBytes;
 
-/// RpcClient represents a client-side connection. connection will close on dropped
+/// RpcClient represents a client-side connection.
+///
+/// On Drop, the connection will be closed on the write-side. The response reader coroutine will not exit
+/// until all the ClientTasks have a response or after `task_timeout` is reached.
+///
+/// The user sends packets in sequence, with a throttler controlling the IO depth of in-flight packets.
+/// An internal timer then registers the request through a channel, and when the response
+/// is received, it can optionally notify the user through a user-defined channel or another mechanism.
 pub struct RpcClient<F: ClientFactory> {
     close_tx: Option<MTx<()>>,
     inner: Arc<RpcClientInner<F>>,
@@ -46,7 +64,6 @@ impl<F: ClientFactory> RpcClient<F> {
         }
     }
 
-    /// timeout_setting: only use read_timeout/write_timeout
     #[inline]
     fn new(
         factory: Arc<F>, conn: F::Transport, client_id: u64, server_id: u64,
@@ -91,7 +108,9 @@ impl<F: ClientFactory> RpcClient<F> {
         self.inner.closed.load(Ordering::SeqCst)
     }
 
-    /// Force the receiver to exit
+    /// Force the receiver to exit.
+    ///
+    /// You can call it when connectivity probes detect that a server is unreachable.
     pub async fn set_error_and_exit(&self) {
         self.inner.has_err.store(true, Ordering::SeqCst);
         self.inner.conn.close().await;
@@ -100,21 +119,32 @@ impl<F: ClientFactory> RpcClient<F> {
         }
     }
 
+    /// send_task() should only be called without parallelism.
+    ///
+    /// NOTE: We define this to be an immutable function to avoid a borrow check, it might be changed to
+    /// &mut self in the future.
+    ///
+    /// Since the transport layer might have buffer, user should always call flush explicitly.
+    /// You can set `need_flush` = true for some urgent messages, or call flush_req() explicitly.
     #[inline(always)]
     pub async fn send_task(&self, task: F::Task, need_flush: bool) -> Result<(), RpcError> {
         self.inner.send_task(task, need_flush).await
     }
 
+    /// Since the transport layer might have buffer, user should always call flush explicitly.
+    /// you can set `need_flush` = true for some urgent message, or call flush_req() explicitly.
     #[inline(always)]
     pub async fn flush_req(&self) -> Result<(), RpcError> {
         self.inner.flush_req().await
     }
 
+    /// Check the throttler and see if future send_task() might be blocked
     #[inline]
     pub fn will_block(&self) -> bool {
         if let Some(t) = self.inner.throttler.as_ref() { t.nearly_full() } else { false }
     }
 
+    /// Wait for the response of in-flight tasks to be received
     #[inline(always)]
     pub async fn throttle(&self) -> bool {
         if self.inner.closed.load(Ordering::SeqCst) {

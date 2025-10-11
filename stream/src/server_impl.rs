@@ -1,3 +1,9 @@
+//! The RpcServer implementation, and some structs that impl the traits in crate::server
+//!
+//! There are pre-defined structs that impl [ServerTaskDecode] and [ServerTaskResp]:
+//! - [ServerTaskVariant] is for the situation to map a request struct to a response struct
+//! - [ServerTaskVariantFull] is for the situation of holding the request and response msg in the same struct
+
 use crate::proto::{RpcAction, RpcActionOwned};
 use crate::server::*;
 use futures::future::{AbortHandle, Abortable};
@@ -224,7 +230,9 @@ where
     }
 }
 
-/// A ReqDispatch trait impl with closure
+/// A ReqDispatch trait impl with a closure, only useful for writing tests.
+///
+/// NOTE: The closure requires Clone.
 ///
 /// # Example
 ///
@@ -247,7 +255,6 @@ where
 ///     }
 /// }
 /// ```
-
 pub struct ReqDispatchClosure<C, T, R, H, F>
 where
     C: Codec,
@@ -318,7 +325,7 @@ where
     }
 }
 
-/// For the stream interface
+/// RespReceiver for the stream interface
 pub struct RespReceiverTask<T: ServerTaskResp>(PhantomData<fn(&T)>);
 
 impl<T: ServerTaskResp> RespReceiver for RespReceiverTask<T> {
@@ -332,7 +339,7 @@ impl<T: ServerTaskResp> RespReceiver for RespReceiverTask<T> {
     }
 }
 
-/// For the API interface
+/// RespReceiver for the API interface
 pub struct RespReceiverBuf();
 impl RespReceiver for RespReceiverBuf {
     type ChannelItem = RpcSvrResp;

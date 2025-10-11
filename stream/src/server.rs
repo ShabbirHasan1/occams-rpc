@@ -1,3 +1,6 @@
+//! This module contains traits defined for the server-side
+//!
+
 use std::{fmt, future::Future, io, sync::Arc};
 
 use crate::proto::RpcAction;
@@ -7,6 +10,7 @@ use io_buffer::Buffer;
 pub use occams_rpc_core::ServerConfig;
 use occams_rpc_core::{Codec, error::*, io::*, runtime::AsyncIO};
 
+/// A central hub defined by the user for the server-side, to define the customizable plugin.
 pub trait ServerFactory: Sync + Send + 'static + Sized {
     /// A [captains-log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/index.html) implementation.
     /// The type that new_logger returns.
@@ -45,7 +49,9 @@ pub trait ServerFactory: Sync + Send + 'static + Sized {
     /// - [crate::server_impl::RespReceiverBuf]
     type RespReceiver: RespReceiver;
 
-    /// The dispatch is likely to be a closure or object, in order to dispatch task to different worker
+    /// Called when a server stream is established, initialize a ReqDispatch for the connection.
+    ///
+    /// The dispatch is likely to be a closure or object, in order to dispatch tasks to different workers
     fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespReceiver>;
 }
 
@@ -57,6 +63,7 @@ pub trait ServerFactory: Sync + Send + 'static + Sized {
 pub trait ServerTransport<F: ServerFactory>: Send + Sync + Sized + 'static + fmt::Debug {
     type Listener: AsyncListener;
 
+    /// The ServerTransport holds a logger, the server will use it by reference.
     fn get_logger(&self) -> &F::Logger;
 
     /// The implementation is expected to store the conn_count until dropped
@@ -64,16 +71,20 @@ pub trait ServerTransport<F: ServerFactory>: Send + Sync + Sized + 'static + fmt
         stream: <Self::Listener as AsyncListener>::Conn, f: &F, conn_count: Arc<()>,
     ) -> Self;
 
+    /// read request from the socket
     fn recv_req<'a>(
         &'a self, close_ch: &crossfire::MAsyncRx<()>,
     ) -> impl Future<Output = Result<RpcSvrReq<'a>, RpcError>> + Send;
 
+    /// write out encoded request task
     fn send_resp<'a>(
         &self, seq: u64, res: Result<(Vec<u8>, Option<&'a Buffer>), &'a RpcError>,
     ) -> impl Future<Output = io::Result<()>> + Send;
 
+    /// Flush the response for the socket writer, if the transport has buffering logic
     fn flush_resp(&self) -> impl Future<Output = io::Result<()>> + Send;
 
+    /// Shutdown the write direction of the connection
     fn close_conn(&self) -> impl Future<Output = ()> + Send;
 }
 
@@ -101,23 +112,40 @@ pub struct RpcSvrResp {
     pub res: Result<(), RpcError>,
 }
 
+/// ReqDispatch should be a user-defined struct initialized for every connection, by ServerFactory::new_dispatcher.
+///
+/// ReqDispatch must have Sync, because the connection reader coroutine calls dispatch_req(),
+/// and encode_resp() called by connection writer coroutine.
+/// It should incorporate a RespReceiver trait instance for the writer side.
+///
+/// A `Codec` should be created and holds inside, shared by the read/write coroutine.
+/// If you have encryption in the Codec, it could have shared states.
 pub trait ReqDispatch<R: RespReceiver>: Send + Sync + Sized + 'static {
-    /// Define the task handler, called from connection reader coroutine.
+    /// Decode and handle the request, called from the connection reader coroutine.
     ///
-    /// You might dispatch them to a worker pool.
-    /// If you processing them directly in the connection coroutine, should make sure not
+    /// You can dispatch them to a worker pool.
+    /// If you are processing them directly in the connection coroutine, should make sure not
     /// blocking the thread for long.
-    /// This in async fn, but you should avoid waiting as must as possible.
+    /// This is an async fn, but you should avoid waiting as much as possible.
     /// Should return Err(()) when codec decode_req failed.
     fn dispatch_req<'a>(
         &'a self, req: RpcSvrReq<'a>, noti: RespNoti<R::ChannelItem>,
     ) -> impl Future<Output = Result<(), ()>> + Send;
 
+    /// A delegate function to RespReceiver trait with owned codec
+    /// Called from the response writer
     fn encode_resp<'a>(
         &'a self, task: &'a mut R::ChannelItem,
     ) -> (u64, Result<(Vec<u8>, Option<&'a Buffer>), &'a RpcError>);
 }
 
+/// Trait to be incorporated in ReqDispatch trait, which defined the response channel item type.
+///
+/// There are two types of implement:
+/// - [crate::server_impl::RespReceiverTask]: When you have all types of server response tasks in one enum type.
+/// - [crate::server_impl::RespReceiverBuf]: When you have an API call server, or different types of
+/// task handled by different worker pools.
+/// Task can be encoded to RpcSvrResp before sent into channel.
 pub trait RespReceiver: Send + 'static {
     type ChannelItem: Send + Unpin + 'static + fmt::Debug;
 
@@ -130,7 +158,10 @@ pub trait RespReceiver: Send + 'static {
     ) -> (u64, Result<(Vec<u8>, Option<&'a Buffer>), &'a RpcError>);
 }
 
-/// A writer channel to send response. Can be cloned anywhere.
+/// A writer channel to send response to the server framework.
+///
+/// It can be cloned anywhere.
+/// The user doesn't need to call it directly.
 pub struct RespNoti<T: Send + 'static>(
     pub(crate) crossfire::MTx<Result<T, (u64, Option<RpcError>)>>,
 );

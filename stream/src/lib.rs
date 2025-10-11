@@ -31,23 +31,24 @@
 //! We utilize the [crossfire](https://docs.rs/crossfire) channel for parallelizing the work with
 //! coroutines.
 //!
-//! In an RpcClient, the user sends packets in sequence, with a throttler controlling the IO depth of
-//! in-flight packets. An internal timer then registers the request through a channel, and when the response
+//! With an [RpcClient](crate::client_impl::RpcClient), the user sends packets in sequence,
+//! with a throttler controlling the IO depth of in-flight packets.
+//! An internal timer then registers the request through a channel, and when the response
 //! is received, it can optionally notify the user through a user-defined channel or another mechanism.
 //!
-//! In an RpcServer, for each connection, there is one coroutine to read requests and one
+//! In an [Rpcserver](crate::server_impl::RpcServer), for each connection, there is one coroutine to read requests and one
 //! coroutine to write responses. Requests can be dispatched with a user-defined
-//! [ReqDispatch](crate::server::ReqDispatch) trait implment.
+//! [ReqDispatch](crate::server::ReqDispatch) trait implementation.
 //!
-//! And responses are received through a channel [RespNoti](crate::server::RespNoti).
+//! Responses are received through a channel wrapped in [RespNoti](crate::server::RespNoti).
 //!
 //! ## Protocol
 //!
 //! The details are described in [crate::proto].
 //!
 //! The packet starts with a fixed-length header and is followed by a variable-length body.
-//! An [RpcAction](crate::proto::RpcAction)
-//! represents the type of packet. The action type is either numeric or a string.
+//! An [RpcAction](crate::proto::RpcAction) represents the type of packet.
+//! The action type is either numeric or a string.
 //!
 //! The request body contains a mandatory structured message and optional blob data.
 //!
