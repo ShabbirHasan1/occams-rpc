@@ -2,6 +2,17 @@
 name = "occams-rpc-tcp"
 version = "0.1.0"
 edition = "2024"
+authors = ["plan <frostyplanet@gmail.com>"]
+categories = ["concurrency", "network-programming"]
+repository = "https://github.com/NaturalIO/occams-rpc"
+documentation = "https://docs.rs/occams-rpc"
+keywords = ["networking", "rpc"]
+license = "MIT"
+description = """
+The streaming interface of occams-rpc.
+occams-rpc is a modular, plugable RPC for high throughput scenario, supports various runtime,
+with a low-level streaming interface, and high-level remote API call interface.
+"""
 
 [dependencies]
 occams-rpc-core = {path="../core", version="0"}
