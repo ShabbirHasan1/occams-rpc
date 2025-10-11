@@ -92,4 +92,4 @@ The codec is intended to support encryption, so there should be a shared state, 
 Because the reader and writer for a connection are parallel, we should define the ReqDispatch and RespReceiver traits separately. The ReqDispatch trait relies on RespReceiver because it needs to know about the task type of the done channel.
 
 We set RespReceiver in ServerFactory as an associated type, but we leave ReqDispatch to be inferred from
-` fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespReceiver>``, because, like TaskReqDispatch, it usually comes with a closure capturing the context about how to dispatch the task. This may be a Fn or a struct defined by the user.
+` fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespReceiver>``, because, like ReqDispatchClosure, it usually comes with a closure capturing the context about how to dispatch the task. This may be a Fn or a struct defined by the user.

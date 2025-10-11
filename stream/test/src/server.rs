@@ -59,7 +59,7 @@ where
 
     #[inline]
     fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespReceiver> {
-        return TaskReqDispatch::<MsgpCodec, FileServerTask, Self::RespReceiver, _, _>::new(
+        return ReqDispatchClosure::<MsgpCodec, FileServerTask, Self::RespReceiver, _, _>::new(
             self.server_handle.clone(),
         );
     }

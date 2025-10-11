@@ -10,6 +10,7 @@ use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+/// An RpcServer that listen, accept, and server connections, according to ServerFactory interface.
 pub struct RpcServer<F>
 where
     F: ServerFactory,
@@ -215,7 +216,31 @@ where
     }
 }
 
-pub struct TaskReqDispatch<C, T, R, H, F>
+/// A ReqDispatch trait impl with closure
+///
+/// # Example
+///
+/// ```no_compile,ignore
+/// use occams_rpc_stream::server::{ServerFactory, ReqDispatch};
+/// impl ServerFactory for YourServer {
+///
+///     ...
+///
+///     #[inline]
+///     fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespReceiver> {
+///         let dispatch_f = move |task: FileServerTask| {
+///             async move {
+///                 todo!();
+///             }
+///         }
+///         return ReqDispatchClosure::<MsgpCodec, YourServerTask, Self::RespReceiver, _, _>::new(
+///             dispatch_f,
+///         );
+///     }
+/// }
+/// ```
+
+pub struct ReqDispatchClosure<C, T, R, H, F>
 where
     C: Codec,
     T: ServerTaskDecode<R::ChannelItem>,
@@ -228,7 +253,7 @@ where
     _phan: PhantomData<fn(&R, &T)>,
 }
 
-impl<C, T, R, H, F> TaskReqDispatch<C, T, R, H, F>
+impl<C, T, R, H, F> ReqDispatchClosure<C, T, R, H, F>
 where
     C: Codec,
     T: ServerTaskDecode<R::ChannelItem>,
@@ -242,7 +267,7 @@ where
     }
 }
 
-impl<C, T, R, H, F> ReqDispatch<R> for TaskReqDispatch<C, T, R, H, F>
+impl<C, T, R, H, F> ReqDispatch<R> for ReqDispatchClosure<C, T, R, H, F>
 where
     C: Codec,
     T: ServerTaskDecode<R::ChannelItem>,

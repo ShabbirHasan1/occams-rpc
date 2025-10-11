@@ -37,8 +37,9 @@
 //!
 //! In an RpcServer, for each connection, there is one coroutine to read requests and one
 //! coroutine to write responses. Requests can be dispatched with a user-defined
-//! [TaskReqDispatch](crate::server_impl::TaskReqDispatch).
-//! Responses are received through a channel [RespNoti](crate::server::RespNoti).
+//! [ReqDispatch](crate::server::ReqDispatch) trait implment.
+//!
+//! And responses are received through a channel [RespNoti](crate::server::RespNoti).
 //!
 //! ## Protocol
 //!
