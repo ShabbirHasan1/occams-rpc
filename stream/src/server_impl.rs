@@ -106,7 +106,7 @@ where
         impl<F: ServerFactory, D: ReqDispatch<R>, R: RespReceiver> Reader<F, D, R> {
             async fn run(self) -> Result<(), ()> {
                 loop {
-                    match self.conn.recv_req(&self.server_close_rx).await {
+                    match self.conn.read_req(&self.server_close_rx).await {
                         Ok(req) => {
                             if req.action == RpcAction::Num(0) && req.msg.len() == 0 {
                                 // ping request
@@ -159,15 +159,15 @@ where
                     ($task: expr) => {{
                         match $task {
                             Ok(mut _task) => {
-                                logger_trace!(self.conn.get_logger(), "send_resp {:?}", _task);
+                                logger_trace!(self.conn.get_logger(), "write_resp {:?}", _task);
                                 let (seq, res) = self.dispatch.encode_resp(&mut _task);
-                                self.conn.send_resp(seq, res).await?;
+                                self.conn.write_resp(seq, res).await?;
                             }
                             Err((seq, None)) => {
-                                self.conn.send_resp(seq, Ok((vec![], None))).await?;
+                                self.conn.write_resp(seq, Ok((vec![], None))).await?;
                             }
                             Err((seq, Some(err))) => {
-                                self.conn.send_resp(seq, Err(&err)).await?;
+                                self.conn.write_resp(seq, Err(&err)).await?;
                             }
                         }
                     }};

@@ -71,13 +71,13 @@ pub trait ServerTransport<F: ServerFactory>: Send + Sync + Sized + 'static + fmt
         stream: <Self::Listener as AsyncListener>::Conn, f: &F, conn_count: Arc<()>,
     ) -> Self;
 
-    /// read request from the socket
-    fn recv_req<'a>(
+    /// Read a request from the socket
+    fn read_req<'a>(
         &'a self, close_ch: &crossfire::MAsyncRx<()>,
     ) -> impl Future<Output = Result<RpcSvrReq<'a>, RpcError>> + Send;
 
-    /// write out encoded request task
-    fn send_resp<'a>(
+    /// Write out the encoded request task
+    fn write_resp<'a>(
         &self, seq: u64, res: Result<(Vec<u8>, Option<&'a Buffer>), &'a RpcError>,
     ) -> impl Future<Output = io::Result<()>> + Send;
 

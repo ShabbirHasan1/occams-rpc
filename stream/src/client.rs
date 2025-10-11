@@ -86,20 +86,20 @@ pub trait ClientTransport<F: ClientFactory>: fmt::Debug + Send + Sized + 'static
     /// The ClientTransport holds a logger, the server will use it by reference.
     fn get_logger(&self) -> &F::Logger;
 
-    /// shutdown write direction of the connection
-    fn close(&self) -> impl Future<Output = ()> + Send;
+    /// Shutdown the write direction of the connection
+    fn close_conn(&self) -> impl Future<Output = ()> + Send;
 
     /// Flush the request for the socket writer, if the transport has buffering logic
     fn flush_req(&self) -> impl Future<Output = Result<(), RpcError>>;
 
-    /// write out encoded request task
-    fn write_task<'a>(
+    /// Write out the encoded request task
+    fn write_req<'a>(
         &'a self, need_flush: bool, header: &'a [u8], action_str: Option<&'a [u8]>,
         msg_buf: &'a [u8], blob: Option<&'a [u8]>,
     ) -> impl Future<Output = io::Result<()>> + Send;
 
-    /// read response and decode from the socket, find and notify the registered ClientTask
-    fn recv_task(
+    /// Read the response and decode it from the socket, find and notify the registered ClientTask
+    fn read_resp(
         &self, factory: &F, codec: &F::Codec, close_ch: Option<&MAsyncRx<()>>,
         task_reg: &mut ClientTaskTimer<F>,
     ) -> impl std::future::Future<Output = Result<bool, RpcError>> + Send;

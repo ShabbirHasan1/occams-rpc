@@ -75,7 +75,7 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
     /// recv_req and return a temporary structure.
     ///
     /// NOTE: you should consume the buffer ref before recv another request.
-    async fn recv_req<'a>(
+    async fn read_req<'a>(
         &'a self, close_ch: &crossfire::MAsyncRx<()>,
     ) -> Result<RpcSvrReq<'a>, RpcError> {
         let reader = self.get_stream_mut();
@@ -160,7 +160,7 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
     }
 
     #[inline]
-    async fn send_resp<'a>(
+    async fn write_resp<'a>(
         &self, seq: u64, res: Result<(Vec<u8>, Option<&'a Buffer>), &'a RpcError>,
     ) -> io::Result<()> {
         let writer = self.get_stream_mut();

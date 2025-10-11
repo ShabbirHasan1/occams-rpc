@@ -113,7 +113,7 @@ impl<F: ClientFactory> RpcClient<F> {
     /// You can call it when connectivity probes detect that a server is unreachable.
     pub async fn set_error_and_exit(&self) {
         self.inner.has_err.store(true, Ordering::SeqCst);
-        self.inner.conn.close().await;
+        self.inner.conn.close_conn().await;
         if let Some(close_tx) = self.close_tx.as_ref() {
             let _ = close_tx.send(()); // This equals to RpcClient::drop
         }
@@ -319,7 +319,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
                 let header_bytes = header.as_bytes();
                 if let Err(e) = self
                     .conn
-                    .write_task(need_flush, header_bytes, action_str, msg_buf.as_bytes(), blob_buf)
+                    .write_req(need_flush, header_bytes, action_str, msg_buf.as_bytes(), blob_buf)
                     .await
                 {
                     logger_warn!(
@@ -360,7 +360,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
         };
         // Ping does not need to reg_task, and have no error_handle, just to keep the connection
         // alive. Connection Prober can monitor the liveness of ClientConn
-        if let Err(e) = self.conn.write_task(true, header.as_bytes(), None, b"", None).await {
+        if let Err(e) = self.conn.write_req(true, header.as_bytes(), None, b"", None).await {
             logger_warn!(self.logger(), "{:?} send ping err: {:?}", self, e);
             self.closed.store(true, Ordering::SeqCst);
             return Err(RPC_ERR_COMM);
@@ -399,7 +399,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
                 if timer.check_pending_tasks_empty() || self.has_err.load(Ordering::Relaxed) {
                     return Err(RPC_ERR_CLOSED);
                 }
-                if let Err(e) = self.conn.recv_task(&self.factory, &self.codec, None, timer).await {
+                if let Err(e) = self.conn.read_resp(&self.factory, &self.codec, None, timer).await {
                     self.closed.store(true, Ordering::SeqCst);
                     return Err(e);
                 }
@@ -407,7 +407,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
                 // Block here for new header without timeout
                 if !self
                     .conn
-                    .recv_task(&self.factory, &self.codec, Some(&self.close_rx), timer)
+                    .read_resp(&self.factory, &self.codec, Some(&self.close_rx), timer)
                     .await?
                 {
                     self.closed.store(true, Ordering::SeqCst);

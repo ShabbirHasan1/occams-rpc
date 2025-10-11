@@ -240,9 +240,10 @@ impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
     }
 
     #[inline(always)]
-    async fn close(&self) {
+    async fn close_conn(&self) {
         let stream = self.get_stream_mut();
-        let _ = stream.shutdown_write().await; // stream close is just shutdown on sending, receiver might not be notified on peer dead
+        // stream close is just shutdown on sending, receiver might not be notified on peer dead
+        let _ = stream.shutdown_write().await;
     }
 
     #[inline(always)]
@@ -258,7 +259,7 @@ impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
     }
 
     #[inline(always)]
-    async fn write_task<'a>(
+    async fn write_req<'a>(
         &'a self, need_flush: bool, header: &'a [u8], action_str: Option<&'a [u8]>,
         msg_buf: &'a [u8], blob: Option<&'a [u8]>,
     ) -> io::Result<()> {
@@ -287,7 +288,7 @@ impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
 
     /// return false to indicate aborted by close_f
     #[inline]
-    async fn recv_task(
+    async fn read_resp(
         &self, factory: &F, codec: &F::Codec, close_ch: Option<&MAsyncRx<()>>,
         task_reg: &mut ClientTaskTimer<F>,
     ) -> Result<bool, RpcError> {
