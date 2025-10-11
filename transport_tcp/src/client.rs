@@ -4,7 +4,7 @@ use crossfire::MAsyncRx;
 use io_buffer::Buffer;
 use occams_rpc_core::io::{AsyncRead, AsyncWrite, Cancellable, io_with_timeout};
 use occams_rpc_core::runtime::AsyncIO;
-use occams_rpc_core::{TimeoutSetting, error::*};
+use occams_rpc_core::{ClientConfig, error::*};
 use occams_rpc_stream::client::{ClientFactory, ClientTaskDecode, ClientTaskDone, ClientTransport};
 use occams_rpc_stream::client_timer::ClientTaskTimer;
 use occams_rpc_stream::proto;
@@ -194,9 +194,9 @@ impl<F: ClientFactory> TcpClient<F> {
 
 impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
     async fn connect(
-        addr: &str, timeout: &TimeoutSetting, client_id: u64, server_id: u64, logger: F::Logger,
+        addr: &str, config: &ClientConfig, client_id: u64, server_id: u64, logger: F::Logger,
     ) -> Result<Self, RpcError> {
-        let connect_timeout = timeout.connect_timeout;
+        let connect_timeout = config.connect_timeout;
         let stream: UnifyStream<F::IO> = {
             match UnifyAddr::from_str(addr) {
                 Err(e) => {
@@ -228,8 +228,8 @@ impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
             resp_buf: UnsafeCell::new(BytesMut::with_capacity(512)),
             server_id,
             client_id,
-            write_timeout: timeout.write_timeout,
-            read_timeout: timeout.read_timeout,
+            write_timeout: config.write_timeout,
+            read_timeout: config.read_timeout,
             logger,
         })
     }

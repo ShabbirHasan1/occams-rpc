@@ -4,11 +4,10 @@ use crate::server::*;
 use crossfire::mpsc;
 use io_buffer::{Buffer, rand_buffer}; // Added rand_buffer
 use log::*;
-use occams_rpc_stream::RpcConfig;
-use occams_rpc_stream::client::ClientTaskDone;
+use occams_rpc_stream::client::{ClientConfig, ClientTaskDone};
 use occams_rpc_stream::error::RpcError;
 use occams_rpc_stream::proto::RpcAction;
-use occams_rpc_stream::server::{ServerTaskAction, ServerTaskDone};
+use occams_rpc_stream::server::{ServerConfig, ServerTaskAction, ServerTaskDone};
 
 use std::convert::TryFrom; // New import
 use std::sync::{Arc, Mutex};
@@ -16,7 +15,8 @@ use std::sync::{Arc, Mutex};
 #[test]
 fn test_client_server() {
     let runner = TestRunner::new();
-    let config = RpcConfig::default();
+    let client_config = ClientConfig::default();
+    let server_config = ServerConfig::default();
 
     let store: Arc<Mutex<Option<Buffer>>> = Arc::new(Mutex::new(None));
 
@@ -100,10 +100,12 @@ fn test_client_server() {
     runner.block_on(async move {
         let server_bind_addr = "127.0.0.1:0"; // Bind to a random ephemeral port
         let (_server, actual_server_addr) =
-            init_server(dispatch_task, config.clone(), &server_bind_addr).expect("server listen");
+            init_server(dispatch_task, server_config.clone(), &server_bind_addr)
+                .expect("server listen");
         let client_connect_addr = format!("127.0.0.1:{}", actual_server_addr.port());
         debug!("client addr {:?}", client_connect_addr);
-        let client = init_client(config, &client_connect_addr, None).await.expect("connect client");
+        let client =
+            init_client(client_config, &client_connect_addr, None).await.expect("connect client");
 
         // Test Open task
         let (tx, rx) = mpsc::unbounded_async();

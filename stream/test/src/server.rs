@@ -5,12 +5,12 @@ use occams_rpc_stream::server_impl::*;
 use std::net::SocketAddr;
 use std::sync::Arc; // New import
 
-use occams_rpc_stream::{macros::*, *};
+use occams_rpc_stream::macros::*;
 
 use captains_log::filter::LogFilter;
 
 pub fn init_server<H, FH>(
-    server_handle: H, config: RpcConfig, addr: &str,
+    server_handle: H, config: ServerConfig, addr: &str,
 ) -> Result<(RpcServer<FileServer<H, FH>>, SocketAddr), std::io::Error>
 where
     H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
@@ -27,7 +27,7 @@ where
     H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
     FH: Future<Output = Result<(), ()>> + Send + 'static,
 {
-    config: RpcConfig,
+    config: ServerConfig,
     server_handle: H,
 }
 
@@ -36,7 +36,7 @@ where
     H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
     FH: Future<Output = Result<(), ()>> + Send + 'static,
 {
-    pub fn new(server_handle: H, config: RpcConfig) -> Self {
+    pub fn new(server_handle: H, config: ServerConfig) -> Self {
         Self { config, server_handle }
     }
 }
@@ -87,7 +87,7 @@ where
     }
 
     #[inline]
-    fn get_config(&self) -> &RpcConfig {
+    fn get_config(&self) -> &ServerConfig {
         &self.config
     }
 }

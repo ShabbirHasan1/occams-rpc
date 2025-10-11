@@ -76,4 +76,3 @@ pub mod server;
 pub mod server_impl;
 pub mod throttler;
 pub use occams_rpc_core::error;
-pub use occams_rpc_core::{RpcConfig, TimeoutSetting};

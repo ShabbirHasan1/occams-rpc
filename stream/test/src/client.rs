@@ -1,7 +1,8 @@
 use crossfire::*;
 use occams_rpc_codec::MsgpCodec;
 use occams_rpc_stream::client::*;
-use occams_rpc_stream::{RpcConfig, error::RpcError, macros::*};
+use occams_rpc_stream::client_impl::*;
+use occams_rpc_stream::{error::RpcError, macros::*};
 
 use captains_log::filter::LogFilter;
 use io_buffer::Buffer;
@@ -9,17 +10,17 @@ use serde_derive::{Deserialize, Serialize};
 use std::sync::{Arc, atomic::AtomicU64}; // Re-added
 
 pub struct FileClient {
-    config: RpcConfig,
+    config: ClientConfig,
 }
 
 impl FileClient {
-    pub fn new(config: RpcConfig) -> Self {
+    pub fn new(config: ClientConfig) -> Self {
         Self { config }
     }
 }
 
 pub async fn init_client(
-    config: RpcConfig, addr: &str, last_resp_ts: Option<Arc<AtomicU64>>,
+    config: ClientConfig, addr: &str, last_resp_ts: Option<Arc<AtomicU64>>,
 ) -> Result<RpcClient<FileClient>, RpcError> {
     let factory = Arc::new(FileClient::new(config));
     RpcClient::connect(factory, addr, 0, last_resp_ts).await
@@ -62,7 +63,7 @@ impl ClientFactory for FileClient {
     }
 
     #[inline]
-    fn get_config(&self) -> &RpcConfig {
+    fn get_config(&self) -> &ClientConfig {
         &self.config
     }
 }

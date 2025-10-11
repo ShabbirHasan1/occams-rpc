@@ -1,9 +1,9 @@
-pub use super::client_impl::RpcClient;
-pub use super::client_timer::ClientTaskTimer;
+use crate::client_timer::ClientTaskTimer;
 use crate::proto::RpcAction;
 use captains_log::filter::Filter;
 use crossfire::MAsyncRx;
-use occams_rpc_core::{Codec, RpcConfig, TimeoutSetting, error::RpcError, runtime::AsyncIO};
+pub use occams_rpc_core::ClientConfig;
+use occams_rpc_core::{Codec, error::RpcError, runtime::AsyncIO};
 use std::fmt;
 use std::future::Future;
 use std::io;
@@ -47,8 +47,8 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
         F: Future<Output = R> + Send + 'static,
         R: Send + 'static;
 
-    /// You should keep RpcConfig inside ServerFactory, get_config() will return the reference.
-    fn get_config(&self) -> &RpcConfig;
+    /// You should keep clientConfig inside ServerFactory, get_config() will return the reference.
+    fn get_config(&self) -> &ClientConfig;
 
     /// Construct a [captains_log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/trait.Filter.html) to oganize log of a client
     ///
@@ -76,7 +76,7 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
 /// - [occams-rpc-tcp](https://docs.rs/occams-rpc-tcp): For TCP and Unix socket
 pub trait ClientTransport<F: ClientFactory>: fmt::Debug + Send + Sized + 'static {
     fn connect(
-        addr: &str, timeout: &TimeoutSetting, client_id: u64, server_id: u64, logger: F::Logger,
+        addr: &str, config: &ClientConfig, client_id: u64, server_id: u64, logger: F::Logger,
     ) -> impl Future<Output = Result<Self, RpcError>> + Send;
 
     fn get_logger(&self) -> &F::Logger;

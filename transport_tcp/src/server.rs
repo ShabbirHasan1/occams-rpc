@@ -1,6 +1,6 @@
 use occams_rpc_core::io::{AsyncRead, AsyncWrite, Cancellable, io_with_timeout};
 use occams_rpc_core::runtime::AsyncIO;
-use occams_rpc_core::{TimeoutSetting, error::*};
+use occams_rpc_core::{ServerConfig, error::*};
 use occams_rpc_stream::server::{RpcSvrReq, ServerFactory, ServerTransport};
 use occams_rpc_stream::{proto, proto::RpcAction};
 
@@ -16,7 +16,7 @@ use zerocopy::AsBytes;
 pub struct TcpServer<F: ServerFactory> {
     stream: UnsafeCell<UnifyStream<F::IO>>,
     _conn_count: Arc<()>,
-    timeout: TimeoutSetting,
+    config: ServerConfig,
     action_buf: UnsafeCell<BytesMut>,
     msg_buf: UnsafeCell<BytesMut>,
     logger: F::Logger,
@@ -59,7 +59,7 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
         let logger = factory.new_logger();
         Self {
             stream: UnsafeCell::new(stream),
-            timeout: config.timeout.clone(),
+            config: config.clone(),
             action_buf: UnsafeCell::new(BytesMut::with_capacity(128)),
             msg_buf: UnsafeCell::new(BytesMut::with_capacity(512)),
             _conn_count: conn_count,
@@ -79,8 +79,8 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
         &'a self, close_ch: &crossfire::MAsyncRx<()>,
     ) -> Result<RpcSvrReq<'a>, RpcError> {
         let reader = self.get_stream_mut();
-        let read_timeout = self.timeout.read_timeout;
-        let idle_timeout = self.timeout.idle_timeout;
+        let read_timeout = self.config.read_timeout;
+        let idle_timeout = self.config.idle_timeout;
         let mut req_header_buf = [0u8; proto::RPC_REQ_HEADER_LEN];
 
         let cancel_f = close_ch.recv_with_timer(F::IO::sleep(idle_timeout));
@@ -164,7 +164,7 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
         &self, seq: u64, res: Result<(Vec<u8>, Option<&'a Buffer>), &'a RpcError>,
     ) -> io::Result<()> {
         let writer = self.get_stream_mut();
-        let write_timeout = self.timeout.write_timeout;
+        let write_timeout = self.config.write_timeout;
         match res {
             Err(e) => {
                 let (header, err_str) = proto::RespHead::encode_err(seq, e);

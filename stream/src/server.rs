@@ -4,7 +4,8 @@ use crate::proto::RpcAction;
 use captains_log::filter::Filter;
 use crossfire::*;
 use io_buffer::Buffer;
-use occams_rpc_core::{Codec, RpcConfig, error::*, io::*, runtime::AsyncIO};
+pub use occams_rpc_core::ServerConfig;
+use occams_rpc_core::{Codec, error::*, io::*, runtime::AsyncIO};
 
 pub trait ServerFactory: Sync + Send + 'static + Sized {
     /// A [captains-log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/index.html) implementation.
@@ -23,8 +24,8 @@ pub trait ServerFactory: Sync + Send + 'static + Sized {
     /// Refers to [occams_rpc_core::runtime::AsyncIO](https://docs.rs/occams-rpc-core/latest/occams_rpc_core/runtime/index.html)
     type IO: AsyncIO;
 
-    /// You should keep RpcConfig inside ServerFactory, get_config() will return the reference.
-    fn get_config(&self) -> &RpcConfig;
+    /// You should keep ServerConfig inside ServerFactory, get_config() will return the reference.
+    fn get_config(&self) -> &ServerConfig;
 
     /// Construct a [captains_log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/trait.Filter.html) to oganize log of a client
     ///

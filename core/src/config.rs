@@ -1,33 +1,23 @@
 use std::time::Duration;
 
+/// General config for client-side
 #[derive(Clone)]
-pub struct RpcConfig {
-    pub timeout: TimeoutSetting,
-    /// How many async RpcTask in the queue, prevent overflow server capacity
-    pub thresholds: usize,
-}
-
-impl Default for RpcConfig {
-    fn default() -> Self {
-        Self { timeout: TimeoutSetting::default(), thresholds: 128 }
-    }
-}
-
-#[derive(Clone)]
-pub struct TimeoutSetting {
+pub struct ClientConfig {
     /// timeout of RpcTask waiting for response, in seconds.
     pub task_timeout: usize,
     /// socket read timeout
     pub read_timeout: Duration,
     /// Socket write timeout
     pub write_timeout: Duration,
-    /// Socket idle time to be close.
+    /// Socket idle time to be close. for connection pool.
     pub idle_timeout: Duration,
     /// connect timeout
     pub connect_timeout: Duration,
+    /// How many async RpcTask in the queue, prevent overflow server capacity
+    pub thresholds: usize,
 }
 
-impl Default for TimeoutSetting {
+impl Default for ClientConfig {
     fn default() -> Self {
         Self {
             task_timeout: 20,
@@ -35,6 +25,31 @@ impl Default for TimeoutSetting {
             write_timeout: Duration::from_secs(5),
             idle_timeout: Duration::from_secs(120),
             connect_timeout: Duration::from_secs(10),
+            thresholds: 128,
+        }
+    }
+}
+
+/// General config for server-side
+#[derive(Clone)]
+pub struct ServerConfig {
+    /// socket read timeout
+    pub read_timeout: Duration,
+    /// Socket write timeout
+    pub write_timeout: Duration,
+    /// Socket idle time to be close.
+    pub idle_timeout: Duration,
+    /// wait for all connections to be close with a timeout
+    pub server_close_wait: Duration,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            idle_timeout: Duration::from_secs(120),
+            server_close_wait: Duration::from_secs(90),
         }
     }
 }

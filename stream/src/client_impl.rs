@@ -10,6 +10,7 @@ use std::{
     task::{Context, Poll},
 };
 
+use crate::client_timer::ClientTaskTimer;
 use crate::{client::*, proto, throttler::*};
 use crossfire::*;
 use futures::pin_mut;
@@ -32,10 +33,13 @@ impl<F: ClientFactory> RpcClient<F> {
     ) -> impl Future<Output = Result<Self, RpcError>> + Send {
         async move {
             let client_id = factory.get_client_id();
-            let timeout = &factory.get_config().timeout;
             let logger = factory.new_logger(client_id, server_id);
             let conn = <F::Transport as ClientTransport<F>>::connect(
-                addr, timeout, client_id, server_id, logger,
+                addr,
+                factory.get_config(),
+                client_id,
+                server_id,
+                logger,
             )
             .await?;
             Ok(RpcClient::new(factory, conn, client_id, server_id, last_resp_ts))
@@ -179,7 +183,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
             timer: UnsafeCell::new(ClientTaskTimer::new(
                 server_id,
                 client_id,
-                config.timeout.task_timeout,
+                config.task_timeout,
                 thresholds,
             )),
             throttler: None,

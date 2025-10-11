@@ -8,7 +8,7 @@ use std::fmt;
 use std::io;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// An RpcServer that listen, accept, and server connections, according to ServerFactory interface.
 pub struct RpcServer<F>
@@ -187,23 +187,31 @@ where
         Arc::strong_count(&self.conn_ref_count) - 1
     }
 
+    /// Gracefully close the server
+    ///
+    /// Steps:
+    /// - listeners coroutine is abort
+    /// - drop the close channel to notify connection read coroutines.
+    /// - the writer coroutines will exit after all the reference of RespNoti channel drop to 0
+    /// - wait for connection coroutines to exit with a timeout defined by
+    /// ServerConfig.server_close_wait
     pub async fn close(&mut self) {
         // close listeners
         for h in &self.listeners_abort {
             h.0.abort();
             logger_info!(self.logger, "{} has closed", h.1);
         }
-        // Notify all reader connection exit
+        // Notify all reader connection exit, then the reader will notify writer
         let _ = self.server_close_tx.lock().unwrap().take();
 
         let mut exists_count = self.get_alive_conn();
         // wait client close all connections
-        let mut close_timeout = 0;
+        let start_ts = Instant::now();
+        let config = self.factory.get_config();
         while exists_count > 0 {
-            close_timeout += 1;
             <F::IO as AsyncIO>::sleep(Duration::from_secs(1)).await;
             exists_count = self.get_alive_conn();
-            if close_timeout > 90 {
+            if Instant::now().duration_since(start_ts) > config.server_close_wait {
                 logger_warn!(
                     self.logger,
                     "closed as wait too long for all conn closed voluntarily({} conn left)",
