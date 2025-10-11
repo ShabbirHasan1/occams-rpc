@@ -8,12 +8,17 @@
 //!
 //! Currently a placeholder, API should be added in the future
 //!
+//! If you are looking for streaming interface, use [occams-rpc-stream](https://docs.rs/occams-rpc-stream) instead.
+//!
+//!
 //! ## Components
 //!
 //! `occams-rpc` is built from a collection of crates that provide different functionalities:
 //!
-//! - [`occams-rpc-stream`](https://docs.rs/occams-rpc-stream): Provides the low-level streaming interface for stream processing.
+//! - [`occams-rpc-core`](https://docs.rs/occams-rpc-core): core utils crate
 //! - [`occams-rpc-codec`](https://docs.rs/occams-rpc-codec): Provides codecs for serialization, such as `msgpack`.
-//! - [`occams-rpc-tokio`](https://docs.rs/occams-rpc-tokio): A runtime adapter for the `tokio` runtime.
-//! - [`occams-rpc-smol`](https://docs.rs/occams-rpc-smol): A runtime adapter for the `smol` runtime.
-//! - [`occams-rpc-tcp`](https://docs.rs/occams-rpc-tcp): A TCP transport implementation.
+//! - runtimes:
+//!   - [`occams-rpc-tokio`](https://docs.rs/occams-rpc-tokio): A runtime adapter for the `tokio` runtime.
+//!   - [`occams-rpc-smol`](https://docs.rs/occams-rpc-smol): A runtime adapter for the `smol` runtime.
+//! - transports:
+//!   - [`occams-rpc-tcp`](https://docs.rs/occams-rpc-tcp): A TCP transport implementation.

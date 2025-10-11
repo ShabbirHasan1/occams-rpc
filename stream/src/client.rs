@@ -10,9 +10,15 @@ use std::io;
 use std::ops::DerefMut;
 
 pub trait ClientFactory: Send + Sync + Sized + 'static {
+    /// A [captains-log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/index.html) implementation
+    /// The type that new_logger returns.
+    ///
+    /// maybe a `Arc<LogFilter> or KeyFilter<Arc<LogFilter>>`
+    type Logger: Filter + Send + 'static;
+
     /// Define the codec to serialization and deserialization
     ///
-    /// Refers to [crate::codec]
+    /// Refers to [occams_rpc_core::Codec](https://docs.rs/occams-rpc-core/latest/occams_rpc_core/trait.Codec.html)
     type Codec: Codec;
 
     /// Define the RPC task from client-side
@@ -20,11 +26,8 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
     /// Either one ClientTask or an enum of multiple ClientTask.
     /// If you have multiple task type, recommend to use the `enum_dispatch` crate.
     ///
-    /// You can use [crate::macros] on task type
+    /// You can use [crate::macros::client_task_enum] and [crate::macros::client_task] on task type
     type Task: ClientTask;
-
-    /// A [captains-log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/index.html) implementation
-    type Logger: Filter + Send;
 
     /// Define the transport layer protocol
     ///
@@ -33,18 +36,22 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
 
     /// Define the adaptor of async runtime
     ///
-    /// Refers to [crate::runtime]
+    /// Refers to [occams_rpc_core::runtime::AsyncIO](https://docs.rs/occams-rpc-core/latest/occams_rpc_core/runtime/index.html)
     type IO: AsyncIO;
 
     /// Define how the async runtime spawn a task
     ///
-    /// You may spawn globally, or to a specified runtime executor
+    /// You may spawn with globally runtime, or to a owned runtime executor
     fn spawn_detach<F, R>(&self, f: F)
     where
         F: Future<Output = R> + Send + 'static,
         R: Send + 'static;
 
-    /// Construct a logger filter to oganize log of a client
+    /// You should keep RpcConfig inside ServerFactory, get_config() will return the reference.
+    fn get_config(&self) -> &RpcConfig;
+
+    /// Construct a [captains_log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/trait.Filter.html) to oganize log of a client
+    ///
     fn new_logger(&self, client_id: u64, server_id: u64) -> Self::Logger;
     /// TODO Fix the logger interface
 
@@ -60,15 +67,13 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
     fn get_client_id(&self) -> u64 {
         0
     }
-
-    fn get_config(&self) -> &RpcConfig;
 }
 
-/// A ClientTransport implements network transport layer protocol
+/// This trait is for client-side transport layer protocol.
 ///
-/// Current available transport crate:
+/// The implementation can be found on:
 ///
-/// - TCP/unix transport: [occams-rpc-tcp](https://docs.rs/occams-rpc-tcp)
+/// - [occams-rpc-tcp](https://docs.rs/occams-rpc-tcp): For TCP and Unix socket
 pub trait ClientTransport<F: ClientFactory>: fmt::Debug + Send + Sized + 'static {
     fn connect(
         addr: &str, timeout: &TimeoutSetting, client_id: u64, server_id: u64, logger: F::Logger,
@@ -91,6 +96,7 @@ pub trait ClientTransport<F: ClientFactory>: fmt::Debug + Send + Sized + 'static
     ) -> impl std::future::Future<Output = Result<bool, RpcError>> + Send;
 }
 
+/// Sum up trait for client task, including request and response
 pub trait ClientTask:
     ClientTaskAction
     + ClientTaskEncode
@@ -130,6 +136,7 @@ pub trait ClientTaskDecode {
     }
 }
 
+/// How to notify from Rpc framework to user when a task is done
 pub trait ClientTaskDone: Sized + 'static {
     /// Check the result of the task
     fn get_result(&self) -> Result<(), &RpcError>;
@@ -139,12 +146,17 @@ pub trait ClientTaskDone: Sized + 'static {
     fn set_result(self, res: Result<(), RpcError>);
 }
 
+/// Get RpcAction from a enum task, or a sub-type that fits multiple RpcActions
 pub trait ClientTaskAction {
     fn get_action<'a>(&'a self) -> RpcAction<'a>;
 }
 
+/// A common struct for every ClientTask
+///
+/// The fields might be extended in the future
 #[derive(Debug, Default)]
 pub struct ClientTaskCommon {
+    /// Every task should be assigned an ID which is unique inside a socket connection
     pub seq: u64,
 }
 

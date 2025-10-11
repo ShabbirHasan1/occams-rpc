@@ -7,8 +7,11 @@ use io_buffer::Buffer;
 use occams_rpc_core::{Codec, RpcConfig, error::*, io::*, runtime::AsyncIO};
 
 pub trait ServerFactory: Sync + Send + 'static + Sized {
-    /// A [captains-log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/index.html) implementation
-    type Logger: Filter + Send;
+    /// A [captains-log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/index.html) implementation.
+    /// The type that new_logger returns.
+    ///
+    /// maybe a `Arc<LogFilter> or KeyFilter<Arc<LogFilter>>`
+    type Logger: Filter + Send + 'static;
 
     /// Define the transport layer protocol
     ///
@@ -17,29 +20,39 @@ pub trait ServerFactory: Sync + Send + 'static + Sized {
 
     /// Define the adaptor of async runtime
     ///
-    /// Refers to [crate::runtime]
+    /// Refers to [occams_rpc_core::runtime::AsyncIO](https://docs.rs/occams-rpc-core/latest/occams_rpc_core/runtime/index.html)
     type IO: AsyncIO;
 
+    /// You should keep RpcConfig inside ServerFactory, get_config() will return the reference.
     fn get_config(&self) -> &RpcConfig;
 
-    /// Construct a logger filter to oganize log of a client
+    /// Construct a [captains_log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/trait.Filter.html) to oganize log of a client
+    ///
+    /// maybe a `Arc<LogFilter>` or `KeyFilter<Arc<LogFilter>>`
     fn new_logger(&self) -> Self::Logger;
-    /// TODO Fix the logger interface
-
-    type RespReceiver: RespReceiver;
-
-    /// The dispatch is likely to be a closure or object, in order to dispatch task to different worker
-    fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespReceiver>;
 
     /// Define how the async runtime spawn a task
     ///
-    /// You may spawn globally, or to a specified runtime executor
+    /// You may spawn with globally runtime, or to a owned runtime executor
     fn spawn_detach<F, R>(&self, f: F)
     where
         F: Future<Output = R> + Send + 'static,
         R: Send + 'static;
+
+    /// One of RespReceiver impl:
+    /// - [crate::server_impl::RespReceiverTask]
+    /// - [crate::server_impl::RespReceiverBuf]
+    type RespReceiver: RespReceiver;
+
+    /// The dispatch is likely to be a closure or object, in order to dispatch task to different worker
+    fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespReceiver>;
 }
 
+/// This trait is for server-side transport layer protocol.
+///
+/// The implementation can be found on:
+///
+/// - [occams-rpc-tcp](https://docs.rs/occams-rpc-tcp): For TCP and Unix socket
 pub trait ServerTransport<F: ServerFactory>: Send + Sync + Sized + 'static + fmt::Debug {
     type Listener: AsyncListener;
 
@@ -144,9 +157,10 @@ impl<T: Send + 'static> RespNoti<T> {
     }
 }
 
-/// For enum_dispatch
+/// Sum up trait for server response task
 pub trait ServerTaskResp: ServerTaskEncode + Send + Sized + Unpin + 'static + fmt::Debug {}
 
+/// How to decode a server request
 pub trait ServerTaskDecode<R: Send + Unpin + 'static>: Send + Sized + Unpin + 'static {
     fn decode_req<'a, C: Codec>(
         codec: &'a C, action: RpcAction<'a>, seq: u64, req: &'a [u8], blob: Option<Buffer>,
@@ -154,12 +168,14 @@ pub trait ServerTaskDecode<R: Send + Unpin + 'static>: Send + Sized + Unpin + 's
     ) -> Result<Self, ()>;
 }
 
+/// How to encode a server response
 pub trait ServerTaskEncode {
     fn encode_resp<'a, C: Codec>(
         &'a self, codec: &'a C,
     ) -> (u64, Result<(Vec<u8>, Option<&'a Buffer>), &'a RpcError>);
 }
 
+/// How to notify Rpc framework when a task is done
 pub trait ServerTaskDone<T: Send + 'static>: Sized + 'static {
     /// Should implement for enum delegation, not intended for user call
     fn _set_result(&mut self, res: Result<(), RpcError>) -> RespNoti<T>;
@@ -177,6 +193,7 @@ pub trait ServerTaskDone<T: Send + 'static>: Sized + 'static {
     }
 }
 
+/// Get RpcAction from a enum task, or a sub-type that fits multiple RpcActions
 pub trait ServerTaskAction {
     fn get_action<'a>(&'a self) -> RpcAction<'a>;
 }

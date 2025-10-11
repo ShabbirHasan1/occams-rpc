@@ -1,3 +1,42 @@
+//! # The protocol
+//!
+//! ## Request
+//!
+//! Fixed length of `ReqHead` = 32B
+//!
+//! | Field     | Size | Description                               |
+//! |-----------|------|-------------------------------------------|
+//! | `magic`   | 2B   | Magic number                              |
+//! | `ver`     | 1B   | Protocol version                          |
+//! | `format`  | 1B   | Encoder-decoder format                    |
+//! | `action`  | 4B   | Action type (numeric or length if string) |
+//! | `seq`     | 8B   | Increased ID of request message           |
+//! | `client_id`| 8B   | Client identifier                         |
+//! | `msg_len` | 4B   | Structured message length                 |
+//! | `blob_len`| 4B   | Unstructured message (blob) length        |
+//!
+//! Variable length message components:
+//! - `action_len` (if `action` is a string)
+//! - `msg_len`
+//! - `blob_len`
+//!
+//! ## Response:
+//!
+//! Fixed length of `RespHead` = 20B
+//!
+//! | Field     | Size | Description                               |
+//! |-----------|------|-------------------------------------------|
+//! | `magic`   | 2B   | Magic number                              |
+//! | `ver`     | 1B   | Protocol version                          |
+//! | `has_err` | 1B   | Error flag                                |
+//! | `seq`     | 8B   | Increased ID of request message           |
+//! | `msg_len` | 4B   | Structured message length or errno        |
+//! | `blob_len`| 4B   | Unstructured message (blob) length        |
+//!
+//! Variable length message components:
+//! - `msg_len`
+//! - `blob_len`
+///
 use crate::client::ClientTask;
 use io_buffer::Buffer;
 use occams_rpc_core::{Codec, error::*};
@@ -44,17 +83,7 @@ impl RpcActionOwned {
     }
 }
 
-/// Request:
-///
-/// Fixed len of ReqHead = 32B
-/// | 2B   |1B | 1B    | 4B   | 8B  |  8B     |   4B  | 4B     |
-/// | magic|ver| format|action| seq |client_id|msg_len|blob_len|
-///
-/// Variable length msg:
-/// action_len
-/// msg_len
-/// blob_len
-///
+/// Fixed-length header for request
 #[derive(AsBytes, Unaligned, PartialEq, Clone, Copy)]
 #[repr(packed)]
 pub struct ReqHead {
@@ -192,16 +221,7 @@ impl Default for ReqHead {
     }
 }
 
-/// Response:
-///
-/// Fixed len of RespHead = 20B
-/// | 2B   |1B | 1B      |  8B  |     4B  | 4B     |
-/// | magic|ver| has_err |  seq | msg_len |blob_len|
-///
-/// Variable length msg:
-/// msg_len
-/// blob_len
-///
+/// Fixed-length header for response
 #[derive(AsBytes, Unaligned, PartialEq, Clone, Copy)]
 #[repr(packed)]
 pub struct RespHead {
