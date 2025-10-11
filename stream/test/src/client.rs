@@ -11,11 +11,12 @@ use std::sync::{Arc, atomic::AtomicU64}; // Re-added
 
 pub struct FileClient {
     config: ClientConfig,
+    logger: Arc<LogFilter>,
 }
 
 impl FileClient {
     pub fn new(config: ClientConfig) -> Self {
-        Self { config }
+        Self { config, logger: Arc::new(LogFilter::new()) }
     }
 }
 
@@ -31,7 +32,7 @@ impl ClientFactory for FileClient {
 
     type Task = FileClientTask;
 
-    type Logger = captains_log::filter::LogFilter;
+    type Logger = Arc<LogFilter>;
 
     type Transport = occams_rpc_tcp::TcpClient<Self>;
 
@@ -58,8 +59,7 @@ impl ClientFactory for FileClient {
 
     #[inline]
     fn new_logger(&self, _client_id: u64, _server_id: u64) -> Self::Logger {
-        // TODO fixme
-        LogFilter::new()
+        self.logger.clone()
     }
 
     #[inline]

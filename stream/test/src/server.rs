@@ -3,7 +3,7 @@ use occams_rpc_codec::MsgpCodec;
 use occams_rpc_stream::server::*;
 use occams_rpc_stream::server_impl::*;
 use std::net::SocketAddr;
-use std::sync::Arc; // New import
+use std::sync::Arc;
 
 use occams_rpc_stream::macros::*;
 
@@ -29,6 +29,7 @@ where
 {
     config: ServerConfig,
     server_handle: H,
+    logger: Arc<LogFilter>,
 }
 
 impl<H, FH> FileServer<H, FH>
@@ -37,7 +38,7 @@ where
     FH: Future<Output = Result<(), ()>> + Send + 'static,
 {
     pub fn new(server_handle: H, config: ServerConfig) -> Self {
-        Self { config, server_handle }
+        Self { config, server_handle, logger: Arc::new(LogFilter::new()) }
     }
 }
 
@@ -46,7 +47,7 @@ where
     H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
     FH: Future<Output = Result<(), ()>> + Send + 'static,
 {
-    type Logger = captains_log::filter::LogFilter;
+    type Logger = Arc<LogFilter>;
 
     type Transport = occams_rpc_tcp::TcpServer<Self>;
 
@@ -82,8 +83,7 @@ where
 
     #[inline]
     fn new_logger(&self) -> Self::Logger {
-        // TODO fixme
-        LogFilter::new()
+        self.logger.clone()
     }
 
     #[inline]
