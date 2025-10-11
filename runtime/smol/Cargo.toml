@@ -1,6 +1,6 @@
 [package]
 name = "occams-rpc-smol"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["plan <frostyplanet@gmail.com>"]
 categories = ["concurrency", "network-programming"]
@@ -17,3 +17,8 @@ futures = "0.3"
 occams-rpc-core = { path = "../../core/", version="0" }
 async-io = {version="2.6"}
 smol = {version="2", optional=true}
+
+[package.metadata.docs.rs]
+all-features = true
+# enable features in the documentation
+rustdoc-args = ["--cfg", "docsrs"]

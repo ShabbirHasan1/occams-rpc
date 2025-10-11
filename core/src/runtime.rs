@@ -2,11 +2,11 @@
 //!
 //! The adaptor are provided as sub-crates:
 //!
-//! - occams-tokio: <https://docs.rs/occams-tokio>
+//! - [occams-rpc-tokio](https://docs.rs/occams-rpc-tokio)
 //!
-//! - occams-smol: <https://docs.rs/occams-smol>
+//! - [occams-rpc-smol](https://docs.rs/occams-rpc-smol)
 //!
-//! Users need to set the implementation of AsyncIO trait to [ClientFactory::IO](crate::stream::client::ClientFactory) or [ServerFactory::IO](crate::stream::server::ServerFactory)
+//! See the usage doc in [occams-rpc-stream](https://docs.rs/occams-rpc-stream)
 
 use crate::io::Cancellable;
 use std::future::Future;

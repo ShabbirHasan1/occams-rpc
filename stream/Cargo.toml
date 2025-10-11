@@ -26,3 +26,8 @@ rustc-hash = "1.1"
 sync-utils = "0"
 serde = "1"
 crossfire = "2.1"
+
+[package.metadata.docs.rs]
+all-features = true
+# enable features in the documentation
+rustdoc-args = ["--cfg", "docsrs"]

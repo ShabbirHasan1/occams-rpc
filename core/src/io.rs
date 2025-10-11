@@ -1,6 +1,5 @@
 //! I/O utilities
 
-use io_buffer::Buffer;
 use pin_project_lite::pin_project;
 use std::future::Future;
 use std::pin::Pin;
@@ -8,6 +7,10 @@ use std::task::*;
 use std::{fmt, io};
 
 pin_project! {
+    /// Cancellable accepts a param `future` for I/O,
+    /// abort the I/O waiting when `cancel_future` returns.
+    ///
+    /// The `cancel_future` can be timer or notification channel recv()
     pub struct Cancellable<F, C> {
         #[pin]
         future: F,
@@ -16,10 +19,6 @@ pin_project! {
     }
 }
 
-/// Cancellable accepts a param `future` for I/O,
-/// abort the I/O waiting when `cancel_future` returns.
-///
-/// The `cancel_future` can be timer or notification channel recv()
 impl<F: Future + Send, C: Future + Send> Cancellable<F, C> {
     pub fn new(future: F, cancel_future: C) -> Self {
         Self { future, cancel_future }
@@ -60,7 +59,11 @@ macro_rules! io_with_timeout {
 }
 pub use io_with_timeout;
 
+/// AsyncRead trait for runtime adapter
 pub trait AsyncRead: Send + 'static {
+    /// Async version of read function
+    ///
+    /// On ok, return the bytes read
     fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = io::Result<usize>> + Send;
 
     /// Read the exact number of bytes required to fill `buf`.
@@ -131,7 +134,11 @@ pub trait AsyncRead: Send + 'static {
     }
 }
 
+/// AsyncWrite trait for runtime adapter
 pub trait AsyncWrite: Send + 'static {
+    /// Async version of write function
+    ///
+    /// On ok, return the bytes written
     fn write(&mut self, buf: &[u8]) -> impl Future<Output = io::Result<usize>> + Send;
 
     /// Write the entire buffer `buf`.
@@ -166,6 +173,7 @@ pub trait AsyncWrite: Send + 'static {
     }
 }
 
+/// Interface for transport server listener
 pub trait AsyncListener: Send + Sized + 'static + fmt::Debug {
     type Conn: Send + 'static + Sized;
 
@@ -288,6 +296,7 @@ pub trait AsyncListener: Send + Sized + 'static + fmt::Debug {
 //}
 //
 
+/// A trait to adapt various type of buffer
 pub trait AllocateBuf: 'static + Sized + Send {
     /// Alloc buffer or reserve space to fit blob_len inside the Buffer.
     ///
@@ -295,6 +304,7 @@ pub trait AllocateBuf: 'static + Sized + Send {
     fn reserve<'a>(&'a mut self, _blob_len: i32) -> Option<&'a mut [u8]>;
 }
 
+/// If Option is None, create a new `Vec<u8>` on call, otherwise grow to fit the requirement
 impl AllocateBuf for Option<Vec<u8>> {
     #[inline]
     fn reserve<'a>(&'a mut self, blob_len: i32) -> Option<&'a mut [u8]> {
@@ -315,6 +325,7 @@ impl AllocateBuf for Option<Vec<u8>> {
     }
 }
 
+/// Grow to fit the requirement
 impl AllocateBuf for Vec<u8> {
     #[inline]
     fn reserve<'a>(&'a mut self, blob_len: i32) -> Option<&'a mut [u8]> {
@@ -329,7 +340,11 @@ impl AllocateBuf for Vec<u8> {
     }
 }
 
-impl AllocateBuf for Option<Buffer> {
+/// If Option is None, create a new [io_buffer::Buffer](https://docs.rs/io_buffer) on call.
+/// Otherwise will check the pre-allocated buffer.
+///
+/// RPC will return encode error or decode error when the size is not enough.
+impl AllocateBuf for Option<io_buffer::Buffer> {
     #[inline]
     fn reserve<'a>(&'a mut self, blob_len: i32) -> Option<&'a mut [u8]> {
         if let Some(buf) = self.as_mut() {
@@ -341,7 +356,7 @@ impl AllocateBuf for Option<Buffer> {
                 buf.set_len(blob_len);
             }
         } else {
-            if let Ok(v) = Buffer::alloc(blob_len) {
+            if let Ok(v) = io_buffer::Buffer::alloc(blob_len) {
                 self.replace(v);
             } else {
                 // alloc failed
@@ -352,7 +367,10 @@ impl AllocateBuf for Option<Buffer> {
     }
 }
 
-impl AllocateBuf for Buffer {
+/// Check an pre-allocated [io_buffer::Buffer](https://docs.rs/io_buffer).
+///
+/// RPC will return encode error or decode error when the size is not enough.
+impl AllocateBuf for io_buffer::Buffer {
     #[inline]
     fn reserve<'a>(&'a mut self, blob_len: i32) -> Option<&'a mut [u8]> {
         let blob_len = blob_len as usize;

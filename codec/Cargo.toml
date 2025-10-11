@@ -23,3 +23,8 @@ log = "0.4"
 [features]
 default = []
 msgpack = ["dep:rmp-serde"]
+
+[package.metadata.docs.rs]
+all-features = true
+# enable features in the documentation
+rustdoc-args = ["--cfg", "docsrs"]

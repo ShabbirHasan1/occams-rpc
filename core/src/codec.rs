@@ -1,4 +1,7 @@
 use serde::{Deserialize, Serialize};
+
+/// Interface for [occams-rpc-codec](https://docs.rs/occams-rpc-codec)
+///
 /// The codec is immutable, if need changing (like setting up cipher), should have inner
 /// mutablilty
 pub trait Codec: Default + Send + Sync + Sized + 'static {

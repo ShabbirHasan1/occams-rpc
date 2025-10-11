@@ -1,3 +1,11 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, allow(unused_attributes))]
+
+//! # occams-rpc-smol
+//!
+//! This crate provides a runtime adapter for [`occams-rpc`](https://docs.rs/occams-rpc) to work with the `smol` runtime.
+//! It implements the [`AsyncIO`](https://docs.rs/occams-rpc-core/latest/occams_rpc_core/runtime/index.html) trait to support `async-io` of `smol`.
+
 use occams_rpc_core::io::*;
 use occams_rpc_core::runtime::{AsyncFdTrait, AsyncIO, TimeInterval};
 use std::future::Future;
@@ -14,6 +22,11 @@ use std::time::{Duration, Instant};
 
 use async_io::{Async, Timer};
 
+/// The main struct for async-io, assign this type to AsyncIO trait when used:
+///
+/// - [ClientFactory::IO](https://occams-rpc-stream/latest/occams-rpc-stream/client/trait.ClientFactory.html)
+///
+/// - [ServerFactory::IO](https://occams-rpc-stream/latest/occams-rpc-stream/server/trait.ServerFactory.html)
 pub struct SmolRT();
 
 impl AsyncIO for SmolRT {
@@ -67,6 +80,7 @@ impl AsyncIO for SmolRT {
     }
 }
 
+/// Associate type for SmolRT
 pub struct SmolInterval(Timer);
 
 impl TimeInterval for SmolInterval {
@@ -82,6 +96,7 @@ impl TimeInterval for SmolInterval {
     }
 }
 
+/// Associate type for SmolRT
 pub struct SmolFD<T: AsRawFd + AsFd + Send + Sync + 'static>(Async<T>);
 
 impl<T: AsRawFd + AsFd + Send + Sync + 'static> AsyncFdTrait<T> for SmolFD<T> {

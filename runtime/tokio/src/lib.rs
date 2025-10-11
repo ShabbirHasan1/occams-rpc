@@ -1,3 +1,11 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, allow(unused_attributes))]
+
+//! # occams-rpc-tokio
+//!
+//! This crate provides a runtime adapter for [`occams-rpc`](https://docs.rs/occams-rpc) to work with the `tokio` runtime.
+//! It implements the [`AsyncIO`](https://docs.rs/occams-rpc-core/latest/occams_rpc_core/runtime/index.html) trait to support `tokio`.
+//!
 use occams_rpc_core::io::io_with_timeout;
 use occams_rpc_core::runtime::{AsyncFdTrait, AsyncIO, TimeInterval};
 use std::future::Future;
@@ -12,6 +20,11 @@ use std::pin::Pin;
 use std::task::*;
 use std::time::{Duration, Instant};
 
+/// The main struct for tokio runtime IO, assign this type to AsyncIO trait when used:
+///
+/// - [ClientFactory::IO](https://occams-rpc-stream/latest/occams-rpc-stream/client/trait.ClientFactory.html)
+///
+/// - [ServerFactory::IO](https://occams-rpc-stream/latest/occams-rpc-stream/server/trait.ServerFactory.html)
 pub struct TokioRT();
 
 impl AsyncIO for TokioRT {
@@ -66,6 +79,7 @@ impl AsyncIO for TokioRT {
     }
 }
 
+/// Associate type for TokioRT
 pub struct TokioInterval(tokio::time::Interval);
 
 impl TimeInterval for TokioInterval {
@@ -80,6 +94,7 @@ impl TimeInterval for TokioInterval {
     }
 }
 
+/// Associate type for TokioRT
 pub struct TokioFD<T: AsRawFd + AsFd + Send + Sync + 'static>(tokio::io::unix::AsyncFd<T>);
 
 impl<T: AsRawFd + AsFd + Send + Sync + 'static> AsyncFdTrait<T> for TokioFD<T> {

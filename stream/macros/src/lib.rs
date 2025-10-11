@@ -1,4 +1,6 @@
-//! This crate provides procedural macros to simplify the implementation of RPC tasks for the `occams-rpc` framework.
+//! # occams-rpc-stream-macros
+//!
+//! This crate provides procedural macros to simplify the implementation of RPC tasks for the [`occams-rpc`](https://docs.rs/occams-rpc) framework.
 //! These macros automatically generate boilerplate code for trait implementations, reducing manual effort and improving code clarity.
 //!
 //! # Provided Macros

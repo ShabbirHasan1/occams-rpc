@@ -3,7 +3,7 @@ members = ["core", "codec", "runtime/tokio", "runtime/smol", "stream", "stream/m
 
 [package]
 name = "occams-rpc"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["plan <frostyplanet@gmail.com>"]
 categories = ["concurrency", "network-programming"]
@@ -25,3 +25,8 @@ default = []
 
 [dev-dependencies]
 serde_derive = "1"
+
+[package.metadata.docs.rs]
+all-features = true
+# enable features in the documentation
+rustdoc-args = ["--cfg", "docsrs"]

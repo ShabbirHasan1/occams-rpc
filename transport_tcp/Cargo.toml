@@ -17,3 +17,8 @@ io-buffer = "1"
 bytes = "1"
 libc = "0"
 signal-hook = { version = "0" }
+
+[package.metadata.docs.rs]
+all-features = true
+# enable features in the documentation
+rustdoc-args = ["--cfg", "docsrs"]
