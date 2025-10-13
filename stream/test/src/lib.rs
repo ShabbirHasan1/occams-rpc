@@ -5,11 +5,45 @@ pub mod server;
 
 extern crate captains_log;
 extern crate log;
+pub use captains_log::logfn;
+pub use occams_rpc_core::runtime::AsyncIO;
 
 use captains_log::*;
+use rstest::*;
+use std::fmt;
 
 #[cfg(feature = "tokio")]
 use tokio::runtime::Runtime;
+
+#[cfg(feature = "tokio")]
+pub type RT = occams_rpc_tokio::TokioRT;
+#[cfg(not(feature = "tokio"))]
+pub type RT = occams_rpc_smol::SmolRT;
+
+#[macro_export]
+macro_rules! async_spawn {
+    ($f: expr) => {{
+        #[cfg(feature = "tokio")]
+        {
+            let _ = tokio::spawn($f);
+        }
+        #[cfg(not(feature = "tokio"))]
+        {
+            let _ = smol::spawn($f).detach();
+        }
+    }};
+}
+
+#[fixture]
+pub fn runner() -> TestRunner {
+    TestRunner::new()
+}
+
+impl fmt::Debug for TestRunner {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "")
+    }
+}
 
 pub struct TestRunner {
     #[cfg(feature = "tokio")]

@@ -375,11 +375,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
             // return if recv_one_resp runs too long, allow timer to be fire at each second
             match self.recv_one_resp().await {
                 Err(e) => {
-                    //if e == RPC_ERR_CLOSED {
-                    //    return Ok(false);
-                    //} else {
                     return Err(e);
-                    //}
                 }
                 Ok(_) => {
                     if let Some(last_resp_ts) = self.last_resp_ts.as_ref() {
@@ -395,6 +391,11 @@ impl<F: ClientFactory> RpcClientInner<F> {
         let timer = self.get_timer_mut();
         loop {
             if self.closed.load(Ordering::Acquire) {
+                logger_trace!(
+                    self.conn.get_logger(),
+                    "{:?} read_resp from already close",
+                    self.conn
+                );
                 // ensure task receive on normal exit
                 if timer.check_pending_tasks_empty() || self.has_err.load(Ordering::Relaxed) {
                     return Err(RPC_ERR_CLOSED);

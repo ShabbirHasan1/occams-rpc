@@ -36,10 +36,7 @@ impl ClientFactory for FileClient {
 
     type Transport = occams_rpc_tcp::TcpClient<Self>;
 
-    #[cfg(feature = "tokio")]
-    type IO = occams_rpc_tokio::TokioRT;
-    #[cfg(not(feature = "tokio"))]
-    type IO = occams_rpc_smol::SmolRT;
+    type IO = crate::RT;
 
     #[inline]
     fn spawn_detach<F, R>(&self, f: F)
@@ -47,14 +44,7 @@ impl ClientFactory for FileClient {
         F: Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
-        #[cfg(feature = "tokio")]
-        {
-            let _ = tokio::spawn(f);
-        }
-        #[cfg(not(feature = "tokio"))]
-        {
-            let _ = smol::spawn(f).detach();
-        }
+        crate::async_spawn!(f);
     }
 
     #[inline]

@@ -17,6 +17,9 @@ crossfire = "2.1"
 smol = { version="2", optional=true }
 tokio = { version = "1", features = ["net", "time", "rt", "rt-multi-thread"], optional=true }
 io-buffer = "1"
+rstest = "0"
+
+[dev-dependencies]
 
 [features]
 default = ["smol"]

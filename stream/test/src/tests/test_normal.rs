@@ -1,6 +1,6 @@
-use crate::TestRunner;
 use crate::client::*;
 use crate::server::*;
+use crate::*;
 use crossfire::mpsc;
 use io_buffer::{Buffer, rand_buffer}; // Added rand_buffer
 use log::*;
@@ -12,9 +12,9 @@ use occams_rpc_stream::server::{ServerConfig, ServerTaskAction, ServerTaskDone};
 use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
 
-#[test]
-fn test_client_server() {
-    let runner = TestRunner::new();
+#[logfn]
+#[rstest]
+fn test_client_server(runner: TestRunner) {
     let client_config = ClientConfig::default();
     let server_config = ServerConfig::default();
 

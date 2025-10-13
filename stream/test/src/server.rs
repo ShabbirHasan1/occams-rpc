@@ -51,10 +51,7 @@ where
 
     type Transport = occams_rpc_tcp::TcpServer<Self>;
 
-    #[cfg(feature = "tokio")]
-    type IO = occams_rpc_tokio::TokioRT;
-    #[cfg(not(feature = "tokio"))]
-    type IO = occams_rpc_smol::SmolRT;
+    type IO = crate::RT;
 
     type RespReceiver = RespReceiverTask<FileServerTask>;
 
@@ -71,14 +68,7 @@ where
         F: Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
-        #[cfg(feature = "tokio")]
-        {
-            let _ = tokio::spawn(f);
-        }
-        #[cfg(not(feature = "tokio"))]
-        {
-            let _ = smol::spawn(f).detach();
-        }
+        crate::async_spawn!(f);
     }
 
     #[inline]
