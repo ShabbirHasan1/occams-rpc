@@ -2,7 +2,6 @@ use super::client::{FileAction, FileIOReq, FileIOResp, FileOpenReq};
 use occams_rpc_codec::MsgpCodec;
 use occams_rpc_stream::server::*;
 use occams_rpc_stream::server_impl::*;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use occams_rpc_stream::macros::*;
@@ -11,7 +10,7 @@ use captains_log::filter::LogFilter;
 
 pub fn init_server<H, FH>(
     server_handle: H, config: ServerConfig, addr: &str,
-) -> Result<(RpcServer<FileServer<H, FH>>, SocketAddr), std::io::Error>
+) -> Result<(RpcServer<FileServer<H, FH>>, String), std::io::Error>
 where
     H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
     FH: Future<Output = Result<(), ()>> + Send + 'static,

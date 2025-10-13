@@ -9,7 +9,9 @@ use std::time::Duration;
 
 #[logfn]
 #[rstest]
-fn test_client_task_timeout(runner: TestRunner) {
+#[case(true)]
+#[case(false)]
+fn test_client_task_timeout(runner: TestRunner, #[case] is_tcp: bool) {
     // Set a short timeout for the client
     let client_config = ClientConfig {
         task_timeout: 2, // seconds
@@ -38,14 +40,13 @@ fn test_client_task_timeout(runner: TestRunner) {
     };
 
     runner.block_on(async move {
-        let server_bind_addr = "127.0.0.1:0";
+        let server_bind_addr = if is_tcp { "127.0.0.1:0" } else { "/tmp/occams-rpc-test-socket" };
         let (_server, actual_server_addr) =
             init_server(dispatch_task, server_config.clone(), &server_bind_addr)
                 .expect("server listen");
-        let client_connect_addr = format!("127.0.0.1:{}", actual_server_addr.port());
-        debug!("client addr {:?}", client_connect_addr);
+        debug!("client addr {:?}", actual_server_addr);
         let client =
-            init_client(client_config, &client_connect_addr, None).await.expect("connect client");
+            init_client(client_config, &actual_server_addr, None).await.expect("connect client");
 
         // Test Open task that should time out
         let (tx, rx) = mpsc::unbounded_async();

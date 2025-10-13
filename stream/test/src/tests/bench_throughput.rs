@@ -50,13 +50,12 @@ fn test_throughput(runner: TestRunner, #[case] is_tcp: bool) {
     runner.block_on(async move {
         log::set_max_level(LevelFilter::Info);
         let server_bind_addr = if is_tcp { "127.0.0.1:0" } else { "/tmp/occams-rpc-test-socket" };
-        let (_server, _actual_server_addr) =
+        let (_server, actual_server_addr) =
             init_server(dispatch_task, server_config.clone(), server_bind_addr)
                 .expect("server listen");
-
+        println!("actual_addr: {}", actual_server_addr);
         let client = if is_tcp {
-            let client_connect_addr = format!("127.0.0.1:{}", _actual_server_addr.port());
-            init_client(client_config, &client_connect_addr, None).await.expect("connect client")
+            init_client(client_config, &actual_server_addr, None).await.expect("connect client")
         } else {
             init_client(client_config, server_bind_addr, None).await.expect("connect client")
         };
