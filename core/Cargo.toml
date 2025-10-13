@@ -18,3 +18,7 @@ with a low-level streaming interface, and high-level remote API call interface.
 serde = "1"
 io-buffer = "1"
 pin-project-lite = "0"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+rand = "0.8"
