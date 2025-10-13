@@ -86,7 +86,7 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
         let cancel_f = close_ch.recv_with_timer(F::IO::sleep(idle_timeout));
         match Cancellable::new(reader.read_exact(&mut req_header_buf), cancel_f).await {
             Ok(Err(e)) => {
-                logger_debug!(self.logger, "{:?}: recv_req: err {:?}", self, e);
+                logger_debug!(self.logger, "{:?}: recv_req: err {}", self, e);
                 return Err(RPC_ERR_COMM);
             }
             Err(()) => {
@@ -98,7 +98,7 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
         let rpc_head: &proto::ReqHead;
         match proto::ReqHead::decode_head(&req_header_buf) {
             Err(e) => {
-                logger_warn!(self.logger, "{:?}: decode_head error, {:?}", self, e);
+                logger_warn!(self.logger, "{:?}: decode_head error, {}", self, e);
                 return Err(RPC_ERR_COMM);
             }
             Ok(head) => {
@@ -113,8 +113,8 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
                 let action_buf = self.get_action_buf();
                 action_buf.resize(action_len as usize, 0);
                 match io_with_timeout!(F::IO, read_timeout, reader.read_exact(action_buf)) {
-                    Err(_) => {
-                        logger_trace!(self.logger, "{:?}: read_exact error", self);
+                    Err(e) => {
+                        logger_trace!(self.logger, "{:?}: read_exact error {}", self, e);
                         return Err(RPC_ERR_COMM);
                     }
                     Ok(_) => {
@@ -145,8 +145,13 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
                 Err(_) => return Err(RPC_ERR_ENCODE),
                 Ok(mut ext_buf) => {
                     match io_with_timeout!(F::IO, read_timeout, reader.read_exact(&mut ext_buf)) {
-                        Err(_) => {
-                            logger_trace!(self.logger, "{:?}: read_exact_buffer error", self);
+                        Err(e) => {
+                            logger_trace!(
+                                self.logger,
+                                "{:?}: read_exact_buffer error: {}",
+                                self,
+                                e
+                            );
                             return Err(RPC_ERR_COMM);
                         }
                         Ok(_) => {
@@ -171,19 +176,14 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
                 if let Err(e) =
                     io_with_timeout!(F::IO, write_timeout, writer.write_all(header.as_bytes()))
                 {
-                    logger_warn!(
-                        self.logger,
-                        "{:?}: send_resp write resp header err: {:?}",
-                        self,
-                        e
-                    );
+                    logger_warn!(self.logger, "{:?}: send_resp write resp header err: {}", self, e);
                     return Err(e);
                 }
                 if let Some(s) = err_str.as_ref() {
                     if let Err(e) = io_with_timeout!(F::IO, write_timeout, writer.write_all(s)) {
                         logger_debug!(
                             self.logger,
-                            "{:?}: send_resp write resp blob err: {:?}",
+                            "{:?}: send_resp write resp blob err: {}",
                             self,
                             e
                         );
@@ -197,12 +197,7 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
                 if let Err(e) =
                     io_with_timeout!(F::IO, write_timeout, writer.write_all(header.as_bytes()))
                 {
-                    logger_warn!(
-                        self.logger,
-                        "{:?}: send_resp write resp header err: {:?}",
-                        self,
-                        e
-                    );
+                    logger_warn!(self.logger, "{:?}: send_resp write resp header err: {}", self, e);
                     return Err(e);
                 }
                 if msg.len() > 0 {
@@ -211,7 +206,7 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
                     {
                         logger_debug!(
                             self.logger,
-                            "{:?}: send_resp write resp msg err: {:?}",
+                            "{:?}: send_resp write resp msg err: {}",
                             self,
                             e
                         );
@@ -224,7 +219,7 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
                     {
                         logger_debug!(
                             self.logger,
-                            "{:?}: send_resp write resp blob err: {:?}",
+                            "{:?}: send_resp write resp blob err: {}",
                             self,
                             e
                         );

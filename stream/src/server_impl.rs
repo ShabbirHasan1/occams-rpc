@@ -48,7 +48,7 @@ where
     pub fn listen(&mut self, addr: &str) -> io::Result<String> {
         match <<F::Transport as ServerTransport<F>>::Listener as AsyncListener>::bind(addr) {
             Err(e) => {
-                error!("bind addr {:?} err: {:?}", addr, e);
+                error!("bind addr {:?} err: {}", addr, e);
                 return Err(e);
             }
             Ok(mut listener) => {
@@ -71,7 +71,6 @@ where
                 debug!("listening on {:?}", listener);
                 let abrt = Abortable::new(
                     async move {
-                        error!("server running");
                         loop {
                             match listener.accept().await {
                                 Err(e) => {

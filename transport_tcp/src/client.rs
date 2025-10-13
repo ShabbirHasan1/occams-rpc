@@ -60,7 +60,7 @@ impl<F: ClientFactory> TcpClient<F> {
                 if let Err(e) =
                     io_with_timeout!(F::IO, self.read_timeout, reader.read_exact(&mut buf))
                 {
-                    logger_warn!(self.logger, "{:?} recv task failed: {:?}", self, e);
+                    logger_warn!(self.logger, "{:?} recv task failed: {}", self, e);
                     return Err(RPC_ERR_COMM);
                 }
                 return Ok(());
@@ -88,7 +88,7 @@ impl<F: ClientFactory> TcpClient<F> {
                 let buf = self.get_resp_buf(resp_head.blob_len as usize);
                 match io_with_timeout!(F::IO, self.read_timeout, reader.read_exact(buf)) {
                     Err(e) => {
-                        logger_warn!(self.logger, "{:?} recv buffer error: {:?}", self, e);
+                        logger_warn!(self.logger, "{:?} recv buffer error: {}", self, e);
                         factory.error_handle(task, RPC_ERR_COMM);
                         return Err(RPC_ERR_COMM);
                     }
@@ -156,7 +156,7 @@ impl<F: ClientFactory> TcpClient<F> {
                         {
                             logger_warn!(
                                 self.logger,
-                                "{:?} rpc client reader read ext_buf err: {:?}",
+                                "{:?} rpc client reader read ext_buf err: {}",
                                 self,
                                 e
                             );
@@ -205,14 +205,14 @@ impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
         let stream: UnifyStream<F::IO> = {
             match UnifyAddr::from_str(addr) {
                 Err(e) => {
-                    error!("Cannot parsing addr {}: {:?}", addr, e);
+                    error!("Cannot parsing addr {}: {}", addr, e);
                     return Err(RPC_ERR_CONNECT);
                 }
                 Ok(UnifyAddr::Socket(_addr)) => {
                     match F::IO::connect_tcp(&_addr, connect_timeout).await {
                         Ok(stream) => UnifyStream::Tcp(stream),
                         Err(e) => {
-                            warn!("Cannot connect addr {}: {:?}", addr, e);
+                            warn!("Cannot connect addr {}: {}", addr, e);
                             return Err(RPC_ERR_CONNECT);
                         }
                     }
@@ -221,7 +221,7 @@ impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
                     match F::IO::connect_unix(&_addr, connect_timeout).await {
                         Ok(stream) => UnifyStream::Unix(stream),
                         Err(e) => {
-                            warn!("Cannot connect addr {}: {:?}", addr, e);
+                            warn!("Cannot connect addr {}: {}", addr, e);
                             return Err(RPC_ERR_CONNECT);
                         }
                     }
@@ -323,17 +323,17 @@ impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
             if let Err(e) =
                 io_with_timeout!(F::IO, self.read_timeout, reader.read_exact(&mut resp_head_buf))
             {
-                logger_debug!(self.logger, "{:?} rpc client read resp head err: {:?}", self, e);
+                logger_debug!(self.logger, "{:?} rpc client read resp head err: {}", self, e);
                 return Err(RPC_ERR_COMM);
             }
         }
         match proto::RespHead::decode_head(&resp_head_buf) {
-            Err(_e) => {
+            Err(e) => {
                 logger_debug!(
                     self.logger,
-                    "{:?} rpc client decode_response_header err: {:?}",
+                    "{:?} rpc client decode_response_header err: {}",
                     self,
-                    _e
+                    e
                 );
                 return Err(RPC_ERR_COMM);
             }

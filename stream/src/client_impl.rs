@@ -272,7 +272,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
 
         match self.send_request(&mut task, need_flush).await {
             Err(e) => {
-                logger_warn!(self.logger(), "{:?} sending task {:?} failed: {:?}", self, task, e);
+                logger_warn!(self.logger(), "{:?} sending task {:?} err: {}", self, task, e);
                 timer.pending_task_count_ref().fetch_sub(1, Ordering::SeqCst); // rollback
                 self.factory.error_handle(task, e.clone());
                 self.closed.store(true, Ordering::SeqCst);
@@ -281,7 +281,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
                 return Err(e);
             }
             Ok(_) => {
-                logger_trace!(self.logger(), "{:?} send task {:?} success", self, task);
+                logger_trace!(self.logger(), "{:?} send task {:?} ok", self, task);
                 // register task to norifier
                 let mut wg: Option<WaitGroupGuard> = None;
                 if let Some(throttler) = self.throttler.as_ref() {
@@ -296,7 +296,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
     #[inline(always)]
     async fn flush_req(&self) -> Result<(), RpcError> {
         if let Err(e) = self.conn.flush_req().await {
-            logger_warn!(self.logger(), "{:?} flush_req flush err: {:?}", self, e);
+            logger_warn!(self.logger(), "{:?} flush_req flush err: {}", self, e);
             self.closed.store(true, Ordering::SeqCst);
             self.has_err.store(true, Ordering::SeqCst);
             let timer = self.get_timer_mut();
@@ -427,7 +427,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
             match selector.await {
                 Ok(_) => {}
                 Err(e) => {
-                    logger_debug!(self.logger(), "{:?} receive_loop error: {:?}", self, e);
+                    logger_debug!(self.logger(), "{:?} receive_loop error: {}", self, e);
                     self.closed.store(true, Ordering::SeqCst);
                     let timer = self.get_timer_mut();
                     timer.clean_pending_tasks(self.factory.as_ref());
