@@ -188,7 +188,11 @@ impl<F: ClientFactory> TcpClient<F> {
             } else if resp_head.flag == proto::RESP_FLAG_HAS_ERR_STRING {
                 data_len += resp_head.blob_len as u32;
             }
-            return self._recv_and_dump(data_len as usize).await;
+            if data_len > 0 {
+                return self._recv_and_dump(data_len as usize).await;
+            } else {
+                return Ok(());
+            }
         }
     }
 }
