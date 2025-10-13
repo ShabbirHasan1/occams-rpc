@@ -3,7 +3,6 @@ use crate::server::*;
 use crate::*;
 use crossfire::mpsc;
 use io_buffer::{Buffer, rand_buffer}; // Added rand_buffer
-use log::*;
 use occams_rpc_stream::client::{ClientConfig, ClientTaskDone};
 use occams_rpc_stream::error::RpcError;
 use occams_rpc_stream::proto::RpcAction;

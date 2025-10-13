@@ -43,6 +43,9 @@ test-stream: init
 	cargo test -p stream_test ${ARGS} -- --nocapture --test-threads=1
 	@echo "Done"
 
+bench-stream: init
+	cargo test -p stream_test ${ARGS} --release bench -- --nocapture --test-threads=1
+
 .PHONY: bench
 bench:
 	@${RUNBENCHCASE}; _run_bench_case
