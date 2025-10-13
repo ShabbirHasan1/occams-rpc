@@ -291,7 +291,7 @@ pub trait AsyncListener: Send + Sized + 'static + fmt::Debug {
 
     fn accept(&mut self) -> impl Future<Output = io::Result<Self::Conn>> + Send;
 
-    fn local_addr(&self) -> io::Result<std::net::SocketAddr>;
+    fn local_addr(&self) -> io::Result<String>;
 }
 
 /// A trait to adapt various type of buffer

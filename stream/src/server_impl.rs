@@ -45,14 +45,24 @@ where
         }
     }
 
-    pub fn listen(&mut self, addr: &str) -> io::Result<std::net::SocketAddr> {
+    pub fn listen(&mut self, addr: &str) -> io::Result<String> {
         match <<F::Transport as ServerTransport<F>>::Listener as AsyncListener>::bind(addr) {
             Err(e) => {
                 error!("bind addr {:?} err: {:?}", addr, e);
                 return Err(e);
             }
             Ok(mut listener) => {
-                let local_addr = listener.local_addr().unwrap();
+                let local_addr = match listener.local_addr() {
+                    Ok(addr) => addr,
+                    Err(e) => {
+                        if e.kind() == std::io::ErrorKind::AddrNotAvailable {
+                            // For Unix sockets, return a dummy address
+                            "0.0.0.0:0".parse().unwrap()
+                        } else {
+                            return Err(e);
+                        }
+                    }
+                };
                 let (abort_handle, abort_registration) = AbortHandle::new_pair();
                 let factory = self.factory.clone();
                 let conn_ref_count = self.conn_ref_count.clone();

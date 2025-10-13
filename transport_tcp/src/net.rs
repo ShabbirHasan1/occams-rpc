@@ -171,13 +171,16 @@ impl<IO: AsyncIO> AsyncListener for UnifyListener<IO> {
     }
 
     #[inline]
-    fn local_addr(&self) -> io::Result<std::net::SocketAddr> {
+    fn local_addr(&self) -> io::Result<String> {
         match self {
-            UnifyListener::Tcp(l) => l.local_addr(),
-            UnifyListener::Unix(_) => Err(io::Error::new(
-                io::ErrorKind::AddrNotAvailable,
-                "Unix listener does not have a standard SocketAddr",
-            )),
+            UnifyListener::Tcp(l) => {
+                let addr = l.local_addr()?;
+                return Ok(addr.to_string());
+            }
+            UnifyListener::Unix(l) => {
+                let addr = l.local_addr()?;
+                return Ok(addr.as_pathname().unwrap().display().to_string());
+            }
         }
     }
 }
@@ -216,7 +219,7 @@ impl<IO: AsyncIO> UnifyStream<IO> {
     }
 }
 
-impl<IO: AsyncIO> std::fmt::Display for UnifyStream<IO> {
+impl<IO: AsyncIO> std::fmt::Debug for UnifyStream<IO> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Tcp(l) => match l.local_addr() {
