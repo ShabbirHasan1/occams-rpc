@@ -47,7 +47,7 @@ impl<F: ServerFactory> TcpServer<F> {
 
 impl<F: ServerFactory> fmt::Debug for TcpServer<F> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.stream.fmt(f)
+        self.get_stream_mut().fmt(f)
     }
 }
 

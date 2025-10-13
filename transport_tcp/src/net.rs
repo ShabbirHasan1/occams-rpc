@@ -47,6 +47,7 @@ impl std::fmt::Debug for UnifyAddr {
     }
 }
 impl std::clone::Clone for UnifyAddr {
+    #[inline]
     fn clone(&self) -> Self {
         match self {
             Self::Socket(s) => UnifyAddr::Socket(s.clone()),
@@ -209,11 +210,27 @@ impl<IO: AsyncIO> std::fmt::Debug for UnifyListener<IO> {
 }
 
 impl<IO: AsyncIO> UnifyStream<IO> {
+    #[inline]
     pub async fn shutdown_write(&mut self) -> io::Result<()> {
         match self {
             UnifyStream::Tcp(l) => l.async_write(|_l| _l.shutdown(std::net::Shutdown::Write)).await,
             UnifyStream::Unix(l) => {
                 l.async_write(|_l| _l.shutdown(std::net::Shutdown::Write)).await
+            }
+        }
+    }
+
+    #[inline]
+    pub fn peer_addr(&self) -> io::Result<std::net::SocketAddr> {
+        match self {
+            UnifyStream::Tcp(l) => {
+                return l.peer_addr();
+            }
+            UnifyStream::Unix(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::AddrNotAvailable,
+                    "unixsocket don't support peer_addr",
+                ));
             }
         }
     }
@@ -224,18 +241,22 @@ impl<IO: AsyncIO> std::fmt::Debug for UnifyStream<IO> {
         match self {
             Self::Tcp(l) => match l.local_addr() {
                 Ok(addr) => {
-                    return write!(f, "listener {}", addr);
+                    if let Ok(peer_addr) = l.peer_addr() {
+                        return write!(f, "{}->{}", addr, peer_addr);
+                    } else {
+                        return write!(f, "{}", addr);
+                    }
                 }
                 Err(_) => {
-                    return write!(f, "tcp listener unknown");
+                    return write!(f, "tcp addr unknown");
                 }
             },
             Self::Unix(l) => match l.local_addr() {
                 Ok(addr) => {
-                    return write!(f, "listener {}", addr.as_pathname().unwrap().display());
+                    return write!(f, "{}", addr.as_pathname().unwrap().display());
                 }
                 Err(_) => {
-                    return write!(f, "unix listener unknown");
+                    return write!(f, "unixsocket addr unknown");
                 }
             },
         }
@@ -243,6 +264,7 @@ impl<IO: AsyncIO> std::fmt::Debug for UnifyStream<IO> {
 }
 
 impl<IO: AsyncIO> AsyncRead for UnifyStream<IO> {
+    #[inline]
     async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         use std::io::Read;
         match self {
@@ -253,6 +275,7 @@ impl<IO: AsyncIO> AsyncRead for UnifyStream<IO> {
 }
 
 impl<IO: AsyncIO> AsyncWrite for UnifyStream<IO> {
+    #[inline]
     async fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         use std::io::Write;
         match self {
