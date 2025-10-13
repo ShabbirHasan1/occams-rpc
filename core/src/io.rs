@@ -60,7 +60,7 @@ macro_rules! io_with_timeout {
 pub use io_with_timeout;
 
 /// AsyncRead trait for runtime adapter
-pub trait AsyncRead: Send + 'static {
+pub trait AsyncRead: Send {
     /// Async version of read function
     ///
     /// On ok, return the bytes read
@@ -135,7 +135,7 @@ pub trait AsyncRead: Send + 'static {
 }
 
 /// AsyncWrite trait for runtime adapter
-pub trait AsyncWrite: Send + 'static {
+pub trait AsyncWrite: Send {
     /// Async version of write function
     ///
     /// On ok, return the bytes written
@@ -183,118 +183,6 @@ pub trait AsyncListener: Send + Sized + 'static + fmt::Debug {
 
     fn local_addr(&self) -> io::Result<std::net::SocketAddr>;
 }
-
-///// Buffered IO for UnifyStream
-//pub struct UnifyBufStream {
-//    reader_buf_size: usize,
-//    writer_buf_size: usize,
-//    buf_stream: BufStream<UnifyStream>,
-//}
-//
-//impl UnifyBufStream {
-//    #[inline(always)]
-//    pub fn new(unify_stream: UnifyStream) -> Self {
-//        Self {
-//            reader_buf_size: 8 * 1024,
-//            writer_buf_size: 8 * 1024,
-//            buf_stream: BufStream::with_capacity(8 * 1024, 8 * 1024, unify_stream),
-//        }
-//    }
-//
-//    #[inline(always)]
-//    pub fn with_capacity(
-//        reader_buf_size: usize, writer_buf_size: usize, unify_stream: UnifyStream,
-//    ) -> Self {
-//        Self {
-//            reader_buf_size,
-//            writer_buf_size,
-//            buf_stream: BufStream::with_capacity(reader_buf_size, writer_buf_size, unify_stream),
-//        }
-//    }
-//
-//    #[inline(always)]
-//    pub async fn close(&mut self) -> io::Result<()> {
-//        self.buf_stream.shutdown().await
-//    }
-//
-//    #[inline(always)]
-//    pub async fn read_exact(&mut self, dst: &mut [u8]) -> Result<usize, io::Error> {
-//        self.buf_stream.read_exact(dst).await
-//    }
-//
-//    #[inline(always)]
-//    pub async fn read_exact_timeout(
-//        &mut self, dst: &mut [u8], read_timeout: Duration,
-//    ) -> Result<usize, io::Error> {
-//        if read_timeout == ZERO_TIME {
-//            return self.buf_stream.read_exact(dst).await;
-//        } else {
-//            match timeout(read_timeout, self.buf_stream.read_exact(dst)).await {
-//                Ok(o) => match o {
-//                    Ok(l) => return Ok(l),
-//                    Err(e2) => return Err(e2),
-//                },
-//                Err(e) => {
-//                    return Err(e.into());
-//                }
-//            }
-//        }
-//    }
-//
-//    #[inline(always)]
-//    pub async fn write_all(&mut self, dst: &[u8]) -> Result<(), io::Error> {
-//        self.buf_stream.write_all(dst).await
-//    }
-//
-//    #[inline(always)]
-//    pub async fn write_timeout(
-//        &mut self, dst: &[u8], write_timeout: Duration,
-//    ) -> Result<(), io::Error> {
-//        if write_timeout == ZERO_TIME {
-//            return self.buf_stream.write_all(dst).await;
-//        } else {
-//            match timeout(write_timeout, self.buf_stream.write_all(dst)).await {
-//                Ok(o) => match o {
-//                    Ok(_) => return Ok(()),
-//                    Err(e2) => return Err(e2),
-//                },
-//                Err(e) => {
-//                    return Err(e.into());
-//                }
-//            }
-//        }
-//    }
-//
-//    #[inline(always)]
-//    pub async fn flush_timeout(&mut self, write_timeout: Duration) -> Result<(), io::Error> {
-//        if write_timeout == ZERO_TIME {
-//            return self.buf_stream.flush().await;
-//        } else {
-//            match timeout(write_timeout, self.buf_stream.flush()).await {
-//                Ok(o) => match o {
-//                    Ok(_) => return Ok(()),
-//                    Err(e2) => return Err(e2),
-//                },
-//                Err(e) => {
-//                    return Err(e.into());
-//                }
-//            }
-//        }
-//    }
-//}
-//
-//impl std::fmt::Display for UnifyBufStream {
-//    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//        return write!(
-//            f,
-//            "UnifyBufStream reader_buf_size:{} writer_buf_size:{}, stream:{:#}",
-//            self.reader_buf_size,
-//            self.writer_buf_size,
-//            self.buf_stream.get_ref()
-//        );
-//    }
-//}
-//
 
 /// A trait to adapt various type of buffer
 pub trait AllocateBuf: 'static + Sized + Send {

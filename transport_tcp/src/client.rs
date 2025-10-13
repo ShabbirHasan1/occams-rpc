@@ -68,6 +68,7 @@ impl<F: ClientFactory> TcpClient<F> {
         }
     }
 
+    #[inline]
     async fn _recv_error(
         &self, factory: &F, resp_head: &proto::RespHead, task: F::Task,
     ) -> Result<(), RpcError> {
