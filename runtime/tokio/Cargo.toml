@@ -11,6 +11,8 @@ readme = "../../README.md"
 license = "MIT"
 description = """
 occams-rpc runtime adaptor for tokio ecology
+occams-rpc is a modular, pluggable RPC for high throughput scenario, supports various runtimes,
+with a low-level streaming interface, and high-level remote API call interface.
 """
 
 [dependencies]

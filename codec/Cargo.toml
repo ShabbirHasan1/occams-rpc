@@ -11,7 +11,7 @@ readme = "../README.md"
 license = "MIT"
 description = """
 This is the codec packages for occams_rpc.
-occams_rpc is a modular, plugable RPC for high throughput scenario, supports various runtime,
+occams_rpc is a modular, pluggable RPC for high throughput scenario, supports various runtime,
 with a low-level streaming interface, and high-level remote API call interface.
 """
 

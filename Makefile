@@ -15,9 +15,7 @@ fmt: init
 
 .PHONY: test
 test: test-core test-codec test-stream-macros test-stream
-	@echo "Run test"
-	@${RUNTESTCASE}; _run_test_case
-	@echo "Done"
+	echo run all tests
 
 .PHONY: test-core
 test-core: init
@@ -43,10 +41,6 @@ test-stream: init
 
 bench-stream: init
 	cargo test -p stream_test ${ARGS} --release bench -- --nocapture --test-threads=1
-
-.PHONY: bench
-bench:
-	@${RUNBENCHCASE}; _run_bench_case
 
 .PHONY: build
 build: init

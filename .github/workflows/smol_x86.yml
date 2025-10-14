@@ -1,7 +1,12 @@
 name: smol-x86
-
+permissions:
+  contents: read
+  pull-requests: write
 on:
   schedule: [cron: "10 */5 * * *"]
+  push:
+    branches: [ master ]
+  pull_request:
   workflow_dispatch:
 
 env:

@@ -1,6 +1,6 @@
 # occams-rpc
 
-A modular, plugable RPC for high throughput scenario, supports various runtime,
+A modular, pluggable RPC for high throughput scenario, supports various runtimes,
 with a low-level streaming interface, and high-level remote API call interface.
 
 ## Components
@@ -8,7 +8,7 @@ with a low-level streaming interface, and high-level remote API call interface.
 `occams-rpc` is built from a collection of crates that provide different functionalities:
 
 - core: [`occams-rpc-core`](https://docs.rs/occams-rpc-core): core utils crate
-- coder: [`occams-rpc-codec`](https://docs.rs/occams-rpc-codec): Provides codecs for serialization, such as `msgpack`.
+- codec: [`occams-rpc-codec`](https://docs.rs/occams-rpc-codec): Provides codecs for serialization, such as `msgpack`.
 - runtimes:
   - [`occams-rpc-tokio`](https://docs.rs/occams-rpc-tokio): A runtime adapter for the `tokio` runtime.
   - [`occams-rpc-smol`](https://docs.rs/occams-rpc-smol): A runtime adapter for the `smol` runtime.
@@ -18,7 +18,7 @@ with a low-level streaming interface, and high-level remote API call interface.
 
 ## Streaming API
 
-[occams-rpc-stream](https://crates.io/occams-rpc-stream) [document](https://docs.rs/occams-rpc-stream)
+[occams-rpc-stream](https://crates.io/crates/occams-rpc-stream) [document](https://docs.rs/occams-rpc-stream)
 
 The interface is designed to optimize throughput and lower
 CPU consumption for high-performance services.
