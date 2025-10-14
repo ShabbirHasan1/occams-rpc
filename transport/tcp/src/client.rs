@@ -1,5 +1,4 @@
 use crate::net::{UnifyAddr, UnifyStream};
-use bytes::BytesMut;
 use crossfire::MAsyncRx;
 use io_buffer::Buffer;
 use occams_rpc_core::io::{AsyncBufStream, AsyncRead, AsyncWrite, Cancellable, io_with_timeout};
@@ -16,7 +15,7 @@ use std::{fmt, io};
 
 pub struct TcpClient<F: ClientFactory> {
     stream: UnsafeCell<AsyncBufStream<UnifyStream<F::IO>>>,
-    resp_buf: UnsafeCell<BytesMut>,
+    resp_buf: UnsafeCell<Vec<u8>>,
     logger: F::Logger,
     server_id: u64,
     client_id: u64,
@@ -42,8 +41,8 @@ impl<F: ClientFactory> TcpClient<F> {
     }
 
     #[inline(always)]
-    fn get_resp_buf(&self, len: usize) -> &mut BytesMut {
-        let buf: &mut BytesMut = unsafe { transmute(self.resp_buf.get()) };
+    fn get_resp_buf(&self, len: usize) -> &mut Vec<u8> {
+        let buf: &mut Vec<u8> = unsafe { transmute(self.resp_buf.get()) };
         buf.resize(len as usize, 0);
         buf
     }
@@ -230,7 +229,7 @@ impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
         };
         Ok(Self {
             stream: UnsafeCell::new(AsyncBufStream::new(stream, 4096)),
-            resp_buf: UnsafeCell::new(BytesMut::with_capacity(512)),
+            resp_buf: UnsafeCell::new(Vec::with_capacity(512)),
             server_id,
             client_id,
             write_timeout: config.write_timeout,

@@ -5,7 +5,6 @@ use occams_rpc_stream::server::{RpcSvrReq, ServerFactory, ServerTransport};
 use occams_rpc_stream::{proto, proto::RpcAction};
 
 use crate::net::{UnifyListener, UnifyStream};
-use bytes::BytesMut;
 use io_buffer::Buffer;
 use std::cell::UnsafeCell;
 use std::sync::Arc;
@@ -17,8 +16,8 @@ pub struct TcpServer<F: ServerFactory> {
     stream: UnsafeCell<AsyncBufStream<UnifyStream<F::IO>>>,
     _conn_count: Arc<()>,
     config: ServerConfig,
-    action_buf: UnsafeCell<BytesMut>,
-    msg_buf: UnsafeCell<BytesMut>,
+    action_buf: UnsafeCell<Vec<u8>>,
+    msg_buf: UnsafeCell<Vec<u8>>,
     logger: F::Logger,
 }
 
@@ -35,12 +34,12 @@ impl<F: ServerFactory> TcpServer<F> {
     }
 
     #[inline(always)]
-    fn get_msg_buf(&self) -> &mut BytesMut {
+    fn get_msg_buf(&self) -> &mut Vec<u8> {
         unsafe { std::mem::transmute(self.msg_buf.get()) }
     }
 
     #[inline(always)]
-    fn get_action_buf(&self) -> &mut BytesMut {
+    fn get_action_buf(&self) -> &mut Vec<u8> {
         unsafe { std::mem::transmute(self.action_buf.get()) }
     }
 }
@@ -60,8 +59,8 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
         Self {
             stream: UnsafeCell::new(AsyncBufStream::new(stream, 4096)),
             config: config.clone(),
-            action_buf: UnsafeCell::new(BytesMut::with_capacity(128)),
-            msg_buf: UnsafeCell::new(BytesMut::with_capacity(512)),
+            action_buf: UnsafeCell::new(Vec::with_capacity(128)),
+            msg_buf: UnsafeCell::new(Vec::with_capacity(512)),
             _conn_count: conn_count,
             logger,
         }
