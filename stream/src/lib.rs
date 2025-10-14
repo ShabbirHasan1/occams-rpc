@@ -36,7 +36,7 @@
 //! An internal timer then registers the request through a channel, and when the response
 //! is received, it can optionally notify the user through a user-defined channel or another mechanism.
 //!
-//! In an [Rpcserver](crate::server_impl::RpcServer), for each connection, there is one coroutine to read requests and one
+//! In an [RpcServer](crate::server_impl::RpcServer), for each connection, there is one coroutine to read requests and one
 //! coroutine to write responses. Requests can be dispatched with a user-defined
 //! [ReqDispatch](crate::server::ReqDispatch) trait implementation.
 //!

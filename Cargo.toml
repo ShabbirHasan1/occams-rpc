@@ -10,6 +10,7 @@ categories = ["concurrency", "network-programming"]
 repository = "https://github.com/NaturalIO/occams-rpc"
 documentation = "https://docs.rs/occams-rpc"
 keywords = ["networking", "rpc"]
+readme = "README.md"
 license = "MIT"
 description = """
 A modular, plugable RPC for high throughput scenario, supports various runtime,

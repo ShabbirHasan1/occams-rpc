@@ -8,6 +8,7 @@ repository = "https://github.com/NaturalIO/occams-rpc"
 documentation = "https://docs.rs/occams-rpc"
 keywords = ["networking", "rpc"]
 license = "MIT"
+readme = "../README.md"
 description = """
 The streaming interface of occams-rpc.
 occams-rpc is a modular, plugable RPC for high throughput scenario, supports various runtime,
