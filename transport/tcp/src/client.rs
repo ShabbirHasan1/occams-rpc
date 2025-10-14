@@ -13,6 +13,8 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::{fmt, io};
 
+pub const CLIENT_DEFAULT_BUF_SIZE: usize = 8 * 1024;
+
 pub struct TcpClient<F: ClientFactory> {
     stream: UnsafeCell<AsyncBufStream<UnifyStream<F::IO>>>,
     resp_buf: UnsafeCell<Vec<u8>>,
@@ -227,8 +229,12 @@ impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
                 }
             }
         };
+        let mut buf_size = config.stream_buf_size;
+        if buf_size == 0 {
+            buf_size = CLIENT_DEFAULT_BUF_SIZE;
+        }
         Ok(Self {
-            stream: UnsafeCell::new(AsyncBufStream::new(stream, 4096)),
+            stream: UnsafeCell::new(AsyncBufStream::new(stream, buf_size)),
             resp_buf: UnsafeCell::new(Vec::with_capacity(512)),
             server_id,
             client_id,
@@ -269,7 +275,6 @@ impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
         msg_buf: &'a [u8], blob: Option<&'a [u8]>,
     ) -> io::Result<()> {
         let writer = self.get_stream_mut();
-        let mut data_len = header.len();
         let write_timeout = self.write_timeout;
 
         macro_rules! err_log {
@@ -282,18 +287,15 @@ impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
         }
         io_with_timeout!(F::IO, write_timeout, writer.write_all(header))?;
         if let Some(action_s) = action_str {
-            data_len += action_s.len();
             err_log!(io_with_timeout!(F::IO, write_timeout, writer.write_all(action_s)));
         }
         if msg_buf.len() > 0 {
-            data_len += msg_buf.len();
             err_log!(io_with_timeout!(F::IO, write_timeout, writer.write_all(msg_buf)));
         }
         if let Some(blob_buf) = blob {
-            data_len += blob_buf.len();
             err_log!(io_with_timeout!(F::IO, write_timeout, writer.write_all(blob_buf)));
         }
-        if need_flush || data_len >= 32 * 1024 {
+        if need_flush {
             self.flush_req().await?;
         }
         return Ok(());

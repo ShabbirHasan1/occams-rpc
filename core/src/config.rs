@@ -15,6 +15,8 @@ pub struct ClientConfig {
     pub connect_timeout: Duration,
     /// How many async RpcTask in the queue, prevent overflow server capacity
     pub thresholds: usize,
+    /// In bytes. when non-zero, overwrite the default DEFAULT_BUF_SIZE of transport
+    pub stream_buf_size: usize,
 }
 
 impl Default for ClientConfig {
@@ -26,6 +28,7 @@ impl Default for ClientConfig {
             idle_timeout: Duration::from_secs(120),
             connect_timeout: Duration::from_secs(10),
             thresholds: 128,
+            stream_buf_size: 0,
         }
     }
 }
@@ -41,6 +44,8 @@ pub struct ServerConfig {
     pub idle_timeout: Duration,
     /// wait for all connections to be close with a timeout
     pub server_close_wait: Duration,
+    /// In bytes. when non-zero, overwrite the default DEFAULT_BUF_SIZE of transport
+    pub stream_buf_size: usize,
 }
 
 impl Default for ServerConfig {
@@ -50,6 +55,7 @@ impl Default for ServerConfig {
             write_timeout: Duration::from_secs(5),
             idle_timeout: Duration::from_secs(120),
             server_close_wait: Duration::from_secs(90),
+            stream_buf_size: 0,
         }
     }
 }

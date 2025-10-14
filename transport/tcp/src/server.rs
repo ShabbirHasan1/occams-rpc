@@ -12,6 +12,8 @@ use std::time::Duration;
 use std::{fmt, io};
 use zerocopy::AsBytes;
 
+pub const SERVER_DEFAULT_BUF_SIZE: usize = 8 * 1024;
+
 pub struct TcpServer<F: ServerFactory> {
     stream: UnsafeCell<AsyncBufStream<UnifyStream<F::IO>>>,
     _conn_count: Arc<()>,
@@ -56,8 +58,12 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
     fn new_conn(stream: UnifyStream<F::IO>, factory: &F, conn_count: Arc<()>) -> Self {
         let config = factory.get_config();
         let logger = factory.new_logger();
+        let mut buf_size = config.stream_buf_size;
+        if buf_size == 0 {
+            buf_size = SERVER_DEFAULT_BUF_SIZE;
+        }
         Self {
-            stream: UnsafeCell::new(AsyncBufStream::new(stream, 4096)),
+            stream: UnsafeCell::new(AsyncBufStream::new(stream, buf_size)),
             config: config.clone(),
             action_buf: UnsafeCell::new(Vec::with_capacity(128)),
             msg_buf: UnsafeCell::new(Vec::with_capacity(512)),

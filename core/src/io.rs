@@ -184,6 +184,7 @@ impl AsyncBufRead {
     /// Creates a new `AsyncBufRead` with the given reader and buffer capacity.
     #[inline]
     pub fn new(capacity: usize) -> Self {
+        assert!(capacity > 0, "capacity {} must > 0", capacity);
         AsyncBufRead { buf: vec![0; capacity], pos: 0, cap: 0 }
     }
 
@@ -225,6 +226,7 @@ impl AsyncBufWrite {
     /// Creates a new `AsyncBufWrite` with the given writer and buffer capacity.
     #[inline]
     pub fn new(capacity: usize) -> Self {
+        assert!(capacity > 0, "capacity {} must > 0", capacity);
         AsyncBufWrite { buf: vec![0; capacity], pos: 0 }
     }
 
