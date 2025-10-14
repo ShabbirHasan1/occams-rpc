@@ -2,6 +2,7 @@
 
 use pin_project_lite::pin_project;
 use std::future::Future;
+use std::os::fd::{AsRawFd, RawFd};
 use std::pin::Pin;
 use std::task::*;
 use std::{fmt, io};
@@ -73,4 +74,15 @@ pub trait AsyncListener: Send + Sized + 'static + fmt::Debug {
     fn accept(&mut self) -> impl Future<Output = io::Result<Self::Conn>> + Send;
 
     fn local_addr(&self) -> io::Result<String>;
+
+    /// Try to recover a listener from RawFd
+    ///
+    /// Will set listener to non_blocking to validate the fd
+    ///
+    /// # Arguments
+    ///
+    /// * addr: the addr is for determine address type
+    unsafe fn try_from_raw_fd(addr: &str, raw_fd: RawFd) -> io::Result<Self>
+    where
+        Self: AsRawFd;
 }

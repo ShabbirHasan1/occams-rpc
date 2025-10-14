@@ -1,72 +1,74 @@
+//! Utilities for graceful restart
+
 use std::{
+    any::type_name,
     env,
     fs::OpenOptions,
     io::{Error, ErrorKind, Write, stderr},
-    net::TcpListener as StdTcpListener,
-    os::unix::{
-        io::{AsRawFd, FromRawFd, RawFd},
-        net::UnixListener as StdUnixListener,
-    },
-    path::Path,
+    os::fd::{AsRawFd, RawFd},
+    path::{Path, PathBuf},
     process,
     process::Command,
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
+use crate::io::AsyncListener;
 use close_fds::set_fds_cloexec;
 use log::*;
-use signal_hook::consts as signal_const;
 use signal_hook::iterator::Signals;
-use tokio::net::{TcpListener as TokioTcpListener, UnixListener as TokioUnixListener};
 
-use super::net::{UnifyAddr, UnifyListener};
-
-pub fn write_pid_file(run_dir: &str, prog_name: &str) -> std::io::Result<()> {
-    let pid_file_path = Path::new(run_dir).join(format!("{}.pid", prog_name));
-    let mut f = OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .create(true)
-        .open(pid_file_path.to_str().unwrap())?;
+/// Write pid file for current process
+pub fn write_pid_file(p: &Path) -> std::io::Result<()> {
+    let mut f = OpenOptions::new().write(true).truncate(true).create(true).open(p)?;
     let pid = process::id();
     f.write_all(pid.to_string().as_bytes())?;
     f.sync_data()?;
     Ok(())
 }
 
-/// Call after program is fork. Use a separate empty file to notify parent that child has started up.
-fn write_child_pid_file(run_dir: &str, prog_name: &str) -> std::io::Result<()> {
-    let pid_file_path = Path::new(run_dir).join(format!("{}_{}", prog_name, process::id()));
-    std::fs::File::create(pid_file_path.to_str().unwrap())?;
-    Ok(())
-}
-
-pub const RESTART_TIMEOUT: usize = 200;
-
-/// For service that support graceful restart.
+/// A server-side listener management to support graceful restart
+///
 /// All socket listener managed by `Graceful` is inherited to the new program after restart.
 /// New connection goes to new program. Old connections continue to be served at old program.
-pub struct Graceful {
+pub struct GracefulServer {
     run_dir: String,
     prog_name: String,
     listen_fds: Vec<String>,
     recovered: bool,
     recover_listen_fds: Vec<RawFd>,
+    restart_timeout: Duration,
+    close_signals: Vec<i32>,
 }
 
-impl Graceful {
+impl GracefulServer {
     #[inline]
-    pub fn new(run_dir: String, prog_name: String) -> Self {
-        let mut graceful = Graceful {
+    pub fn new(
+        run_dir: String, prog_name: String, restart_timeout: Duration,
+        close_signals: Vec<libc::c_int>,
+    ) -> Self {
+        let mut graceful = Self {
             run_dir,
             prog_name,
             listen_fds: Vec::new(),
             recovered: false,
             recover_listen_fds: Vec::new(),
+            restart_timeout,
+            close_signals,
         };
         graceful.check_recover();
         return graceful;
+    }
+
+    fn pid_file_path(&self) -> PathBuf {
+        return Path::new(&self.run_dir).join(format!("{}.pid", self.prog_name)).to_path_buf();
+    }
+
+    /// Call after program is fork. Use a separate empty file to notify parent that child has started up.
+    fn write_child_pid_file(&self) -> std::io::Result<()> {
+        let file_path =
+            Path::new(&self.run_dir).join(format!("{}_{}", self.prog_name, process::id()));
+        write_pid_file(&file_path)
     }
 
     fn check_recover(&mut self) {
@@ -107,7 +109,9 @@ impl Graceful {
         let child_pid = child.id();
         let child_pid_file_path =
             Path::new(&self.run_dir).join(format!("{}_{}", &self.prog_name, child_pid));
-        for _ in 0..RESTART_TIMEOUT {
+        let start_ts = Instant::now();
+
+        while Instant::now().duration_since(start_ts) <= self.restart_timeout {
             match std::fs::File::open(&child_pid_file_path) {
                 Ok(_) => {
                     // parent remove parent_child_sync_file failed but graceful restart success, parent still exit
@@ -136,80 +140,73 @@ impl Graceful {
 
     /// Initiate socket listener which supports graceful restart.
     /// We assume the program does not change addrs, always call with the same order.
-    pub fn new_unify_listener(
-        &mut self, rt: &tokio::runtime::Runtime, unify_addr: &UnifyAddr,
-    ) -> std::io::Result<UnifyListener> {
+    pub fn new_listener<L>(&mut self, addr: &str) -> std::io::Result<L>
+    where
+        L: AsyncListener + AsRawFd,
+    {
         // XXX What if order wrong?
         if self.recover_listen_fds.len() > 0 {
             let raw_fd = self.recover_listen_fds.remove(0);
-            match unify_addr {
-                UnifyAddr::Socket(_) => {
-                    let std_listener = unsafe { StdTcpListener::from_raw_fd(raw_fd) };
-                    if let Err(e) = std_listener.set_nonblocking(true) {
-                        error!("cannot set non-blocking from unix fd {}", raw_fd);
-                        return Err(e);
-                    }
-                    let tokio_listener = rt
-                        .block_on(async move { TokioTcpListener::from_std(std_listener).unwrap() });
+            match unsafe { L::try_from_raw_fd(addr, raw_fd) } {
+                Ok(listener) => {
                     self.listen_fds.push(raw_fd.to_string());
-                    return Ok(UnifyListener::Tcp(tokio_listener));
+                    return Ok(listener);
                 }
-                UnifyAddr::Path(_) => {
-                    let std_listener = unsafe { StdUnixListener::from_raw_fd(raw_fd) };
-                    if let Err(e) = std_listener.set_nonblocking(true) {
-                        error!("cannot set non-blocking from unix fd {}", raw_fd);
-                        return Err(e);
-                    }
-                    let tokio_listener =
-                        rt.block_on(
-                            async move { TokioUnixListener::from_std(std_listener).unwrap() },
-                        );
-                    self.listen_fds.push(raw_fd.to_string());
-                    return Ok(UnifyListener::Unix(tokio_listener));
+                Err(e) => {
+                    error!(
+                        "graceful: cannot convert {} from_raw_fd {}: {}, fallback",
+                        type_name::<L>(),
+                        raw_fd,
+                        e
+                    );
                 }
             }
         } else {
-            let unify_listener =
-                rt.block_on(async move { UnifyListener::bind(unify_addr).await })?;
-            let raw_fd: RawFd;
-            match unify_listener {
-                UnifyListener::Tcp(ref tcp_listener) => {
-                    raw_fd = tcp_listener.as_raw_fd();
-                }
-                UnifyListener::Unix(ref unix_listener) => {
-                    raw_fd = unix_listener.as_raw_fd();
-                }
+            warn!("no recover_listen_fds found");
+        }
+        match L::bind(addr) {
+            Err(e) => {
+                error!("graceful: failed to listen {} {}", type_name::<L>(), addr);
+                return Err(e);
             }
-            unsafe {
-                libc::fcntl(raw_fd, libc::F_SETFD, 0);
+            Ok(listener) => {
+                let raw_fd: RawFd = listener.as_raw_fd();
+                // should clear the FD_CLOEXEC to avoid auto close when exec new program
+                unsafe {
+                    libc::fcntl(raw_fd, libc::F_SETFD, 0);
+                }
+                self.listen_fds.push(raw_fd.to_string());
+                return Ok(listener);
             }
-            self.listen_fds.push(raw_fd.to_string());
-            return Ok(unify_listener);
         }
     }
 
+    /// when `can_graceful_restart` == true, will perform graceful restart on signals received,
+    /// otherwise just perform graceful exit
     pub fn ready<F: FnOnce()>(
-        &mut self, exit_closure: F, can_graceful_restart: bool,
+        &mut self, exit_closure: F, restart_signal: Option<libc::c_int>,
     ) -> std::io::Result<()> {
         // write process_pid_file failed, process start failed and exit
-        write_pid_file(&self.run_dir, &self.prog_name)?;
+        write_pid_file(self.pid_file_path().as_ref())?;
         if self.recovered {
             // child creat parent_child_sync_file failed, child still continue run
-            let _ = write_child_pid_file(&self.run_dir, &self.prog_name);
+            let _ = self.write_child_pid_file();
         }
-        let mut signals = Signals::new(&[
-            signal_const::SIGHUP,
-            signal_const::SIGTERM,
-            signal_const::SIGINT,
-            signal_const::SIGQUIT,
-        ])
-        .unwrap();
+        let mut sigs = self.close_signals.clone();
+        if let Some(_signal) = restart_signal {
+            if !sigs.contains(&_signal) {
+                sigs.push(_signal);
+            }
+        }
+        let mut signals = Signals::new(&sigs).unwrap();
         for signal in signals.forever() {
-            if can_graceful_restart && signal == signal_const::SIGHUP {
-                // graceful restart
-                match self.restart() {
-                    Ok(_) => break,
-                    Err(_) => continue,
+            if let Some(_signal) = restart_signal {
+                if _signal == signal {
+                    // graceful restart
+                    match self.restart() {
+                        Ok(_) => break,
+                        Err(_) => continue,
+                    }
                 }
             }
             // graceful exit

@@ -1,8 +1,11 @@
+//! abstract the common interface for Tcp & Unix
+
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::str::FromStr;
 use std::{
     fmt, fs, io,
     net::{AddrParseError, IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
+    os::fd::{AsRawFd, FromRawFd, RawFd},
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     str,
@@ -46,6 +49,7 @@ impl std::fmt::Debug for UnifyAddr {
         }
     }
 }
+
 impl std::clone::Clone for UnifyAddr {
     #[inline]
     fn clone(&self) -> Self {
@@ -98,6 +102,20 @@ impl std::cmp::PartialEq<str> for UnifyAddr {
     }
 }
 
+impl<IO: AsyncIO> UnifyListener<IO> {
+    #[inline(always)]
+    fn from_unix(l: UnixListener) -> io::Result<Self> {
+        l.set_nonblocking(true)?;
+        return Ok(UnifyListener::Unix(IO::to_async_fd_rd(l)?));
+    }
+
+    #[inline(always)]
+    fn from_tcp(l: TcpListener) -> io::Result<Self> {
+        l.set_nonblocking(true)?;
+        return Ok(UnifyListener::Tcp(IO::to_async_fd_rd(l)?));
+    }
+}
+
 impl<IO: AsyncIO> AsyncListener for UnifyListener<IO> {
     type Conn = UnifyStream<IO>;
 
@@ -110,10 +128,7 @@ impl<IO: AsyncIO> AsyncListener for UnifyListener<IO> {
                 ));
             }
             Ok(UnifyAddr::Socket(_addr)) => match TcpListener::bind(_addr) {
-                Ok(l) => {
-                    l.set_nonblocking(true).expect("non_blocking");
-                    return Ok(UnifyListener::Tcp(IO::to_async_fd_rd(l)?));
-                }
+                Ok(l) => Self::from_tcp(l),
                 Err(e) => Err(e),
             },
             Ok(UnifyAddr::Path(ref path)) => {
@@ -127,6 +142,7 @@ impl<IO: AsyncIO> AsyncListener for UnifyListener<IO> {
                 }
                 match UnixListener::bind(&path_dup) {
                     Ok(l) => {
+                        // create a hard_link for the server to enable graceful restart
                         if let Err(e) = fs::hard_link(path_dup, &path) {
                             error!(
                                 "hard_link {:?}->{:?} error: {:?}",
@@ -142,8 +158,7 @@ impl<IO: AsyncIO> AsyncListener for UnifyListener<IO> {
                             error!("cannot get metadata of {:?}: {:?}", path.to_str(), e);
                             return Err(e);
                         }
-                        l.set_nonblocking(true).expect("non_blocking");
-                        return Ok(UnifyListener::Unix(IO::to_async_fd_rd(l)?));
+                        return Self::from_unix(l);
                     }
                     Err(e) => Err(e),
                 }
@@ -184,6 +199,44 @@ impl<IO: AsyncIO> AsyncListener for UnifyListener<IO> {
             }
         }
     }
+
+    /// Try to recover a listener from RawFd
+    ///
+    /// Will set listener to non_blocking to validate the fd
+    ///
+    /// # Arguments
+    ///
+    /// * addr: the addr is for determine address type
+    unsafe fn try_from_raw_fd(addr: &str, raw_fd: RawFd) -> io::Result<Self> {
+        match UnifyAddr::from_str(addr) {
+            Err(e) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("addr {:?} invalid: {:?}", addr, e),
+                ));
+            }
+            Ok(UnifyAddr::Socket(_)) => {
+                let l = unsafe { TcpListener::from_raw_fd(raw_fd) };
+                match Self::from_tcp(l) {
+                    Err(e) => {
+                        error!("cannot set non-blocking from tcp fd {}: {}", raw_fd, e);
+                        return Err(e);
+                    }
+                    Ok(l) => return Ok(l),
+                }
+            }
+            Ok(UnifyAddr::Path(_)) => {
+                let l = unsafe { UnixListener::from_raw_fd(raw_fd) };
+                match Self::from_unix(l) {
+                    Err(e) => {
+                        error!("cannot set non-blocking from unix fd {}: {}", raw_fd, e);
+                        return Err(e);
+                    }
+                    Ok(l) => return Ok(l),
+                }
+            }
+        }
+    }
 }
 
 impl<IO: AsyncIO> std::fmt::Debug for UnifyListener<IO> {
@@ -205,6 +258,15 @@ impl<IO: AsyncIO> std::fmt::Debug for UnifyListener<IO> {
                     return write!(f, "unix listener unknown");
                 }
             },
+        }
+    }
+}
+
+impl<IO: AsyncIO> AsRawFd for UnifyListener<IO> {
+    fn as_raw_fd(&self) -> RawFd {
+        match self {
+            Self::Tcp(l) => l.as_raw_fd(),
+            Self::Unix(l) => l.as_raw_fd(),
         }
     }
 }
