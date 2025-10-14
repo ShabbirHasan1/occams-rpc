@@ -1,0 +1,22 @@
+name: smol-x86
+
+on:
+  schedule: [cron: "10 */5 * * *"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_and_test:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: test all
+      run: make test -- "--features smol"
+
+    - name: test stream-test release
+      run: make bench-stream -- "--features smol"

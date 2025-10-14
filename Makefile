@@ -19,8 +19,6 @@ test: test-core test-codec test-stream-macros test-stream
 	@${RUNTESTCASE}; _run_test_case
 	@echo "Done"
 
-
-
 .PHONY: test-core
 test-core: init
 	cargo check -p occams-rpc-core
@@ -66,4 +64,3 @@ build: init
 # the : means do nothing
 %:
 	@:
-
