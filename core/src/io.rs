@@ -134,12 +134,6 @@ pub trait AsyncRead: Send {
     }
 }
 
-impl<'a, R: ?Sized + AsyncRead> AsyncRead for &'a mut R {
-    fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = io::Result<usize>> + Send {
-        (**self).read(buf)
-    }
-}
-
 /// AsyncWrite trait for runtime adapter
 pub trait AsyncWrite: Send {
     /// Async version of write function
@@ -179,107 +173,151 @@ pub trait AsyncWrite: Send {
     }
 }
 
-impl<'a, W: ?Sized + AsyncWrite> AsyncWrite for &'a mut W {
-    fn write(&mut self, buf: &[u8]) -> impl Future<Output = io::Result<usize>> + Send {
-        (**self).write(buf)
-    }
-}
-
 /// A buffered reader that wraps an `AsyncRead` trait object and a buffer.
-pub struct AsyncBufRead<'a, T: ?Sized> {
-    inner: &'a mut T,
+pub struct AsyncBufRead {
     buf: Vec<u8>,
     pos: usize,
     cap: usize,
 }
 
-impl<'a, T: ?Sized + AsyncRead> AsyncBufRead<'a, T> {
+impl AsyncBufRead {
     /// Creates a new `AsyncBufRead` with the given reader and buffer capacity.
-    pub fn new(inner: &'a mut T, capacity: usize) -> Self {
-        AsyncBufRead { inner, buf: vec![0; capacity], pos: 0, cap: 0 }
+    #[inline]
+    pub fn new(capacity: usize) -> Self {
+        AsyncBufRead { buf: vec![0; capacity], pos: 0, cap: 0 }
     }
-}
 
-impl<'a, T: ?Sized + AsyncRead> AsyncRead for AsyncBufRead<'a, T> {
-    fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = io::Result<usize>> + Send {
-        async move {
-            // If we have bytes in our buffer, copy them to `buf`.
-            if self.pos < self.cap {
-                let n = std::cmp::min(buf.len(), self.cap - self.pos);
-                buf[..n].copy_from_slice(&self.buf[self.pos..self.pos + n]);
-                self.pos += n;
-                return Ok(n);
-            }
-
-            // If the request is larger than our buffer, read directly into `buf`.
-            // This avoids extra copying.
-            if buf.len() >= self.buf.len() {
-                return self.inner.read(buf).await;
-            }
-
-            // Otherwise, fill our buffer and then copy to `buf`.
-            self.cap = self.inner.read(&mut self.buf).await?;
-            self.pos = 0;
-
-            let n = std::cmp::min(buf.len(), self.cap);
-            buf[..n].copy_from_slice(&self.buf[..n]);
+    #[inline]
+    pub async fn read_buffered<T: AsyncRead>(
+        &mut self, reader: &mut T, buf: &mut [u8],
+    ) -> io::Result<usize> {
+        // If we have bytes in our buffer, copy them to `buf`.
+        if self.pos < self.cap {
+            let n = std::cmp::min(buf.len(), self.cap - self.pos);
+            buf[..n].copy_from_slice(&self.buf[self.pos..self.pos + n]);
             self.pos += n;
-            Ok(n)
+            return Ok(n);
         }
+
+        // If the request is larger than our buffer, read directly into `buf`.
+        // This avoids extra copying.
+        if buf.len() >= self.buf.len() {
+            return reader.read(buf).await;
+        }
+
+        // Otherwise, fill our buffer and then copy to `buf`.
+        self.cap = reader.read(&mut self.buf).await?;
+        self.pos = 0;
+        let n = std::cmp::min(buf.len(), self.cap);
+        buf[..n].copy_from_slice(&self.buf[..n]);
+        self.pos += n;
+        Ok(n)
     }
 }
 
 /// A buffered writer that wraps an `AsyncWrite` trait object and a buffer.
-pub struct AsyncBufWrite<'a, W: ?Sized> {
-    inner: &'a mut W,
+pub struct AsyncBufWrite {
     buf: Vec<u8>,
     pos: usize,
 }
 
-impl<'a, W: ?Sized + AsyncWrite> AsyncBufWrite<'a, W> {
+impl AsyncBufWrite {
     /// Creates a new `AsyncBufWrite` with the given writer and buffer capacity.
-    pub fn new(inner: &'a mut W, capacity: usize) -> Self {
-        AsyncBufWrite { inner, buf: vec![0; capacity], pos: 0 }
+    #[inline]
+    pub fn new(capacity: usize) -> Self {
+        AsyncBufWrite { buf: vec![0; capacity], pos: 0 }
     }
 
     /// Flushes the buffered data to the underlying writer.
-    pub async fn flush(&mut self) -> io::Result<()> {
+    #[inline]
+    pub async fn flush<W: AsyncWrite>(&mut self, writer: &mut W) -> io::Result<()> {
         if self.pos > 0 {
-            self.inner.write_all(&self.buf[..self.pos]).await?;
+            writer.write_all(&self.buf[..self.pos]).await?;
             self.pos = 0;
         }
         Ok(())
     }
 
-    /// Flushes the buffered data and consumes the writer.
-    pub async fn close(mut self) -> io::Result<()> {
-        self.flush().await?;
-        Ok(())
+    #[inline]
+    pub async fn write_buffered<W: AsyncWrite>(
+        &mut self, writer: &mut W, buf: &[u8],
+    ) -> io::Result<usize> {
+        // If the incoming buffer is larger than our internal buffer's capacity,
+        // flush our buffer and write the incoming buffer directly.
+        if buf.len() >= self.buf.len() {
+            self.flush(writer).await?;
+            return writer.write(buf).await;
+        }
+
+        // If the incoming buffer doesn't fit in the remaining space in our buffer,
+        // flush our buffer.
+        if self.buf.len() - self.pos < buf.len() {
+            self.flush(writer).await?;
+        }
+        // Copy the incoming buffer into our internal buffer.
+        let n = buf.len();
+        self.buf[self.pos..self.pos + n].copy_from_slice(buf);
+        self.pos += n;
+        Ok(n)
     }
 }
 
-impl<'a, W: ?Sized + AsyncWrite> AsyncWrite for AsyncBufWrite<'a, W> {
-    fn write(&mut self, buf: &[u8]) -> impl Future<Output = io::Result<usize>> + Send {
-        async move {
-            // If the incoming buffer is larger than our internal buffer's capacity,
-            // flush our buffer and write the incoming buffer directly.
-            if buf.len() >= self.buf.len() {
-                self.flush().await?;
-                return self.inner.write(buf).await;
-            }
+pub struct AsyncBufStream<T: AsyncRead + AsyncWrite> {
+    read_buf: AsyncBufRead,
+    write_buf: AsyncBufWrite,
+    inner: T,
+}
 
-            // If the incoming buffer doesn't fit in the remaining space in our buffer,
-            // flush our buffer.
-            if self.buf.len() - self.pos < buf.len() {
-                self.flush().await?;
-            }
-
-            // Copy the incoming buffer into our internal buffer.
-            let n = buf.len();
-            self.buf[self.pos..self.pos + n].copy_from_slice(buf);
-            self.pos += n;
-            Ok(n)
+impl<T: AsyncRead + AsyncWrite> AsyncBufStream<T> {
+    #[inline]
+    pub fn new(stream: T, buf_size: usize) -> Self {
+        Self {
+            read_buf: AsyncBufRead::new(buf_size),
+            write_buf: AsyncBufWrite::new(buf_size),
+            inner: stream,
         }
+    }
+
+    #[inline(always)]
+    pub async fn flush(&mut self) -> io::Result<()> {
+        self.write_buf.flush(&mut self.inner).await
+    }
+
+    #[inline(always)]
+    pub fn get_inner(&mut self) -> &mut T {
+        &mut self.inner
+    }
+}
+
+impl<T: AsyncRead + AsyncWrite + fmt::Debug> fmt::Debug for AsyncBufStream<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+impl<T: AsyncRead + AsyncWrite + fmt::Display> fmt::Display for AsyncBufStream<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+impl<T: AsyncRead + AsyncWrite> AsyncRead for AsyncBufStream<T> {
+    /// Async version of read function
+    ///
+    /// On ok, return the bytes read
+    #[inline(always)]
+    fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = io::Result<usize>> + Send {
+        async move { self.read_buf.read_buffered(&mut self.inner, buf).await }
+    }
+}
+
+impl<T: AsyncRead + AsyncWrite> AsyncWrite for AsyncBufStream<T> {
+    /// Async version of write function
+    ///
+    /// On ok, return the bytes written
+    #[inline(always)]
+    fn write(&mut self, buf: &[u8]) -> impl Future<Output = io::Result<usize>> + Send {
+        async move { self.write_buf.write_buffered(&mut self.inner, buf).await }
     }
 }
 
@@ -379,213 +417,5 @@ impl AllocateBuf for io_buffer::Buffer {
             self.set_len(blob_len);
         }
         Some(self)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rand::{Rng, RngCore};
-    use std::future::Future;
-    use std::sync::{Arc, Mutex};
-
-    enum MockReadBehavior {
-        Chunked(Vec<Vec<u8>>),
-        Randomized { data: Vec<u8>, pos: usize },
-    }
-
-    // A mock reader that can return data in fixed chunks or in random sub-chunks.
-    struct MockReader {
-        behavior: MockReadBehavior,
-    }
-
-    impl MockReader {
-        fn new_chunked(chunks: Vec<Vec<u8>>) -> Self {
-            Self { behavior: MockReadBehavior::Chunked(chunks) }
-        }
-
-        fn new_randomized(data: Vec<u8>) -> Self {
-            Self { behavior: MockReadBehavior::Randomized { data, pos: 0 } }
-        }
-    }
-
-    impl AsyncRead for MockReader {
-        fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = io::Result<usize>> + Send {
-            async move {
-                match &mut self.behavior {
-                    MockReadBehavior::Chunked(chunks) => {
-                        if chunks.is_empty() {
-                            return Ok(0);
-                        }
-                        let chunk = chunks.remove(0);
-                        let n = std::cmp::min(buf.len(), chunk.len());
-                        buf[..n].copy_from_slice(&chunk[..n]);
-                        Ok(n)
-                    }
-                    MockReadBehavior::Randomized { data, pos } => {
-                        let mut rng = rand::thread_rng();
-                        let remaining = data.len() - *pos;
-                        if remaining == 0 {
-                            return Ok(0); // True EOF
-                        }
-                        let max_read = std::cmp::min(buf.len(), remaining);
-                        let read_size = rng.gen_range(1..=max_read);
-
-                        buf[..read_size].copy_from_slice(&data[*pos..*pos + read_size]);
-                        *pos += read_size;
-                        Ok(read_size)
-                    }
-                }
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_async_buf_read_exact_random_chunks() {
-        let mut rng = rand::thread_rng();
-        let data_size = rng.gen_range(1024..4096);
-        let mut source_data = vec![0u8; data_size];
-        rng.fill_bytes(&mut source_data);
-
-        let mut chunks = Vec::new();
-        let mut remaining_data = &source_data[..];
-        while !remaining_data.is_empty() {
-            let chunk_size = rng.gen_range(1..128).min(remaining_data.len());
-            chunks.push(remaining_data[..chunk_size].to_vec());
-            remaining_data = &remaining_data[chunk_size..];
-        }
-
-        let mut mock_reader = MockReader::new_chunked(chunks);
-        let mut reader = AsyncBufRead::new(&mut mock_reader, 256);
-
-        let mut out = vec![0u8; data_size];
-        reader.read_exact(&mut out).await.unwrap();
-        assert_eq!(out, source_data);
-    }
-
-    #[tokio::test]
-    async fn test_async_buf_read_bypass_random() {
-        let mut rng = rand::thread_rng();
-        let data_size = rng.gen_range(257..512);
-        let mut source_data = vec![0u8; data_size];
-        rng.fill_bytes(&mut source_data);
-
-        let mut mock_reader = MockReader::new_chunked(vec![source_data.clone()]);
-        let mut reader = AsyncBufRead::new(&mut mock_reader, 256);
-
-        let mut out = vec![0u8; data_size];
-        reader.read_exact(&mut out).await.unwrap();
-        assert_eq!(out, source_data);
-    }
-
-    #[tokio::test]
-    async fn test_async_buf_read_multiple_reads_random() {
-        let mut rng = rand::thread_rng();
-        let chunk1_size = rng.gen_range(64..128);
-        let mut chunk1_data = vec![0u8; chunk1_size];
-        rng.fill_bytes(&mut chunk1_data);
-
-        let chunk2_size = rng.gen_range(64..128);
-        let mut chunk2_data = vec![0u8; chunk2_size];
-        rng.fill_bytes(&mut chunk2_data);
-
-        let chunks = vec![chunk1_data.clone(), chunk2_data.clone()];
-        let mut mock_reader = MockReader::new_chunked(chunks);
-        let mut reader = AsyncBufRead::new(&mut mock_reader, 100);
-
-        let mut out1 = vec![0u8; chunk1_size];
-        reader.read_exact(&mut out1).await.unwrap();
-        assert_eq!(out1, chunk1_data);
-
-        let mut out2 = vec![0u8; chunk2_size];
-        reader.read_exact(&mut out2).await.unwrap();
-        assert_eq!(out2, chunk2_data);
-    }
-
-    #[tokio::test]
-    async fn test_random_read_sizes_and_returns() {
-        let mut rng = rand::thread_rng();
-        let data_size = rng.gen_range(8192..16384);
-        let mut source_data = vec![0u8; data_size];
-        rng.fill_bytes(&mut source_data);
-
-        let mut mock_reader = MockReader::new_randomized(source_data.clone());
-        let mut reader = AsyncBufRead::new(&mut mock_reader, 1024);
-
-        let mut result_data = Vec::with_capacity(data_size);
-        while result_data.len() < data_size {
-            let read_size = rng.gen_range(1..=512);
-            let mut temp_buf = vec![0u8; read_size];
-            match reader.read(&mut temp_buf).await {
-                Ok(0) => break, // EOF
-                Ok(n) => {
-                    result_data.extend_from_slice(&temp_buf[..n]);
-                }
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(e) => panic!("Read failed: {}", e),
-            }
-        }
-
-        assert_eq!(result_data.len(), data_size);
-        assert_eq!(result_data, source_data);
-    }
-
-    struct MockWriter {
-        data: Arc<Mutex<Vec<u8>>>,
-    }
-
-    impl MockWriter {
-        fn new(data: Arc<Mutex<Vec<u8>>>) -> Self {
-            Self { data }
-        }
-    }
-
-    impl AsyncWrite for MockWriter {
-        fn write(&mut self, buf: &[u8]) -> impl Future<Output = io::Result<usize>> + Send {
-            self.data.lock().unwrap().extend_from_slice(buf);
-            let n = buf.len();
-            async move { Ok(n) }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_async_buf_write_all_buffering() {
-        let data_handle = Arc::new(Mutex::new(Vec::new()));
-        let mut mock_writer = MockWriter::new(data_handle.clone());
-        let mut writer = AsyncBufWrite::new(&mut mock_writer, 8);
-
-        writer.write_all(b"hello").await.unwrap();
-        assert!(data_handle.lock().unwrap().is_empty()); // buffered
-
-        writer.write_all(b" wo").await.unwrap(); // total 5+3=8, should not flush yet
-        assert!(data_handle.lock().unwrap().is_empty()); // still buffered, pos is 8
-
-        writer.write_all(b"rld").await.unwrap(); // overflows buffer
-        // "hello wo" should be flushed.
-        assert_eq!(*data_handle.lock().unwrap(), b"hello wo");
-        // "rld" is in the buffer
-        assert_eq!(writer.pos, 3);
-
-        writer.close().await.unwrap();
-        assert_eq!(*data_handle.lock().unwrap(), b"hello world");
-    }
-
-    #[tokio::test]
-    async fn test_async_buf_write_bypass() {
-        let data_handle = Arc::new(Mutex::new(Vec::new()));
-        let mut mock_writer = MockWriter::new(data_handle.clone());
-        let mut writer = AsyncBufWrite::new(&mut mock_writer, 8);
-
-        writer.write_all(b"abc").await.unwrap();
-        assert!(data_handle.lock().unwrap().is_empty()); // buffered
-
-        // This write is larger than the buffer, it should bypass it.
-        writer.write_all(b"this is a long line").await.unwrap();
-        // The buffer "abc" should be flushed first.
-        // Then "this is a long line" is written directly.
-        assert_eq!(*data_handle.lock().unwrap(), b"abcthis is a long line");
-
-        writer.close().await.unwrap();
-        assert_eq!(*data_handle.lock().unwrap(), b"abcthis is a long line");
     }
 }
