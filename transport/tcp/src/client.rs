@@ -2,7 +2,7 @@ use crate::net::{UnifyAddr, UnifyStream};
 use bytes::BytesMut;
 use crossfire::MAsyncRx;
 use io_buffer::Buffer;
-use occams_rpc_core::io::{AsyncRead, AsyncWrite, Cancellable, io_with_timeout};
+use occams_rpc_core::io::{AsyncBufStream, AsyncRead, AsyncWrite, Cancellable, io_with_timeout};
 use occams_rpc_core::runtime::AsyncIO;
 use occams_rpc_core::{ClientConfig, error::*};
 use occams_rpc_stream::client::{ClientFactory, ClientTaskDecode, ClientTaskDone, ClientTransport};
@@ -15,7 +15,7 @@ use std::time::Duration;
 use std::{fmt, io};
 
 pub struct TcpClient<F: ClientFactory> {
-    stream: UnsafeCell<UnifyStream<F::IO>>,
+    stream: UnsafeCell<AsyncBufStream<UnifyStream<F::IO>>>,
     resp_buf: UnsafeCell<BytesMut>,
     logger: F::Logger,
     server_id: u64,
@@ -37,7 +37,7 @@ impl<F: ClientFactory> TcpClient<F> {
     // Because async runtimes does not support splitting read and write to static handler,
     // we use unsafe to achieve such goal,
     #[inline(always)]
-    fn get_stream_mut(&self) -> &mut UnifyStream<F::IO> {
+    fn get_stream_mut(&self) -> &mut AsyncBufStream<UnifyStream<F::IO>> {
         unsafe { std::mem::transmute(self.stream.get()) }
     }
 
@@ -229,7 +229,7 @@ impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
             }
         };
         Ok(Self {
-            stream: UnsafeCell::new(stream),
+            stream: UnsafeCell::new(AsyncBufStream::new(stream, 4096)),
             resp_buf: UnsafeCell::new(BytesMut::with_capacity(512)),
             server_id,
             client_id,
@@ -246,21 +246,22 @@ impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
 
     #[inline(always)]
     async fn close_conn(&self) {
-        let stream = self.get_stream_mut();
-        // stream close is just shutdown on sending, receiver might not be notified on peer dead
-        let _ = stream.shutdown_write().await;
+        if self.flush_req().await.is_ok() {
+            // stream close is just shutdown on sending, receiver might not be notified on peer dead
+            let stream = self.get_stream_mut();
+            let _ = stream.get_inner().shutdown_write().await;
+        }
     }
 
     #[inline(always)]
-    async fn flush_req(&self) -> Result<(), RpcError> {
-        return Ok(());
-        //        let writer = self.get_stream_mut();
-        //        let r = writer.flush_timeout(self.write_timeout).await;
-        //        if r.is_err() {
-        //            logger_warn!(self.logger, "{:?} flush_req flush err: {:?}", self, r);
-        //            return Err(RPC_ERR_COMM);
-        //        }
-        //        Ok(())
+    async fn flush_req(&self) -> io::Result<()> {
+        let writer = self.get_stream_mut();
+        if let Err(e) = io_with_timeout!(F::IO, self.write_timeout, writer.flush()) {
+            logger_warn!(self.logger, "{:?} flush_req flush err: {}", self, e);
+            return Err(e);
+        }
+        logger_trace!(self.logger, "{:?}: flush_req ok", self);
+        Ok(())
     }
 
     #[inline(always)]
@@ -271,23 +272,31 @@ impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
         let writer = self.get_stream_mut();
         let mut data_len = header.len();
         let write_timeout = self.write_timeout;
+
+        macro_rules! err_log {
+            ($r: expr) => {{
+                if let Err(e) = $r {
+                    logger_warn!(self.logger, "{:?} write_req err: {}", self, e);
+                    return Err(e);
+                }
+            }};
+        }
         io_with_timeout!(F::IO, write_timeout, writer.write_all(header))?;
         if let Some(action_s) = action_str {
             data_len += action_s.len();
-            io_with_timeout!(F::IO, write_timeout, writer.write_all(action_s))?;
+            err_log!(io_with_timeout!(F::IO, write_timeout, writer.write_all(action_s)));
         }
         if msg_buf.len() > 0 {
             data_len += msg_buf.len();
-            io_with_timeout!(F::IO, write_timeout, writer.write_all(msg_buf))?;
+            err_log!(io_with_timeout!(F::IO, write_timeout, writer.write_all(msg_buf)));
         }
         if let Some(blob_buf) = blob {
             data_len += blob_buf.len();
-            io_with_timeout!(F::IO, write_timeout, writer.write_all(blob_buf))?;
+            err_log!(io_with_timeout!(F::IO, write_timeout, writer.write_all(blob_buf)));
         }
-        // TODO change to buffer writer
-        //if need_flush || data_len >= 32 * 1024 {
-        //    writer.flush_timeout(self.write_timeout).await?;
-        //}
+        if need_flush || data_len >= 32 * 1024 {
+            self.flush_req().await?;
+        }
         return Ok(());
     }
 

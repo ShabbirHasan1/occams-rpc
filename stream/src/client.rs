@@ -90,7 +90,7 @@ pub trait ClientTransport<F: ClientFactory>: fmt::Debug + Send + Sized + 'static
     fn close_conn(&self) -> impl Future<Output = ()> + Send;
 
     /// Flush the request for the socket writer, if the transport has buffering logic
-    fn flush_req(&self) -> impl Future<Output = Result<(), RpcError>>;
+    fn flush_req(&self) -> impl Future<Output = io::Result<()>>;
 
     /// Write out the encoded request task
     fn write_req<'a>(

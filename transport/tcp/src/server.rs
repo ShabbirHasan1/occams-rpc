@@ -1,4 +1,4 @@
-use occams_rpc_core::io::{AsyncRead, AsyncWrite, Cancellable, io_with_timeout};
+use occams_rpc_core::io::{AsyncBufStream, AsyncRead, AsyncWrite, Cancellable, io_with_timeout};
 use occams_rpc_core::runtime::AsyncIO;
 use occams_rpc_core::{ServerConfig, error::*};
 use occams_rpc_stream::server::{RpcSvrReq, ServerFactory, ServerTransport};
@@ -14,7 +14,7 @@ use std::{fmt, io};
 use zerocopy::AsBytes;
 
 pub struct TcpServer<F: ServerFactory> {
-    stream: UnsafeCell<UnifyStream<F::IO>>,
+    stream: UnsafeCell<AsyncBufStream<UnifyStream<F::IO>>>,
     _conn_count: Arc<()>,
     config: ServerConfig,
     action_buf: UnsafeCell<BytesMut>,
@@ -30,7 +30,7 @@ impl<F: ServerFactory> TcpServer<F> {
     // Because async runtimes does not support splitting read and write to static handler,
     // we use unsafe to achieve such goal,
     #[inline(always)]
-    fn get_stream_mut(&self) -> &mut UnifyStream<F::IO> {
+    fn get_stream_mut(&self) -> &mut AsyncBufStream<UnifyStream<F::IO>> {
         unsafe { std::mem::transmute(self.stream.get()) }
     }
 
@@ -58,7 +58,7 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
         let config = factory.get_config();
         let logger = factory.new_logger();
         Self {
-            stream: UnsafeCell::new(stream),
+            stream: UnsafeCell::new(AsyncBufStream::new(stream, 4096)),
             config: config.clone(),
             action_buf: UnsafeCell::new(BytesMut::with_capacity(128)),
             msg_buf: UnsafeCell::new(BytesMut::with_capacity(512)),
@@ -234,19 +234,20 @@ impl<F: ServerFactory> ServerTransport<F> for TcpServer<F> {
 
     #[inline(always)]
     async fn flush_resp(&self) -> io::Result<()> {
-        //let writer = self.get_stream_mut();
-        //let r = writer.flush_timeout(write_timeout).await;
-        //if r.is_err() {
-        //    logger_debug!(inner.logger, "{}: flush err: {:?}", self, r);
-        //    return Err(RPC_ERR_COMM);
-        //}
-        //logger_trace!(inner.logger, "{}: send_resp flushed", self);
+        let writer = self.get_stream_mut();
+        if let Err(e) = io_with_timeout!(F::IO, self.config.write_timeout, writer.flush()) {
+            logger_warn!(self.logger, "{:?}: flush err: {}", self, e);
+            return Err(e);
+        }
+        logger_trace!(self.logger, "{:?}: flush_resp ok", self);
         return Ok(());
     }
 
     #[inline]
     async fn close_conn(&self) {
-        let writer = self.get_stream_mut();
-        let _ = writer.shutdown_write().await;
+        if self.flush_resp().await.is_ok() {
+            let writer = self.get_stream_mut();
+            let _ = writer.get_inner().shutdown_write().await;
+        }
     }
 }

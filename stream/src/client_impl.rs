@@ -301,7 +301,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
             self.has_err.store(true, Ordering::SeqCst);
             let timer = self.get_timer_mut();
             timer.stop_reg_task();
-            return Err(e);
+            return Err(RPC_ERR_COMM);
         }
         Ok(())
     }
