@@ -9,7 +9,7 @@ documentation = "https://docs.rs/occams-rpc"
 keywords = ["networking", "rpc"]
 license = "MIT"
 description = """
-The streaming interface of occams-rpc.
+The TCP/unix transport layer of occams-rpc.
 occams-rpc is a modular, plugable RPC for high throughput scenario, supports various runtime,
 with a low-level streaming interface, and high-level remote API call interface.
 """
