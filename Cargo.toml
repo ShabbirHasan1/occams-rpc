@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "codec", "runtime/tokio", "runtime/smol", "stream", "stream/macros", "transport/tcp", "transport/rdma", "transport/quic", "stream/test", ]
+members = ["core", "codec", "macros", "runtime/tokio", "runtime/smol", "stream", "stream/macros", "transport/tcp", "transport/rdma", "transport/quic", "stream/test", ]
 
 [package]
 name = "occams-rpc"
@@ -20,6 +20,15 @@ with a low-level streaming interface, and high-level remote API call interface.
 [dependencies]
 log = { version = "0.4", features = ["std", "kv_unstable"] }
 captains-log = ">=0.15"
+io-buffer = "1"
+serde = "1"
+occams-rpc-core = {path="core/", version="0"}
+occams-rpc-codec = {path="codec/", version="0"}
+occams-rpc-stream = {path="stream/", version="0"}
+occams-rpc-api-macros = { path = "macros", version = "0" }
+async-trait = "0"
+rustc-hash = "2"
+crossfire = "2.1"
 
 [features]
 default = []
