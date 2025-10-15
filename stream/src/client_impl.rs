@@ -48,7 +48,7 @@ impl<F: ClientFactory> RpcClient<F> {
     #[inline]
     pub fn connect(
         factory: Arc<F>, addr: &str, server_id: u64, last_resp_ts: Option<Arc<AtomicU64>>,
-    ) -> impl Future<Output = Result<Self, RpcError>> + Send {
+    ) -> impl Future<Output = Result<Self, RpcIntErr>> + Send {
         async move {
             let client_id = factory.get_client_id();
             let logger = factory.new_logger(client_id, server_id);
@@ -93,7 +93,7 @@ impl<F: ClientFactory> RpcClient<F> {
 
     /// Should be call in sender thread
     #[inline(always)]
-    pub async fn ping(&self) -> Result<(), RpcError> {
+    pub async fn ping(&self) -> Result<(), RpcIntErr> {
         self.inner.send_ping_req().await
     }
 
@@ -127,14 +127,14 @@ impl<F: ClientFactory> RpcClient<F> {
     /// Since the transport layer might have buffer, user should always call flush explicitly.
     /// You can set `need_flush` = true for some urgent messages, or call flush_req() explicitly.
     #[inline(always)]
-    pub async fn send_task(&self, task: F::Task, need_flush: bool) -> Result<(), RpcError> {
+    pub async fn send_task(&self, task: F::Task, need_flush: bool) -> Result<(), RpcIntErr> {
         self.inner.send_task(task, need_flush).await
     }
 
     /// Since the transport layer might have buffer, user should always call flush explicitly.
     /// you can set `need_flush` = true for some urgent message, or call flush_req() explicitly.
     #[inline(always)]
-    pub async fn flush_req(&self) -> Result<(), RpcError> {
+    pub async fn flush_req(&self) -> Result<(), RpcIntErr> {
         self.inner.flush_req().await
     }
 
@@ -254,7 +254,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
     //    }
 
     /// Directly work on the socket steam, when failed
-    async fn send_task(&self, mut task: F::Task, need_flush: bool) -> Result<(), RpcError> {
+    async fn send_task(&self, mut task: F::Task, need_flush: bool) -> Result<(), RpcIntErr> {
         let timer = self.get_timer_mut();
         timer.pending_task_count_ref().fetch_add(1, Ordering::SeqCst);
         if self.closed.load(Ordering::Acquire) {
@@ -263,22 +263,25 @@ impl<F: ClientFactory> RpcClientInner<F> {
                 "{:?} sending task {:?} failed: {}",
                 self,
                 task,
-                RPC_ERR_CLOSED,
+                RpcIntErr::IO,
             );
-            self.factory.error_handle(task, RPC_ERR_CLOSED);
+            task.set_rpc_error(RpcIntErr::IO);
+            self.factory.error_handle(task);
             timer.pending_task_count_ref().fetch_sub(1, Ordering::SeqCst); // rollback
-            return Err(RPC_ERR_COMM);
+            return Err(RpcIntErr::IO);
         }
 
         match self.send_request(&mut task, need_flush).await {
             Err(e) => {
                 logger_warn!(self.logger(), "{:?} sending task {:?} err: {}", self, task, e);
-                timer.pending_task_count_ref().fetch_sub(1, Ordering::SeqCst); // rollback
-                self.factory.error_handle(task, e.clone());
+                // rollback counter
+                timer.pending_task_count_ref().fetch_sub(1, Ordering::SeqCst);
+                task.set_rpc_error(e);
+                self.factory.error_handle(task);
                 self.closed.store(true, Ordering::SeqCst);
                 self.has_err.store(true, Ordering::SeqCst);
                 timer.stop_reg_task();
-                return Err(e);
+                return Err(RpcIntErr::IO);
             }
             Ok(_) => {
                 logger_trace!(self.logger(), "{:?} send task {:?} ok", self, task);
@@ -294,26 +297,26 @@ impl<F: ClientFactory> RpcClientInner<F> {
     }
 
     #[inline(always)]
-    async fn flush_req(&self) -> Result<(), RpcError> {
+    async fn flush_req(&self) -> Result<(), RpcIntErr> {
         if let Err(e) = self.conn.flush_req().await {
             logger_warn!(self.logger(), "{:?} flush_req flush err: {}", self, e);
             self.closed.store(true, Ordering::SeqCst);
             self.has_err.store(true, Ordering::SeqCst);
             let timer = self.get_timer_mut();
             timer.stop_reg_task();
-            return Err(RPC_ERR_COMM);
+            return Err(RpcIntErr::IO);
         }
         Ok(())
     }
 
     #[inline(always)]
-    async fn send_request(&self, task: &mut F::Task, need_flush: bool) -> Result<(), RpcError> {
+    async fn send_request(&self, task: &mut F::Task, need_flush: bool) -> Result<(), RpcIntErr> {
         let seq = self.seq_update();
         task.set_seq(seq);
         match proto::ReqHead::encode(&self.codec, self.client_id, task) {
             Err(_) => {
                 logger_warn!(self.logger(), "{:?} send_req encode req {:?} err", self, task);
-                return Err(RPC_ERR_ENCODE);
+                return Err(RpcIntErr::Encode);
             }
             Ok((header, action_str, msg_buf, blob_buf)) => {
                 let header_bytes = header.as_bytes();
@@ -334,7 +337,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
                     let timer = self.get_timer_mut();
                     // TODO check stop_reg_task
                     timer.stop_reg_task();
-                    return Err(RPC_ERR_COMM);
+                    return Err(RpcIntErr::IO);
                 }
                 return Ok(());
             }
@@ -342,10 +345,10 @@ impl<F: ClientFactory> RpcClientInner<F> {
     }
 
     #[inline(always)]
-    async fn send_ping_req(&self) -> Result<(), RpcError> {
+    async fn send_ping_req(&self) -> Result<(), RpcIntErr> {
         if self.closed.load(Ordering::Acquire) {
             logger_warn!(self.logger(), "{:?} send_ping_req skip as conn closed", self);
-            return Err(RPC_ERR_CLOSED);
+            return Err(RpcIntErr::IO);
         }
         // encode response header
         let header = proto::ReqHead {
@@ -363,13 +366,13 @@ impl<F: ClientFactory> RpcClientInner<F> {
         if let Err(e) = self.conn.write_req(true, header.as_bytes(), None, b"", None).await {
             logger_warn!(self.logger(), "{:?} send ping err: {:?}", self, e);
             self.closed.store(true, Ordering::SeqCst);
-            return Err(RPC_ERR_COMM);
+            return Err(RpcIntErr::IO);
         }
         Ok(())
     }
 
     // return Ok(false) when close_rx has close and nothing more pending resp to receive
-    async fn recv_some(&self) -> Result<(), RpcError> {
+    async fn recv_some(&self) -> Result<(), RpcIntErr> {
         for _ in 0i32..20 {
             // Underlayer rpc socket is buffered, might not yeal to runtime
             // return if recv_one_resp runs too long, allow timer to be fire at each second
@@ -387,7 +390,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
         Ok(())
     }
 
-    async fn recv_one_resp(&self) -> Result<(), RpcError> {
+    async fn recv_one_resp(&self) -> Result<(), RpcIntErr> {
         let timer = self.get_timer_mut();
         loop {
             if self.closed.load(Ordering::Acquire) {
@@ -398,21 +401,30 @@ impl<F: ClientFactory> RpcClientInner<F> {
                 );
                 // ensure task receive on normal exit
                 if timer.check_pending_tasks_empty() || self.has_err.load(Ordering::Relaxed) {
-                    return Err(RPC_ERR_CLOSED);
+                    return Err(RpcIntErr::IO);
                 }
-                if let Err(e) = self.conn.read_resp(&self.factory, &self.codec, None, timer).await {
+                if let Err(_e) = self.conn.read_resp(&self.factory, &self.codec, None, timer).await
+                {
                     self.closed.store(true, Ordering::SeqCst);
-                    return Err(e);
+                    return Err(RpcIntErr::IO);
                 }
             } else {
                 // Block here for new header without timeout
-                if !self
+                match self
                     .conn
                     .read_resp(&self.factory, &self.codec, Some(&self.close_rx), timer)
-                    .await?
+                    .await
                 {
-                    self.closed.store(true, Ordering::SeqCst);
-                    continue;
+                    Err(_e) => {
+                        return Err(RpcIntErr::IO);
+                    }
+                    Ok(r) => {
+                        // TODO FIXME
+                        if !r {
+                            self.closed.store(true, Ordering::SeqCst);
+                            continue;
+                        }
+                    }
                 }
             }
         }
@@ -476,7 +488,7 @@ impl<F: ClientFactory> Drop for RpcClientInner<F> {
 struct ReceiverTimerFuture<'a, F, P>
 where
     F: ClientFactory,
-    P: Future<Output = Result<(), RpcError>> + Unpin,
+    P: Future<Output = Result<(), RpcIntErr>> + Unpin,
 {
     client: &'a RpcClientInner<F>,
     inv: Pin<&'a mut <F::IO as AsyncIO>::Interval>,
@@ -486,7 +498,7 @@ where
 impl<'a, F, P> ReceiverTimerFuture<'a, F, P>
 where
     F: ClientFactory,
-    P: Future<Output = Result<(), RpcError>> + Unpin,
+    P: Future<Output = Result<(), RpcIntErr>> + Unpin,
 {
     fn new(
         client: &'a RpcClientInner<F>, inv: &'a mut <F::IO as AsyncIO>::Interval,
@@ -502,9 +514,9 @@ where
 impl<'a, F, P> Future for ReceiverTimerFuture<'a, F, P>
 where
     F: ClientFactory,
-    P: Future<Output = Result<(), RpcError>> + Unpin,
+    P: Future<Output = Result<(), RpcIntErr>> + Unpin,
 {
-    type Output = Result<(), RpcError>;
+    type Output = Result<(), RpcIntErr>;
 
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         let mut _self = self.get_mut();
@@ -516,7 +528,7 @@ where
         if _self.client.has_err.load(Ordering::Relaxed) {
             // When sentinel detect peer unreachable, recv_some mighe blocked, at least inv will
             // wait us, just exit
-            return Poll::Ready(Err(RPC_ERR_CLOSED));
+            return Poll::Ready(Err(RpcIntErr::IO));
         }
         _self.client.get_timer_mut().poll_sent_task(ctx);
         // Even if receive future has block, we should poll_sent_task in order to detect timeout event
