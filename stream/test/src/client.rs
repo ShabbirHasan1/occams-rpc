@@ -1,8 +1,10 @@
 use crossfire::*;
+use nix::errno::Errno;
 use occams_rpc_codec::MsgpCodec;
+use occams_rpc_core::error::RpcError;
 use occams_rpc_stream::client::*;
 use occams_rpc_stream::client_impl::*;
-use occams_rpc_stream::{error::RpcError, macros::*};
+use occams_rpc_stream::{error::RpcIntErr, macros::*};
 
 use captains_log::filter::LogFilter;
 use io_buffer::Buffer;
@@ -22,7 +24,7 @@ impl FileClient {
 
 pub async fn init_client(
     config: ClientConfig, addr: &str, last_resp_ts: Option<Arc<AtomicU64>>,
-) -> Result<RpcClient<FileClient>, RpcError> {
+) -> Result<RpcClient<FileClient>, RpcIntErr> {
     let factory = Arc::new(FileClient::new(config));
     RpcClient::connect(factory, addr, 0, last_resp_ts).await
 }
@@ -67,20 +69,20 @@ pub enum FileAction {
 }
 
 impl TryFrom<u8> for FileAction {
-    type Error = RpcError;
+    type Error = RpcError<Errno>;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             1 => Ok(FileAction::Open),
             2 => Ok(FileAction::Read),
             3 => Ok(FileAction::Write),
-            _ => Err(RpcError::Text(format!("Invalid FileAction value: {}", value))),
+            _ => Err(RpcIntErr::Method.into()),
         }
     }
 }
 
 #[derive(Debug)]
-#[client_task_enum]
+#[client_task_enum(error = Errno)]
 pub enum FileClientTask {
     #[action(FileAction::Open)]
     Open(FileClientTaskOpen),
@@ -104,7 +106,7 @@ pub struct FileClientTaskOpen {
     #[field(resp)]
     pub resp: Option<()>,
     #[field(res)]
-    pub res: Option<Result<(), RpcError>>,
+    pub res: Option<Result<(), RpcError<Errno>>>,
     #[field(noti)]
     pub sender: Option<MTx<FileClientTask>>,
 }
@@ -144,7 +146,7 @@ pub struct FileClientTaskRead {
     #[field(resp_blob)]
     pub read_data: Option<Buffer>,
     #[field(res)]
-    pub res: Option<Result<(), RpcError>>,
+    pub res: Option<Result<(), RpcError<Errno>>>,
     #[field(noti)]
     pub sender: Option<MTx<FileClientTask>>,
 }
@@ -173,7 +175,7 @@ pub struct FileClientTaskWrite {
     #[field(resp)]
     pub resp: Option<FileIOResp>,
     #[field(res)]
-    pub res: Option<Result<(), RpcError>>,
+    pub res: Option<Result<(), RpcError<Errno>>>,
     #[field(noti)]
     pub sender: Option<MTx<FileClientTask>>,
 }

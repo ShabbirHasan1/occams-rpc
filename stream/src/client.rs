@@ -5,7 +5,11 @@ use crate::proto::RpcAction;
 use captains_log::filter::Filter;
 use crossfire::MAsyncRx;
 pub use occams_rpc_core::ClientConfig;
-use occams_rpc_core::{Codec, error::RpcError, runtime::AsyncIO};
+use occams_rpc_core::{
+    Codec,
+    error::{EncodedErr, RpcErrCodec, RpcError, RpcIntErr},
+    runtime::AsyncIO,
+};
 use std::fmt;
 use std::future::Future;
 use std::io;
@@ -58,11 +62,12 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
     fn new_logger(&self, client_id: u64, server_id: u64) -> Self::Logger;
     /// TODO Fix the logger interface
 
-    /// How to deal with RpcError
+    /// How to deal with error
     ///
     /// You can overwrite this to implement retry logic
-    fn error_handle(&self, task: Self::Task, err: RpcError) {
-        task.set_result(Err(err));
+    #[inline(always)]
+    fn error_handle(&self, task: Self::Task) {
+        task.done();
     }
 
     /// You can overwrite this to assign a client_id
@@ -81,7 +86,7 @@ pub trait ClientTransport<F: ClientFactory>: fmt::Debug + Send + Sized + 'static
     /// How to establish an async connection.
     fn connect(
         addr: &str, config: &ClientConfig, client_id: u64, server_id: u64, logger: F::Logger,
-    ) -> impl Future<Output = Result<Self, RpcError>> + Send;
+    ) -> impl Future<Output = Result<Self, RpcIntErr>> + Send;
 
     /// The ClientTransport holds a logger, the server will use it by reference.
     fn get_logger(&self) -> &F::Logger;
@@ -102,7 +107,7 @@ pub trait ClientTransport<F: ClientFactory>: fmt::Debug + Send + Sized + 'static
     fn read_resp(
         &self, factory: &F, codec: &F::Codec, close_ch: Option<&MAsyncRx<()>>,
         task_reg: &mut ClientTaskTimer<F>,
-    ) -> impl std::future::Future<Output = Result<bool, RpcError>> + Send;
+    ) -> impl std::future::Future<Output = Result<bool, RpcIntErr>> + Send;
 }
 
 /// Sum up trait for client task, including request and response
@@ -125,8 +130,10 @@ pub trait ClientTaskEncode {
     /// Return a sererialized msg of the request.
     fn encode_req<C: Codec>(&self, codec: &C) -> Result<Vec<u8>, ()>;
 
-    #[inline(always)]
     /// Contain optional extra data to send to server side.
+    ///
+    /// By Default, return None when client task does not have a req_blob field
+    #[inline(always)]
     fn get_req_blob(&self) -> Option<&[u8]> {
         None
     }
@@ -137,22 +144,35 @@ pub trait ClientTaskDecode {
     fn decode_resp<C: Codec>(&mut self, codec: &C, buf: &[u8]) -> Result<(), ()>;
 
     /// You can call crate::io::AllocateBuf::reserve(_size) on the following types:
-    ///
     /// `Option<Vec<u8>>`, `Vec<u8>`, `Option<io_buffer::Buffer>`, `io_buffer::Buffer`
+    ///
+    /// By Default, return None when client task does not have a resp_blob field
     #[inline(always)]
     fn reserve_resp_blob(&mut self, _size: i32) -> Option<&mut [u8]> {
         None
     }
 }
 
-/// How to notify from Rpc framework to user when a task is done
-pub trait ClientTaskDone: Sized + 'static {
+/// client_task_enum should impl this for user, not used by framework
+pub trait ClientTaskGetResult<E: RpcErrCodec> {
     /// Check the result of the task
-    fn get_result(&self) -> Result<(), &RpcError>;
+    fn get_result(&self) -> Result<(), &RpcError<E>>;
+}
 
-    /// Set the result and notify outside the task is done.
+/// How to notify from Rpc framework to user when a task is done
+///
+/// The rpc framework first call set_ok or set_xxx_error, then call done
+pub trait ClientTaskDone: Sized + 'static {
+    /// Set the result.
     /// Called by RPC framework
-    fn set_result(self, res: Result<(), RpcError>);
+    fn set_custom_error<C: Codec>(&mut self, codec: &C, e: EncodedErr);
+
+    /// Called by RPC framework
+    fn set_rpc_error(&mut self, e: RpcIntErr);
+
+    fn set_ok(&mut self);
+
+    fn done(self);
 }
 
 /// Get RpcAction from a enum task, or a sub-type that fits multiple RpcActions
