@@ -16,3 +16,18 @@ with a low-level streaming interface, and high-level remote API call interface.
 """
 
 [dependencies]
+occams-rpc-core = {path="../../core", version="0"}
+occams-rpc-stream = {path="../../stream", version="0"}
+log = { version = "0.4", features = ["std", "kv_unstable"] }
+captains-log = ">=0.15"
+async-trait = "0.1"
+futures = "0.3"
+quiche = { version = "0.24.0", features = ["openssl"] }
+ring = "0.17"
+bytes = "1"
+crossfire = "2.1"
+url = "2.5.0"
+futures-util = "0.3.31"
+
+io-buffer = "1"
+zerocopy = "0.2"
