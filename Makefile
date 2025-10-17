@@ -33,6 +33,7 @@ test-stream-macros: init
 # usage:
 # make test-stream "test_normal --features tokio"
 # make test-stream "test_normal --features smol"
+# make test-stream - "--features smol"
 .PHONY: test-stream
 test-stream: init
 	@echo "Run stream integration tests"
