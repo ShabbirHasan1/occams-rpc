@@ -44,15 +44,12 @@ pub trait ServerFactory: Sync + Send + 'static + Sized {
         F: Future<Output = R> + Send + 'static,
         R: Send + 'static;
 
-    /// One of RespReceiver impl:
-    /// - [crate::server_impl::RespReceiverTask]
-    /// - [crate::server_impl::RespReceiverBuf]
-    type RespReceiver: RespReceiver;
+    type RespTask: ServerTaskResp;
 
     /// Called when a server stream is established, initialize a ReqDispatch for the connection.
     ///
     /// The dispatch is likely to be a closure or object, in order to dispatch tasks to different workers
-    fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespReceiver>;
+    fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespTask>;
 }
 
 /// This trait is for server-side transport layer protocol.
@@ -96,11 +93,10 @@ pub trait ServerTransport<F: ServerFactory>: Send + Sync + Sized + 'static + fmt
 /// ReqDispatch should be a user-defined struct initialized for every connection, by ServerFactory::new_dispatcher.
 ///
 /// ReqDispatch must have Sync, because the connection reader and writer access concurrently.
-/// It should incorporate a RespReceiver trait instance for the writer side.
 ///
 /// A `Codec` should be created and holds inside, shared by the read/write coroutine.
 /// If you have encryption in the Codec, it could have shared states.
-pub trait ReqDispatch<R: RespReceiver>: Send + Sync + Sized + 'static {
+pub trait ReqDispatch<R: ServerTaskResp>: Send + Sync + Sized + 'static {
     /// Decode and handle the request, called from the connection reader coroutine.
     ///
     /// You can dispatch them to a worker pool.
@@ -109,20 +105,10 @@ pub trait ReqDispatch<R: RespReceiver>: Send + Sync + Sized + 'static {
     /// This is an async fn, but you should avoid waiting as much as possible.
     /// Should return Err(()) when codec decode_req failed.
     fn dispatch_req<'a>(
-        &'a self, req: RpcSvrReq<'a>, noti: RespNoti<R::ChannelItem>,
+        &'a self, req: RpcSvrReq<'a>, noti: RespNoti<R>,
     ) -> impl Future<Output = Result<(), ()>> + Send;
 
     fn get_codec(&self) -> &impl Codec;
-}
-
-/// Trait to be incorporated in ReqDispatch trait, which defined the response channel item type.
-///
-/// There are two types of implement:
-/// - [crate::server_impl::RespReceiverTask]: When you have all types of server response tasks in one enum type.
-/// - [crate::server_impl::RespReceiverBuf]: When you have different types of task handled by different worker pools.
-/// Task can be encoded to RpcSvrResp before sent into channel.
-pub trait RespReceiver: Send + 'static {
-    type ChannelItem: ServerTaskEncode + Send + Unpin + 'static + fmt::Debug;
 }
 
 /// A writer channel to send response to the server framework.
@@ -173,7 +159,7 @@ pub trait ServerTaskDecode<R: Send + Unpin + 'static>: Send + Sized + Unpin + 's
 /// don't need to known the type, but this requires reference and lifetime to the task.
 /// for the returning EncodedErr, it's possible generated during the encode,
 /// Otherwise when existing EncodedErr held in `res` field, the user need to take the res field out of the task.
-pub trait ServerTaskEncode: Send + 'static {
+pub trait ServerTaskEncode: Send + 'static + Unpin {
     fn encode_resp<'a, 'b, C: Codec>(
         &'a mut self, codec: &'b C, buf: &'b mut Vec<u8>,
     ) -> (u64, Result<(usize, Option<&'a [u8]>), EncodedErr>);

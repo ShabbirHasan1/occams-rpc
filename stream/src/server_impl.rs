@@ -105,14 +105,14 @@ where
         let (done_tx, done_rx) = crossfire::mpsc::unbounded_async();
 
         let noti = RespNoti(done_tx);
-        struct Reader<F: ServerFactory, D: ReqDispatch<R>, R: RespReceiver> {
-            noti: RespNoti<R::ChannelItem>,
+        struct Reader<F: ServerFactory, D: ReqDispatch<R>, R: ServerTaskResp> {
+            noti: RespNoti<R>,
             conn: Arc<F::Transport>,
             server_close_rx: crossfire::MAsyncRx<()>,
             dispatch: Arc<D>,
         }
 
-        impl<F: ServerFactory, D: ReqDispatch<R>, R: RespReceiver> Reader<F, D, R> {
+        impl<F: ServerFactory, D: ReqDispatch<R>, R: ServerTaskResp> Reader<F, D, R> {
             async fn run(self) -> Result<(), ()> {
                 loop {
                     match self.conn.read_req(&self.server_close_rx).await {
@@ -157,13 +157,13 @@ where
         };
         factory.spawn_detach(async move { reader.run().await });
 
-        struct Writer<F: ServerFactory, D: ReqDispatch<R>, R: RespReceiver> {
+        struct Writer<F: ServerFactory, D: ReqDispatch<R>, R: ServerTaskResp> {
             dispatch: Arc<D>,
-            done_rx: crossfire::AsyncRx<Result<R::ChannelItem, (u64, Option<RpcIntErr>)>>,
+            done_rx: crossfire::AsyncRx<Result<R, (u64, Option<RpcIntErr>)>>,
             conn: Arc<F::Transport>,
         }
 
-        impl<F: ServerFactory, D: ReqDispatch<R>, R: RespReceiver> Writer<F, D, R> {
+        impl<F: ServerFactory, D: ReqDispatch<R>, R: ServerTaskResp> Writer<F, D, R> {
             async fn run(self) -> Result<(), io::Error> {
                 macro_rules! process {
                     ($task: expr) => {{
@@ -249,13 +249,13 @@ where
 ///     ...
 ///
 ///     #[inline]
-///     fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespReceiver> {
+///     fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespTask> {
 ///         let dispatch_f = move |task: FileServerTask| {
 ///             async move {
 ///                 todo!();
 ///             }
 ///         }
-///         return ReqDispatchClosure::<MsgpCodec, YourServerTask, Self::RespReceiver, _, _>::new(
+///         return ReqDispatchClosure::<MsgpCodec, YourServerTask, Self::RespTask, _, _>::new(
 ///             dispatch_f,
 ///         );
 ///     }
@@ -264,8 +264,8 @@ where
 pub struct ReqDispatchClosure<C, T, R, H, F>
 where
     C: Codec,
-    T: ServerTaskDecode<R::ChannelItem>,
-    R: RespReceiver,
+    T: ServerTaskDecode<R>,
+    R: ServerTaskResp,
     H: FnOnce(T) -> F + Send + Sync + 'static + Clone,
     F: Future<Output = Result<(), ()>> + Send + 'static,
 {
@@ -277,8 +277,8 @@ where
 impl<C, T, R, H, F> ReqDispatchClosure<C, T, R, H, F>
 where
     C: Codec,
-    T: ServerTaskDecode<R::ChannelItem>,
-    R: RespReceiver,
+    T: ServerTaskDecode<R>,
+    R: ServerTaskResp,
     H: FnOnce(T) -> F + Send + Sync + 'static + Clone,
     F: Future<Output = Result<(), ()>> + Send + 'static,
 {
@@ -291,16 +291,14 @@ where
 impl<C, T, R, H, F> ReqDispatch<R> for ReqDispatchClosure<C, T, R, H, F>
 where
     C: Codec,
-    T: ServerTaskDecode<R::ChannelItem>,
-    R: RespReceiver,
+    T: ServerTaskDecode<R>,
+    R: ServerTaskResp,
     H: FnOnce(T) -> F + Send + Sync + 'static + Clone,
     F: Future<Output = Result<(), ()>> + Send + 'static,
 {
     #[inline]
-    async fn dispatch_req<'a>(
-        &'a self, req: RpcSvrReq<'a>, noti: RespNoti<R::ChannelItem>,
-    ) -> Result<(), ()> {
-        match <T as ServerTaskDecode<R::ChannelItem>>::decode_req(
+    async fn dispatch_req<'a>(&'a self, req: RpcSvrReq<'a>, noti: RespNoti<R>) -> Result<(), ()> {
+        match <T as ServerTaskDecode<R>>::decode_req(
             &self.codec,
             req.action,
             req.seq,
@@ -328,31 +326,6 @@ where
         &self.codec
     }
 }
-
-/// RespReceiver for the stream interface
-pub struct RespReceiverTask<T: ServerTaskResp>(PhantomData<fn(&T)>);
-
-impl<T: ServerTaskResp> RespReceiver for RespReceiverTask<T> {
-    type ChannelItem = T;
-}
-
-/*
-/// RespReceiver for pre encoded resp [RpcSvrResp]
-pub struct RespReceiverBuf();
-impl RespReceiver for RespReceiverBuf {
-    type ChannelItem = RpcSvrResp;
-
-    #[inline]
-    fn encode_resp<C: Codec>(
-        _codec: &C, mut item: Self::ChannelItem,
-    ) -> (u64, Result<(Vec<u8>, Option<Buffer>), EncodedErr>) {
-        match item.res {
-            Ok(()) => (item.seq, Ok((item.msg.take().unwrap(), item.blob))),
-            Err(e) => (item.seq, Err(e)),
-        }
-    }
-}
-*/
 
 /// A container that impl ServerTaskResp to show an example,
 /// presuming you have a different types to represent Request and Response.
