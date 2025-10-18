@@ -53,11 +53,11 @@ where
 
     type IO = crate::RT;
 
-    type RespReceiver = RespReceiverTask<FileServerTask>;
+    type RespTask = FileServerTask;
 
     #[inline]
-    fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespReceiver> {
-        return ReqDispatchClosure::<MsgpCodec, FileServerTask, Self::RespReceiver, _, _>::new(
+    fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespTask> {
+        return ReqDispatchClosure::<MsgpCodec, FileServerTask, Self::RespTask, _, _>::new(
             self.server_handle.clone(),
         );
     }

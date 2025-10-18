@@ -70,7 +70,7 @@ pub enum MyServerTask {
 
 (action may be a number or a string)
 
-For SubType1, we need to generate MyServerTask::From<SubType1>. If a user processes using SubType and calls subtype::set_result(), it should be transformed via into() into the supertype to call RpcRespNoti.done().
+For SubType1, we need to generate MyServerTask::From<SubType1>. If a user processes using SubType and calls subtype::set_result(), it should be transformed via into() into the supertype to call RespNoti.done().
 
 If a user uses the ServerTaskVariant/ServerTaskVariantFull generic as a subtype, which has already implemented ServerTaskEncode/Encode, they cannot implement their own methods due to the "Orphan Rule" limitation of Rust. They should implement wrapper types with the new-type pattern. (I'm not certain about Deref, I should test it).
 
@@ -89,7 +89,5 @@ The dispatcher is responsible for decoding the task and dispatching it to the ba
 
 The codec is intended to support encryption, so there should be a shared state, which needs to be initialized as an Arc<Codec> and shared between the connection reader and writer. Therefore, the dispatcher should be an Arc shared between the reader and writer.
 
-Because the reader and writer for a connection are parallel, we should define the ReqDispatch and RespReceiver traits separately. The ReqDispatch trait relies on RespReceiver because it needs to know about the task type of the done channel.
-
-We set RespReceiver in ServerFactory as an associated type, but we leave ReqDispatch to be inferred from
+We set RespTask in ServerFactory as an associated type, to defined the task type for the RespNoti channel but we leave ReqDispatch to be inferred from
 ` fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespReceiver>``, because, like ReqDispatchClosure, it usually comes with a closure capturing the context about how to dispatch the task. This may be a Fn or a struct defined by the user.
