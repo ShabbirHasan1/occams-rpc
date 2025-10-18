@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /*
  *  Note that there's no unify output interface in each serde impl,
  *  whatever we want to serialize into (std::io::Write / Buffer/ Vec<u8>),
- *  require the codec implment to match.
+ *  require the codec implement to match.
  */
 
 /// Interface for [occams-rpc-codec](https://docs.rs/occams-rpc-codec)
