@@ -19,13 +19,30 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::task::*;
 use std::time::{Duration, Instant};
+use tokio::runtime::Handle;
 
 /// The main struct for tokio runtime IO, assign this type to AsyncIO trait when used:
 ///
 /// - [ClientFactory::IO](https://occams-rpc-stream/latest/occams-rpc-stream/client/trait.ClientFactory.html)
 ///
 /// - [ServerFactory::IO](https://occams-rpc-stream/latest/occams-rpc-stream/server/trait.ServerFactory.html)
-pub struct TokioRT();
+pub struct TokioRT(Handle);
+
+impl TokioRT {
+    #[inline]
+    pub fn new(handle: Handle) -> Self {
+        Self(handle)
+    }
+
+    #[inline]
+    pub fn spawn_detach<F, R>(&self, f: F)
+    where
+        F: Future<Output = R> + Send + 'static,
+        R: Send + 'static,
+    {
+        self.0.spawn(f);
+    }
+}
 
 impl AsyncIO for TokioRT {
     type Interval = TokioInterval;

@@ -18,10 +18,14 @@ with a low-level streaming interface, and high-level remote API call interface.
 [dependencies]
 futures = "0.3"
 occams-rpc-core = { path = "../../core/", version="0" }
-async-io = {version="2.6"}
+async-io = "2.6"
+async-executor = "1"
 smol = {version="2", optional=true}
 
 [package.metadata.docs.rs]
 all-features = true
 # enable features in the documentation
 rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+global = ["dep:smol"]
