@@ -45,26 +45,25 @@ impl<F: ClientFactory> ClientStream<F> {
     /// Make a streaming connection to the server, returns [ClientStream] on success
     #[inline]
     pub fn connect(
-        factory: Arc<F>, addr: &str, server_id: u64, last_resp_ts: Option<Arc<AtomicU64>>,
+        factory: Arc<F>, addr: &str, conn_id: &str, last_resp_ts: Option<Arc<AtomicU64>>,
     ) -> impl Future<Output = Result<Self, RpcIntErr>> + Send {
         async move {
             let client_id = factory.get_client_id();
-            let logger = factory.new_logger(client_id, server_id);
+            let logger = factory.new_logger(&conn_id);
             let conn = <F::Transport as ClientTransport<F>>::connect(
                 addr,
+                conn_id,
                 factory.get_config(),
-                client_id,
-                server_id,
                 logger,
             )
             .await?;
-            Ok(ClientStream::new(factory, conn, client_id, server_id, last_resp_ts))
+            Ok(ClientStream::new(factory, conn, client_id, conn_id.to_string(), last_resp_ts))
         }
     }
 
     #[inline]
     fn new(
-        factory: Arc<F>, conn: F::Transport, client_id: u64, server_id: u64,
+        factory: Arc<F>, conn: F::Transport, client_id: u64, conn_id: String,
         last_resp_ts: Option<Arc<AtomicU64>>,
     ) -> Self {
         let (_close_tx, _close_rx) = mpmc::unbounded_async::<()>();
@@ -72,7 +71,7 @@ impl<F: ClientFactory> ClientStream<F> {
             factory,
             conn,
             client_id,
-            server_id,
+            conn_id,
             _close_rx,
             last_resp_ts,
         ));
@@ -198,7 +197,7 @@ impl<F: ClientFactory> fmt::Debug for ClientStreamInner<F> {
 
 impl<F: ClientFactory> ClientStreamInner<F> {
     pub fn new(
-        factory: Arc<F>, conn: F::Transport, client_id: u64, server_id: u64,
+        factory: Arc<F>, conn: F::Transport, client_id: u64, conn_id: String,
         close_rx: MAsyncRx<()>, last_resp_ts: Option<Arc<AtomicU64>>,
     ) -> Self {
         let config = factory.get_config();
@@ -209,12 +208,7 @@ impl<F: ClientFactory> ClientStreamInner<F> {
             close_rx,
             closed: AtomicBool::new(false),
             seq: AtomicU64::new(1),
-            timer: UnsafeCell::new(ClientTaskTimer::new(
-                server_id,
-                client_id,
-                config.task_timeout,
-                thresholds,
-            )),
+            timer: UnsafeCell::new(ClientTaskTimer::new(conn_id, config.task_timeout, thresholds)),
             encode_buf: UnsafeCell::new(Vec::with_capacity(1024)),
             throttler: None,
             last_resp_ts,

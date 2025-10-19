@@ -59,7 +59,7 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
 
     /// Construct a [captains_log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/trait.Filter.html) to oganize log of a client
     ///
-    fn new_logger(&self, client_id: u64, server_id: u64) -> Self::Logger;
+    fn new_logger(&self, conn_id: &str) -> Self::Logger;
     /// TODO Fix the logger interface
 
     /// How to deal with error
@@ -84,8 +84,10 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
 /// - [occams-rpc-tcp](https://docs.rs/occams-rpc-tcp): For TCP and Unix socket
 pub trait ClientTransport<F: ClientFactory>: fmt::Debug + Send + Sized + 'static {
     /// How to establish an async connection.
+    ///
+    /// conn_id: used for log fmt, can by the same of addr.
     fn connect(
-        addr: &str, config: &ClientConfig, client_id: u64, server_id: u64, logger: F::Logger,
+        addr: &str, conn_id: &str, config: &ClientConfig, logger: F::Logger,
     ) -> impl Future<Output = Result<Self, RpcIntErr>> + Send;
 
     /// The ClientTransport holds a logger, the server will use it by reference.

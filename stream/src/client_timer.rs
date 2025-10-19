@@ -27,8 +27,7 @@ pub struct DelayTasksBatch<T: ClientTask> {
 }
 
 pub struct ClientTaskTimer<F: ClientFactory> {
-    server_id: u64,
-    client_id: u64,
+    conn_id: String,
     pending_tasks_recv: AsyncStream<ClientTaskItem<F::Task>>,
     pending_tasks_sender: MAsyncTx<ClientTaskItem<F::Task>>,
     pending_task_count: AtomicU64,
@@ -47,14 +46,13 @@ unsafe impl<T: ClientFactory> Send for ClientTaskTimer<T> {}
 unsafe impl<T: ClientFactory> Sync for ClientTaskTimer<T> {}
 
 impl<F: ClientFactory> ClientTaskTimer<F> {
-    pub fn new(server_id: u64, client_id: u64, task_timeout: usize, mut thresholds: usize) -> Self {
+    pub fn new(conn_id: String, task_timeout: usize, mut thresholds: usize) -> Self {
         if thresholds == 0 {
             thresholds = 500;
         }
         let (pending_tx, pending_rx) = mpsc::bounded_async(thresholds * 2);
         Self {
-            server_id,
-            client_id,
+            conn_id,
             pending_tasks_recv: pending_rx.into_stream(),
             pending_tasks_sender: pending_tx,
             pending_task_count: AtomicU64::new(0),
@@ -214,10 +212,7 @@ impl<F: ClientFactory> ClientTaskTimer<F> {
                             min_seq = seq;
                         }
                     }
-                    warn!(
-                        "task {:?} is timeout on client={}:{}",
-                        task, self.server_id, self.client_id
-                    );
+                    warn!("{} task {:?} is timeout", self.conn_id, task,);
                     task.set_rpc_error(RpcIntErr::Timeout);
                     factory.error_handle(task);
                 }
