@@ -2,7 +2,7 @@ use occams_rpc_core::{
     Codec,
     error::{EncodedErr, RpcErrCodec, RpcError, RpcIntErr},
 };
-use occams_rpc_stream::server::{RespNoti, ServerTaskEncode};
+use occams_rpc_stream::server::task::{RespNoti, ServerTaskEncode};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::io::Write;

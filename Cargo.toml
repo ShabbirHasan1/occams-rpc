@@ -26,12 +26,16 @@ occams-rpc-core = {path="core/", version="0"}
 occams-rpc-codec = {path="codec/", version="0"}
 occams-rpc-stream = {path="stream/", version="0"}
 occams-rpc-api-macros = { path = "macros", version = "0" }
+occams-rpc-tokio = {path="runtime/tokio/", version = "0", optional=true}
+occams-rpc-smol = {path="runtime/smol/", version = "0", features=["global"], optional=true}
 async-trait = "0"
 rustc-hash = "2"
 crossfire = "2.1"
 
 [features]
 default = []
+tokio = ["dep:occams-rpc-tokio"]
+smol = ["dep:occams-rpc-smol"]
 
 [dev-dependencies]
 serde_derive = "1"

@@ -1,7 +1,6 @@
-use crossfire::MTx;
 use occams_rpc_core::Codec;
 use occams_rpc_core::error::{EncodedErr, RpcIntErr};
-use occams_rpc_stream::client::{
+use occams_rpc_stream::client::task::{
     ClientTask, ClientTaskAction, ClientTaskCommon, ClientTaskDecode, ClientTaskDone,
     ClientTaskEncode,
 };
@@ -9,17 +8,17 @@ use occams_rpc_stream::proto::RpcAction;
 use std::fmt;
 use std::io::Write;
 
-pub struct ClientReq {
-    pub common: ClientTaskCommon,
-    pub req_msg: Option<Vec<u8>>,
+pub struct APIClientReq {
+    pub(crate) common: ClientTaskCommon,
+    pub(crate) req_msg: Option<Vec<u8>>,
     /// action is in "Service.method" format
-    pub action: String,
-    pub resp: Option<Vec<u8>>,
-    res: Option<Result<(), EncodedErr>>,
-    noti: Option<MTx<Self>>,
+    pub(crate) action: String,
+    pub(crate) resp: Option<Vec<u8>>,
+    pub(crate) res: Option<Result<(), EncodedErr>>,
+    pub(crate) noti: Option<crossfire::Tx<Self>>,
 }
 
-impl ClientTaskEncode for ClientReq {
+impl ClientTaskEncode for APIClientReq {
     #[inline]
     fn encode_req<C: Codec>(&self, _codec: &C, buf: &mut Vec<u8>) -> Result<usize, ()> {
         if let Some(msg) = self.req_msg.as_ref() {
@@ -32,7 +31,7 @@ impl ClientTaskEncode for ClientReq {
     }
 }
 
-impl ClientTaskDecode for ClientReq {
+impl ClientTaskDecode for APIClientReq {
     #[inline]
     fn decode_resp<C: Codec>(&mut self, _codec: &C, buf: &[u8]) -> Result<(), ()> {
         // Ignore the Codec, as we don't known the resp type yet
@@ -43,7 +42,7 @@ impl ClientTaskDecode for ClientReq {
     }
 }
 
-impl ClientTaskDone for ClientReq {
+impl ClientTaskDone for APIClientReq {
     #[inline]
     fn set_custom_error<C: Codec>(&mut self, _codec: &C, e: EncodedErr) {
         // Ignore the Codec, as we don't known the error type yet
@@ -66,7 +65,7 @@ impl ClientTaskDone for ClientReq {
     }
 }
 
-impl std::ops::Deref for ClientReq {
+impl std::ops::Deref for APIClientReq {
     type Target = ClientTaskCommon;
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -74,25 +73,25 @@ impl std::ops::Deref for ClientReq {
     }
 }
 
-impl std::ops::DerefMut for ClientReq {
+impl std::ops::DerefMut for APIClientReq {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.common
     }
 }
 
-impl ClientTaskAction for ClientReq {
+impl ClientTaskAction for APIClientReq {
     #[inline]
     fn get_action<'a>(&'a self) -> RpcAction<'a> {
         RpcAction::Str(self.action.as_str())
     }
 }
 
-impl fmt::Debug for ClientReq {
+impl fmt::Debug for APIClientReq {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ClientReq(seq={}, action={})", self.seq, self.action)
+        write!(f, "APIClientReq(seq={}, action={})", self.seq, self.action)
     }
 }
 
-impl ClientTask for ClientReq {}
+impl ClientTask for APIClientReq {}
