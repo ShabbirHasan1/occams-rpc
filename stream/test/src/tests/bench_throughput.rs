@@ -56,7 +56,7 @@ fn test_throughput(runner: TestRunner, #[case] is_tcp: bool) {
             init_server(dispatch_task, server_config.clone(), server_bind_addr)
                 .expect("server listen");
         println!("actual_addr: {}", actual_server_addr);
-        let client = if is_tcp {
+        let mut client = if is_tcp {
             init_client(client_config, &actual_server_addr, None).await.expect("connect client")
         } else {
             init_client(client_config, server_bind_addr, None).await.expect("connect client")

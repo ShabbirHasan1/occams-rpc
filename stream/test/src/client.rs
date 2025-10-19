@@ -3,7 +3,7 @@ use nix::errno::Errno;
 use occams_rpc_codec::MsgpCodec;
 use occams_rpc_core::error::RpcError;
 use occams_rpc_stream::client::*;
-use occams_rpc_stream::client_impl::*;
+use occams_rpc_stream::client_stream::*;
 use occams_rpc_stream::{error::RpcIntErr, macros::*};
 
 use captains_log::filter::LogFilter;
@@ -24,9 +24,9 @@ impl FileClient {
 
 pub async fn init_client(
     config: ClientConfig, addr: &str, last_resp_ts: Option<Arc<AtomicU64>>,
-) -> Result<RpcClient<FileClient>, RpcIntErr> {
+) -> Result<ClientStream<FileClient>, RpcIntErr> {
     let factory = Arc::new(FileClient::new(config));
-    RpcClient::connect(factory, addr, 0, last_resp_ts).await
+    ClientStream::connect(factory, addr, 0, last_resp_ts).await
 }
 
 impl ClientFactory for FileClient {
