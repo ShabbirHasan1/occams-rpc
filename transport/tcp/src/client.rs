@@ -19,8 +19,7 @@ pub struct TcpClient<F: ClientFactory> {
     stream: UnsafeCell<AsyncBufStream<UnifyStream<F::IO>>>,
     resp_buf: UnsafeCell<Vec<u8>>,
     logger: F::Logger,
-    server_id: u64,
-    client_id: u64,
+    conn_id: String,
     read_timeout: Duration,
     write_timeout: Duration,
 }
@@ -30,7 +29,7 @@ unsafe impl<F: ClientFactory> Sync for TcpClient<F> {}
 
 impl<F: ClientFactory> fmt::Debug for TcpClient<F> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "rpc client {}:{}", self.server_id, self.client_id)
+        write!(f, "client {}", self.conn_id)
     }
 }
 
@@ -200,7 +199,7 @@ impl<F: ClientFactory> TcpClient<F> {
 
 impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
     async fn connect(
-        addr: &str, config: &ClientConfig, client_id: u64, server_id: u64, logger: F::Logger,
+        addr: &str, conn_id: &str, config: &ClientConfig, logger: F::Logger,
     ) -> Result<Self, RpcIntErr> {
         let connect_timeout = config.connect_timeout;
         let stream: UnifyStream<F::IO> = {
@@ -236,8 +235,7 @@ impl<F: ClientFactory> ClientTransport<F> for TcpClient<F> {
         Ok(Self {
             stream: UnsafeCell::new(AsyncBufStream::new(stream, buf_size)),
             resp_buf: UnsafeCell::new(Vec::with_capacity(512)),
-            server_id,
-            client_id,
+            conn_id: conn_id.to_string(),
             write_timeout: config.write_timeout,
             read_timeout: config.read_timeout,
             logger,

@@ -26,7 +26,7 @@ pub async fn init_client(
     config: ClientConfig, addr: &str, last_resp_ts: Option<Arc<AtomicU64>>,
 ) -> Result<ClientStream<FileClient>, RpcIntErr> {
     let factory = Arc::new(FileClient::new(config));
-    ClientStream::connect(factory, addr, 0, last_resp_ts).await
+    ClientStream::connect(factory, addr, &format!("to {}", addr), last_resp_ts).await
 }
 
 impl ClientFactory for FileClient {
@@ -50,7 +50,7 @@ impl ClientFactory for FileClient {
     }
 
     #[inline]
-    fn new_logger(&self, _client_id: u64, _server_id: u64) -> Self::Logger {
+    fn new_logger(&self, _conn_id: &str) -> Self::Logger {
         self.logger.clone()
     }
 
