@@ -173,6 +173,7 @@ struct ClientStreamInner<F: ClientFactory> {
     close_rx: MAsyncRx<()>, // When ClientStream(sender) dropped, receiver will be timer
     closed: AtomicBool,     // flag set by either sender or receive on there exit
     timer: UnsafeCell<ClientTaskTimer<F>>,
+    // TODO can closed and has_err merge ?
     has_err: AtomicBool,
     throttler: Throttler,
     last_resp_ts: Option<Arc<AtomicU64>>,

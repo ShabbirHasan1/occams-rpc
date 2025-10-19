@@ -21,7 +21,7 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
     /// The type that new_logger returns.
     ///
     /// maybe a `Arc<LogFilter> or KeyFilter<Arc<LogFilter>>`
-    type Logger: Filter + Send + 'static;
+    type Logger: Filter + Send + Sync + 'static;
 
     /// Define the codec to serialization and deserialization
     ///

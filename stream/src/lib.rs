@@ -69,6 +69,7 @@
 extern crate captains_log;
 
 pub mod client;
+pub mod client_pool;
 pub mod client_stream;
 pub mod client_timer;
 pub mod macros;
