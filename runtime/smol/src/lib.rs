@@ -6,6 +6,7 @@
 //! This crate provides a runtime adapter for [`occams-rpc`](https://docs.rs/occams-rpc) to work with the `smol` runtime.
 //! It implements the [`AsyncIO`](https://docs.rs/occams-rpc-core/latest/occams_rpc_core/runtime/index.html) trait to support `async-io` of `smol`.
 
+use async_executor::Executor;
 use occams_rpc_core::io::*;
 use occams_rpc_core::runtime::{AsyncFdTrait, AsyncIO, TimeInterval};
 use std::future::Future;
@@ -17,6 +18,7 @@ use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::*;
 use std::time::{Duration, Instant};
 
@@ -27,7 +29,39 @@ use async_io::{Async, Timer};
 /// - [ClientFactory::IO](https://occams-rpc-stream/latest/occams-rpc-stream/client/trait.ClientFactory.html)
 ///
 /// - [ServerFactory::IO](https://occams-rpc-stream/latest/occams-rpc-stream/server/trait.ServerFactory.html)
-pub struct SmolRT();
+pub struct SmolRT(Option<Arc<Executor<'static>>>);
+
+impl SmolRT {
+    #[cfg(feature = "global")]
+    #[inline]
+    pub fn new_global() -> Self {
+        Self(None)
+    }
+
+    #[inline]
+    pub fn new(executor: Arc<Executor<'static>>) -> Self {
+        Self(Some(executor))
+    }
+
+    #[inline]
+    pub fn spawn_detach<F, R>(&self, f: F)
+    where
+        F: Future<Output = R> + Send + 'static,
+        R: Send + 'static,
+    {
+        if let Some(executor) = self.0.as_ref() {
+            executor.spawn(f).detach();
+        } else {
+            #[cfg(feature = "global")]
+            {
+                smol::spawn(f).detach();
+                return;
+            }
+            #[cfg(not(feature = "global"))]
+            unreachable!();
+        }
+    }
+}
 
 impl AsyncIO for SmolRT {
     type Interval = SmolInterval;
