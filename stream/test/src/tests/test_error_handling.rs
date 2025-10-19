@@ -40,7 +40,7 @@ fn test_server_returns_error(runner: TestRunner, #[case] is_tcp: bool) {
             init_server(dispatch_task, server_config.clone(), &server_bind_addr)
                 .expect("server listen");
         debug!("client addr {:?}", actual_server_addr);
-        let client =
+        let mut client =
             init_client(client_config, &actual_server_addr, None).await.expect("connect client");
 
         // Test Open task that should fail

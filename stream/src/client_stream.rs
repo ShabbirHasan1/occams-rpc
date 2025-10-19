@@ -1,6 +1,4 @@
-//! The RpcClient implementation
-//!
-//! [RpcClient] represents a client-side connection.
+//! [ClientStream] represents a client-side connection.
 //!
 //! On Drop, will close the connection on write-side, the response reader coroutine not exit
 //! until all the ClientTask have a response or after `task_timeout` is reached.
@@ -30,7 +28,7 @@ use occams_rpc_core::{error::*, runtime::*};
 use std::time::Duration;
 use sync_utils::{time::DelayedTime, waitgroup::WaitGroupGuard};
 
-/// RpcClient represents a client-side connection.
+/// ClientStream represents a client-side connection.
 ///
 /// On Drop, the connection will be closed on the write-side. The response reader coroutine will not exit
 /// until all the ClientTasks have a response or after `task_timeout` is reached.
@@ -38,13 +36,13 @@ use sync_utils::{time::DelayedTime, waitgroup::WaitGroupGuard};
 /// The user sends packets in sequence, with a throttler controlling the IO depth of in-flight packets.
 /// An internal timer then registers the request through a channel, and when the response
 /// is received, it can optionally notify the user through a user-defined channel or another mechanism.
-pub struct RpcClient<F: ClientFactory> {
+pub struct ClientStream<F: ClientFactory> {
     close_tx: Option<MTx<()>>,
-    inner: Arc<RpcClientInner<F>>,
+    inner: Arc<ClientStreamInner<F>>,
 }
 
-impl<F: ClientFactory> RpcClient<F> {
-    /// Make a streaming connection to the server, returns [RpcClient] on success
+impl<F: ClientFactory> ClientStream<F> {
+    /// Make a streaming connection to the server, returns [ClientStream] on success
     #[inline]
     pub fn connect(
         factory: Arc<F>, addr: &str, server_id: u64, last_resp_ts: Option<Arc<AtomicU64>>,
@@ -60,7 +58,7 @@ impl<F: ClientFactory> RpcClient<F> {
                 logger,
             )
             .await?;
-            Ok(RpcClient::new(factory, conn, client_id, server_id, last_resp_ts))
+            Ok(ClientStream::new(factory, conn, client_id, server_id, last_resp_ts))
         }
     }
 
@@ -70,7 +68,7 @@ impl<F: ClientFactory> RpcClient<F> {
         last_resp_ts: Option<Arc<AtomicU64>>,
     ) -> Self {
         let (_close_tx, _close_rx) = mpmc::unbounded_async::<()>();
-        let inner = Arc::new(RpcClientInner::new(
+        let inner = Arc::new(ClientStreamInner::new(
             factory,
             conn,
             client_id,
@@ -93,7 +91,7 @@ impl<F: ClientFactory> RpcClient<F> {
 
     /// Should be call in sender thread
     #[inline(always)]
-    pub async fn ping(&self) -> Result<(), RpcIntErr> {
+    pub async fn ping(&mut self) -> Result<(), RpcIntErr> {
         self.inner.send_ping_req().await
     }
 
@@ -111,11 +109,11 @@ impl<F: ClientFactory> RpcClient<F> {
     /// Force the receiver to exit.
     ///
     /// You can call it when connectivity probes detect that a server is unreachable.
-    pub async fn set_error_and_exit(&self) {
+    pub async fn set_error_and_exit(&mut self) {
         self.inner.has_err.store(true, Ordering::SeqCst);
         self.inner.conn.close_conn().await;
         if let Some(close_tx) = self.close_tx.as_ref() {
-            let _ = close_tx.send(()); // This equals to RpcClient::drop
+            let _ = close_tx.send(()); // This equals to ClientStream::drop
         }
     }
 
@@ -127,14 +125,14 @@ impl<F: ClientFactory> RpcClient<F> {
     /// Since the transport layer might have buffer, user should always call flush explicitly.
     /// You can set `need_flush` = true for some urgent messages, or call flush_req() explicitly.
     #[inline(always)]
-    pub async fn send_task(&self, task: F::Task, need_flush: bool) -> Result<(), RpcIntErr> {
+    pub async fn send_task(&mut self, task: F::Task, need_flush: bool) -> Result<(), RpcIntErr> {
         self.inner.send_task(task, need_flush).await
     }
 
     /// Since the transport layer might have buffer, user should always call flush explicitly.
     /// you can set `need_flush` = true for some urgent message, or call flush_req() explicitly.
     #[inline(always)]
-    pub async fn flush_req(&self) -> Result<(), RpcIntErr> {
+    pub async fn flush_req(&mut self) -> Result<(), RpcIntErr> {
         self.inner.flush_req().await
     }
 
@@ -146,7 +144,7 @@ impl<F: ClientFactory> RpcClient<F> {
 
     /// Wait for the response of in-flight tasks to be received
     #[inline(always)]
-    pub async fn throttle(&self) -> bool {
+    pub async fn throttle(&mut self) -> bool {
         if self.inner.closed.load(Ordering::SeqCst) {
             return false;
         }
@@ -158,7 +156,7 @@ impl<F: ClientFactory> RpcClient<F> {
     }
 }
 
-impl<F: ClientFactory> Drop for RpcClient<F> {
+impl<F: ClientFactory> Drop for ClientStream<F> {
     fn drop(&mut self) {
         self.close_tx.take();
         let timer = self.inner.get_timer_mut();
@@ -167,17 +165,17 @@ impl<F: ClientFactory> Drop for RpcClient<F> {
     }
 }
 
-impl<F: ClientFactory> fmt::Debug for RpcClient<F> {
+impl<F: ClientFactory> fmt::Debug for ClientStream<F> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.inner.fmt(f)
     }
 }
 
-struct RpcClientInner<F: ClientFactory> {
+struct ClientStreamInner<F: ClientFactory> {
     client_id: u64,
     conn: F::Transport,
     seq: AtomicU64,
-    close_rx: MAsyncRx<()>, // When RpcClient(sender) dropped, receiver will be timer
+    close_rx: MAsyncRx<()>, // When ClientStream(sender) dropped, receiver will be timer
     closed: AtomicBool,     // flag set by either sender or receive on there exit
     timer: UnsafeCell<ClientTaskTimer<F>>,
     has_err: AtomicBool,
@@ -188,17 +186,17 @@ struct RpcClientInner<F: ClientFactory> {
     factory: Arc<F>,
 }
 
-unsafe impl<F: ClientFactory> Send for RpcClientInner<F> {}
+unsafe impl<F: ClientFactory> Send for ClientStreamInner<F> {}
 
-unsafe impl<F: ClientFactory> Sync for RpcClientInner<F> {}
+unsafe impl<F: ClientFactory> Sync for ClientStreamInner<F> {}
 
-impl<F: ClientFactory> fmt::Debug for RpcClientInner<F> {
+impl<F: ClientFactory> fmt::Debug for ClientStreamInner<F> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.conn.fmt(f)
     }
 }
 
-impl<F: ClientFactory> RpcClientInner<F> {
+impl<F: ClientFactory> ClientStreamInner<F> {
     pub fn new(
         factory: Arc<F>, conn: F::Transport, client_id: u64, server_id: u64,
         close_rx: MAsyncRx<()>, last_resp_ts: Option<Arc<AtomicU64>>,
@@ -466,7 +464,7 @@ impl<F: ClientFactory> RpcClientInner<F> {
     }
 }
 
-impl<F: ClientFactory> Drop for RpcClientInner<F> {
+impl<F: ClientFactory> Drop for ClientStreamInner<F> {
     fn drop(&mut self) {
         let timer = self.get_timer_mut();
         timer.clean_pending_tasks(self.factory.as_ref());
@@ -478,7 +476,7 @@ where
     F: ClientFactory,
     P: Future<Output = Result<(), RpcIntErr>> + Unpin,
 {
-    client: &'a RpcClientInner<F>,
+    client: &'a ClientStreamInner<F>,
     inv: Pin<&'a mut <F::IO as AsyncIO>::Interval>,
     recv_future: Pin<&'a mut P>,
 }
@@ -489,7 +487,7 @@ where
     P: Future<Output = Result<(), RpcIntErr>> + Unpin,
 {
     fn new(
-        client: &'a RpcClientInner<F>, inv: &'a mut <F::IO as AsyncIO>::Interval,
+        client: &'a ClientStreamInner<F>, inv: &'a mut <F::IO as AsyncIO>::Interval,
         recv_future: &'a mut P,
     ) -> Self {
         Self { inv: Pin::new(inv), client, recv_future: Pin::new(recv_future) }
