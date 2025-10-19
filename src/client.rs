@@ -9,6 +9,73 @@ use occams_rpc_stream::proto::RpcAction;
 use std::fmt;
 use std::io::Write;
 
+#[cfg(any(feature = "tokio", feature = "smol"))]
+use captains_log::filter::LogFilter;
+#[cfg(any(feature = "tokio", feature = "smol"))]
+use occams_rpc_core::ClientConfig;
+#[cfg(any(feature = "tokio", feature = "smol"))]
+use occams_rpc_stream::client::{ClientFactory, ClientTransport};
+#[cfg(any(feature = "tokio", feature = "smol"))]
+use std::sync::Arc;
+
+#[cfg(any(feature = "tokio", feature = "smol"))]
+pub struct APIClientFactory<C: Codec, T: ClientTransport<Self>> {
+    pub logger: Arc<LogFilter>,
+    config: ClientConfig,
+    #[cfg(feature = "tokio")]
+    rt: occams_rpc_tokio::TokioRT,
+    #[cfg(feature = "smol")]
+    rt: occams_rpc_tokio::SmolRT,
+    _phan: std::marker::PhantomData<fn(&T, &C)>,
+}
+
+#[cfg(any(feature = "tokio", feature = "smol"))]
+impl<C: Codec, T: ClientTransport<Self>> APIClientFactory<C, T> {
+    pub fn new(
+        config: ClientConfig, #[cfg(feature = "tokio")] rt: occams_rpc_tokio::TokioRT,
+        #[cfg(feature = "smol")] rt: occams_rpc_tokio::SmolRT,
+    ) -> Self {
+        Self { logger: Arc::new(LogFilter::new()), config, rt, _phan: Default::default() }
+    }
+
+    #[inline]
+    pub fn set_log_level(&self, level: log::Level) {
+        self.logger.set_level(level);
+    }
+}
+
+#[cfg(any(feature = "tokio", feature = "smol"))]
+impl<C: Codec, T: ClientTransport<Self>> ClientFactory for APIClientFactory<C, T> {
+    type Logger = Arc<LogFilter>;
+    type Codec = C;
+    type Transport = T;
+    type Task = ClientReq;
+
+    #[cfg(feature = "tokio")]
+    type IO = occams_rpc_tokio::TokioRT;
+    #[cfg(feature = "smol")]
+    type IO = occams_rpc_smol::SmolRT;
+
+    #[inline]
+    fn spawn_detach<F, R>(&self, f: F)
+    where
+        F: Future<Output = R> + Send + 'static,
+        R: Send + 'static,
+    {
+        self.rt.spawn_detach(f);
+    }
+
+    #[inline]
+    fn new_logger(&self, _conn_id: &str) -> Arc<LogFilter> {
+        self.logger.clone()
+    }
+
+    #[inline]
+    fn get_config(&self) -> &ClientConfig {
+        &self.config
+    }
+}
+
 pub struct ClientReq {
     pub common: ClientTaskCommon,
     pub req_msg: Option<Vec<u8>>,
