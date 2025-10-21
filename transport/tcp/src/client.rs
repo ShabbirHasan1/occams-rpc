@@ -76,7 +76,7 @@ impl<F: ClientFactory> TcpClient<F> {
         let reader = self.get_stream_mut();
         match resp_head.flag {
             1 => {
-                task.set_custom_error(codec, EncodedErr::Num(resp_head.msg_len.get() as i32));
+                task.set_custom_error(codec, EncodedErr::Num(resp_head.msg_len.get()));
                 factory.error_handle(task);
                 return Ok(());
             }

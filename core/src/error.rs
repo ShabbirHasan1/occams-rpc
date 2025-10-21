@@ -128,7 +128,7 @@ macro_rules! impl_rpc_error_for_num {
         impl RpcErrCodec for $t {
             #[inline(always)]
             fn encode<C: Codec>(&self, _codec: &C) -> EncodedErr {
-                EncodedErr::Num(*self as i32)
+                EncodedErr::Num(*self as u32)
             }
 
             #[inline(always)]
@@ -154,7 +154,7 @@ impl_rpc_error_for_num!(u32);
 impl RpcErrCodec for nix::errno::Errno {
     #[inline(always)]
     fn encode<C: Codec>(&self, _codec: &C) -> EncodedErr {
-        EncodedErr::Num(*self as i32)
+        EncodedErr::Num(*self as u32)
     }
 
     #[inline(always)]
@@ -247,7 +247,7 @@ pub enum EncodedErr {
     /// The ClientTransport should try the best to parse it from string with "rpc_" prefix
     Rpc(RpcIntErr),
     /// For nix errno and the like
-    Num(i32),
+    Num(u32),
     /// only for server, the ClientTransport will not parse into static type
     Static(&'static str),
     /// The ClientTransport will fallback to Vec<u8> after try to parse  RpcIntErr and  num
