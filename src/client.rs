@@ -1,9 +1,9 @@
-use crossfire::MTx;
+use crossfire::{AsyncRx, MTx, mpsc};
 use occams_rpc_core::Codec;
-use occams_rpc_core::error::{EncodedErr, RpcIntErr};
+use occams_rpc_core::error::{EncodedErr, RpcErrCodec, RpcError, RpcIntErr};
 use occams_rpc_stream::client::{
-    ClientTask, ClientTaskAction, ClientTaskCommon, ClientTaskDecode, ClientTaskDone,
-    ClientTaskEncode,
+    ClientCaller, ClientFactory, ClientTask, ClientTaskAction, ClientTaskCommon, ClientTaskDecode,
+    ClientTaskDone, ClientTaskEncode,
 };
 use occams_rpc_stream::proto::RpcAction;
 use std::fmt;
@@ -163,3 +163,84 @@ impl fmt::Debug for ClientReq {
 }
 
 impl ClientTask for ClientReq {}
+
+pub struct APIClient<F, C>
+where
+    F: ClientFactory<Task = ClientReq>,
+    C: ClientCaller<F>,
+{
+    caller: C,
+    codec: F::Codec,
+    done_tx: MTx<ClientReq>,
+    done_rx: AsyncRx<ClientReq>,
+}
+
+impl<F, C> APIClient<F, C>
+where
+    F: ClientFactory<Task = ClientReq>,
+    C: ClientCaller<F>,
+{
+    pub fn new(caller: C) -> Self {
+        let (tx, rx) = mpsc::bounded_tx_blocking_rx_async::<ClientReq>(1);
+        Self { caller, codec: Default::default(), done_tx: tx, done_rx: rx }
+    }
+
+    #[inline]
+    fn make_req<Req>(&self, service_method: &'static str, req: &Req) -> ClientReq
+    where
+        Req: serde::Serialize + fmt::Debug,
+    {
+        let req_buf = self.codec.encode(req).expect("encode");
+        ClientReq {
+            common: Default::default(),
+            req_msg: Some(req_buf),
+            action: service_method.to_string(),
+            resp: None,
+            res: None,
+            noti: Some(self.done_tx.clone()),
+        }
+    }
+
+    pub async fn call<Req, Resp, E>(
+        &self, service_method: &'static str, req: &Req,
+    ) -> Result<Resp, RpcError<E>>
+    where
+        Req: serde::Serialize + fmt::Debug,
+        Resp: for<'a> serde::Deserialize<'a> + Send + fmt::Debug + 'static + Default,
+        E: RpcErrCodec,
+    {
+        ClientCaller::send_req(&self.caller, self.make_req(service_method, req)).await;
+        match self.done_rx.recv().await {
+            Ok(mut task) => {
+                let res = task.res.take().unwrap();
+                match res {
+                    Ok(()) => {
+                        if let Some(resp) = task.resp {
+                            match self.codec.decode(&resp) {
+                                Ok(resp_msg) => return Ok(resp_msg),
+                                Err(()) => return Err(RpcIntErr::Decode.into()),
+                            }
+                        } else {
+                            return Ok(Resp::default());
+                        }
+                    }
+                    Err(EncodedErr::Rpc(e)) => {
+                        return Err(RpcError::Rpc(e));
+                    }
+                    Err(EncodedErr::Num(n)) => match E::decode(&self.codec, Ok(n)) {
+                        Ok(e) => return Err(RpcError::User(e)),
+                        Err(()) => return Err(RpcIntErr::Decode.into()),
+                    },
+                    Err(EncodedErr::Buf(buf)) => match E::decode(&self.codec, Err(&buf)) {
+                        Ok(e) => return Err(RpcError::User(e)),
+                        Err(()) => return Err(RpcIntErr::Decode.into()),
+                    },
+                    _ => unreachable!(),
+                }
+            }
+            Err(_) => {
+                return Err(RpcIntErr::Internal.into());
+            }
+        }
+    }
+}
