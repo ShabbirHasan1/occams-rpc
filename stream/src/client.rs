@@ -77,6 +77,14 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
     }
 }
 
+pub trait ClientCaller<F: ClientFactory>: Send {
+    fn send_req(&self, task: F::Task) -> impl Future<Output = ()> + Send;
+}
+
+pub trait ClientCallerBlocking<F: ClientFactory>: Send {
+    fn send_req(&self, task: F::Task);
+}
+
 /// This trait is for client-side transport layer protocol.
 ///
 /// The implementation can be found on:

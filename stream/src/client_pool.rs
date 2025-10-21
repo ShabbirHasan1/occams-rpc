@@ -1,4 +1,4 @@
-use crate::client::{ClientFactory, ClientTaskDone};
+use crate::client::{ClientCaller, ClientCallerBlocking, ClientFactory, ClientTaskDone};
 use crate::client_stream::ClientStream;
 use crossfire::{MAsyncRx, MAsyncTx, MTx, mpmc};
 use occams_rpc_core::{error::RpcIntErr, runtime::AsyncIO};
@@ -65,13 +65,13 @@ impl<F: ClientFactory> ClientPool<F> {
     }
 
     #[inline]
-    pub fn submit(&self, task: F::Task) {
-        self.tx.send(task).expect("submit");
+    pub async fn send_req(&self, task: F::Task) {
+        ClientCaller::send_req(self, task).await;
     }
 
     #[inline]
-    pub async fn submit_async(&self, task: F::Task) {
-        self.tx_async.send(task).await.expect("submit");
+    pub fn send_req_blocking(&self, task: F::Task) {
+        ClientCallerBlocking::send_req(self, task);
     }
 
     #[inline]
@@ -84,6 +84,20 @@ impl<F: ClientFactory> ClientPool<F> {
 impl<F: ClientFactory> Drop for ClientPool<F> {
     fn drop(&mut self) {
         self.inner.cleanup();
+    }
+}
+
+impl<F: ClientFactory> ClientCaller<F> for ClientPool<F> {
+    #[inline]
+    async fn send_req(&self, task: F::Task) {
+        self.tx_async.send(task).await.expect("submit");
+    }
+}
+
+impl<F: ClientFactory> ClientCallerBlocking<F> for ClientPool<F> {
+    #[inline]
+    fn send_req(&self, task: F::Task) {
+        self.tx.send(task).expect("submit");
     }
 }
 
