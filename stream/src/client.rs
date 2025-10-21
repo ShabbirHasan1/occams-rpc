@@ -10,10 +10,10 @@ use occams_rpc_core::{
     error::{EncodedErr, RpcErrCodec, RpcError, RpcIntErr},
     runtime::AsyncIO,
 };
-use std::fmt;
 use std::future::Future;
-use std::io;
 use std::ops::DerefMut;
+use std::sync::Arc;
+use std::{fmt, io};
 
 /// A trait implemented by the user for the client-side, to define the customizable plugin.
 pub trait ClientFactory: Send + Sync + Sized + 'static {
@@ -74,6 +74,30 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
     #[inline(always)]
     fn get_client_id(&self) -> u64 {
         0
+    }
+}
+
+pub trait ClientCaller<F: ClientFactory>: Send {
+    fn send_req(&self, task: F::Task) -> impl Future<Output = ()> + Send;
+}
+
+pub trait ClientCallerBlocking<F: ClientFactory>: Send {
+    fn send_req_blocking(&self, task: F::Task);
+}
+
+impl<F: ClientFactory, C: ClientCaller<F> + Send + Sync> ClientCaller<F> for Arc<C> {
+    #[inline(always)]
+    async fn send_req(&self, task: F::Task) {
+        self.as_ref().send_req(task).await
+    }
+}
+
+impl<F: ClientFactory, C: ClientCallerBlocking<F> + Send + Sync> ClientCallerBlocking<F>
+    for Arc<C>
+{
+    #[inline(always)]
+    fn send_req_blocking(&self, task: F::Task) {
+        self.as_ref().send_req_blocking(task);
     }
 }
 
