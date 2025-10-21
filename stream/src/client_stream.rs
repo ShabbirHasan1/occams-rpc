@@ -26,7 +26,7 @@ use crossfire::*;
 use futures::pin_mut;
 use occams_rpc_core::{error::*, runtime::*};
 use std::time::Duration;
-use sync_utils::{time::DelayedTime, waitgroup::WaitGroupGuard};
+use sync_utils::time::DelayedTime;
 
 /// ClientStream represents a client-side connection.
 ///
@@ -88,7 +88,9 @@ impl<F: ClientFactory> ClientStream<F> {
         &self.inner.codec
     }
 
-    /// Should be call in sender thread
+    /// Should be call in sender threads
+    ///
+    /// NOTE: will skip if throttler is full
     #[inline(always)]
     pub async fn ping(&mut self) -> Result<(), RpcIntErr> {
         self.inner.send_ping_req().await
@@ -118,11 +120,11 @@ impl<F: ClientFactory> ClientStream<F> {
 
     /// send_task() should only be called without parallelism.
     ///
-    /// NOTE: We define this to be an immutable function to avoid a borrow check, it might be changed to
-    /// &mut self in the future.
+    /// NOTE: After send, will wait for response if too many inflight task in throttler.
     ///
     /// Since the transport layer might have buffer, user should always call flush explicitly.
     /// You can set `need_flush` = true for some urgent messages, or call flush_req() explicitly.
+    ///
     #[inline(always)]
     pub async fn send_task(&mut self, task: F::Task, need_flush: bool) -> Result<(), RpcIntErr> {
         self.inner.send_task(task, need_flush).await
@@ -138,20 +140,14 @@ impl<F: ClientFactory> ClientStream<F> {
     /// Check the throttler and see if future send_task() might be blocked
     #[inline]
     pub fn will_block(&self) -> bool {
-        if let Some(t) = self.inner.throttler.as_ref() { t.nearly_full() } else { false }
+        self.inner.throttler.nearly_full()
     }
 
-    /// Wait for the response of in-flight tasks to be received
-    #[inline(always)]
-    pub async fn throttle(&mut self) -> bool {
-        if self.inner.closed.load(Ordering::SeqCst) {
-            return false;
-        }
-        if let Some(t) = self.inner.throttler.as_ref() {
-            return t.throttle().await;
-        } else {
-            false
-        }
+    /// Get the task sent but not yet received response
+    #[inline]
+    pub fn get_inflight_count(&self) -> usize {
+        // TODO confirm ping task counted ?
+        self.inner.throttler.get_inflight_count()
     }
 }
 
@@ -178,7 +174,7 @@ struct ClientStreamInner<F: ClientFactory> {
     closed: AtomicBool,     // flag set by either sender or receive on there exit
     timer: UnsafeCell<ClientTaskTimer<F>>,
     has_err: AtomicBool,
-    throttler: Option<Throttler>,
+    throttler: Throttler,
     last_resp_ts: Option<Arc<AtomicU64>>,
     encode_buf: UnsafeCell<Vec<u8>>,
     codec: F::Codec,
@@ -201,8 +197,11 @@ impl<F: ClientFactory> ClientStreamInner<F> {
         close_rx: MAsyncRx<()>, last_resp_ts: Option<Arc<AtomicU64>>,
     ) -> Self {
         let config = factory.get_config();
-        let thresholds = config.thresholds;
-        let mut client_inner = Self {
+        let mut thresholds = config.thresholds;
+        if thresholds == 0 {
+            thresholds = 128;
+        }
+        let client_inner = Self {
             client_id,
             conn,
             close_rx,
@@ -210,24 +209,18 @@ impl<F: ClientFactory> ClientStreamInner<F> {
             seq: AtomicU64::new(1),
             timer: UnsafeCell::new(ClientTaskTimer::new(conn_id, config.task_timeout, thresholds)),
             encode_buf: UnsafeCell::new(Vec::with_capacity(1024)),
-            throttler: None,
+            throttler: Throttler::new(thresholds),
             last_resp_ts,
             has_err: AtomicBool::new(false),
             codec: F::Codec::default(),
             factory,
         };
-        if thresholds > 0 {
-            logger_trace!(
-                client_inner.logger(),
-                "{:?} throttler is set to {}",
-                client_inner,
-                thresholds,
-            );
-            client_inner.throttler = Some(Throttler::new(thresholds));
-        } else {
-            logger_trace!(client_inner.logger(), "{:?} throttler is disabled", client_inner);
-        }
-
+        logger_trace!(
+            client_inner.logger(),
+            "{:?} throttler is set to {}",
+            client_inner,
+            thresholds,
+        );
         client_inner
     }
 
@@ -247,9 +240,14 @@ impl<F: ClientFactory> ClientStreamInner<F> {
     }
 
     /// Directly work on the socket steam, when failed
-    async fn send_task(&self, mut task: F::Task, need_flush: bool) -> Result<(), RpcIntErr> {
+    async fn send_task(&self, mut task: F::Task, mut need_flush: bool) -> Result<(), RpcIntErr> {
+        if self.throttler.nearly_full() {
+            need_flush = true;
+        }
         let timer = self.get_timer_mut();
         timer.pending_task_count_ref().fetch_add(1, Ordering::SeqCst);
+        // It's possible receiver set close after pending_task_count increase, keep this until
+        // review
         if self.closed.load(Ordering::Acquire) {
             logger_warn!(
                 self.logger(),
@@ -279,11 +277,9 @@ impl<F: ClientFactory> ClientStreamInner<F> {
             Ok(_) => {
                 logger_trace!(self.logger(), "{:?} send task {:?} ok", self, task);
                 // register task to norifier
-                let mut wg: Option<WaitGroupGuard> = None;
-                if let Some(throttler) = self.throttler.as_ref() {
-                    wg = Some(throttler.add_task());
-                }
+                let wg = self.throttler.add_task();
                 timer.reg_task(task, wg).await;
+                self.throttler.throttle().await;
                 return Ok(());
             }
         }
@@ -339,6 +335,7 @@ impl<F: ClientFactory> ClientStreamInner<F> {
             logger_warn!(self.logger(), "{:?} send_ping_req skip as conn closed", self);
             return Err(RpcIntErr::IO);
         }
+        // PING does not counted in throttler
         let buf = self.get_encoded_buf();
         proto::ReqHead::encode_ping(buf, self.client_id, self.seq_update());
         // Ping does not need to reg_task, and have no error_handle, just to keep the connection
@@ -439,14 +436,12 @@ impl<F: ClientFactory> ClientStreamInner<F> {
 
     // Adjust the waiting queue
     fn time_reach(&self) {
-        if let Some(throttler) = self.throttler.as_ref() {
-            logger_trace!(
-                self.logger(),
-                "{:?} has {} pending_tasks",
-                self,
-                throttler.get_inflight_tasks_count()
-            );
-        }
+        logger_trace!(
+            self.logger(),
+            "{:?} has {} pending_tasks",
+            self,
+            self.throttler.get_inflight_count()
+        );
         let timer = self.get_timer_mut();
         timer.adjust_task_queue(self.factory.as_ref());
         return;

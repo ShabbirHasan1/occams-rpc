@@ -14,7 +14,12 @@ impl Throttler {
 
     #[inline(always)]
     pub fn nearly_full(&self) -> bool {
-        self.wg.left() + 1 > self.thresholds.load(Ordering::Acquire)
+        self.wg.left() + 1 > self.thresholds.load(Ordering::Relaxed)
+    }
+
+    #[inline(always)]
+    pub fn is_full(&self) -> bool {
+        self.wg.left() >= self.thresholds.load(Ordering::Relaxed)
     }
 
     #[inline(always)]
@@ -39,7 +44,7 @@ impl Throttler {
     }
 
     #[inline(always)]
-    pub fn get_inflight_tasks_count(&self) -> usize {
+    pub fn get_inflight_count(&self) -> usize {
         self.wg.left()
     }
 }

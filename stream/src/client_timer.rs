@@ -19,7 +19,7 @@ use sync_utils::waitgroup::WaitGroupGuard;
 
 pub struct ClientTaskItem<T: ClientTask> {
     pub task: Option<T>,
-    _upstream: Option<WaitGroupGuard>,
+    _upstream: WaitGroupGuard,
 }
 
 pub struct DelayTasksBatch<T: ClientTask> {
@@ -128,7 +128,7 @@ impl<F: ClientFactory> ClientTaskTimer<F> {
 
     // register noti for task.
     #[inline(always)]
-    pub async fn reg_task(&self, task: F::Task, wg: Option<WaitGroupGuard>) {
+    pub async fn reg_task(&self, task: F::Task, wg: WaitGroupGuard) {
         let _ = self
             .pending_tasks_sender
             .send(ClientTaskItem { task: Some(task), _upstream: wg })
