@@ -261,24 +261,14 @@ impl<F: ClientFactory> ClientStreamInner<F> {
             timer.pending_task_count_ref().fetch_sub(1, Ordering::SeqCst); // rollback
             return Err(RpcIntErr::IO);
         }
-
-        match self.send_request(&mut task, need_flush).await {
-            Err(e) => {
-                logger_warn!(self.logger(), "{:?} sending task {:?} err: {}", self, task, e);
-                // rollback counter
-                timer.pending_task_count_ref().fetch_sub(1, Ordering::SeqCst);
-                task.set_rpc_error(e);
-                self.factory.error_handle(task);
+        match self.send_request(task, need_flush).await {
+            Err(_) => {
                 self.closed.store(true, Ordering::SeqCst);
                 self.has_err.store(true, Ordering::SeqCst);
-                timer.stop_reg_task();
                 return Err(RpcIntErr::IO);
             }
             Ok(_) => {
-                logger_trace!(self.logger(), "{:?} send task {:?} ok", self, task);
                 // register task to norifier
-                let wg = self.throttler.add_task();
-                timer.reg_task(task, wg).await;
                 self.throttler.throttle().await;
                 return Ok(());
             }
@@ -299,11 +289,11 @@ impl<F: ClientFactory> ClientStreamInner<F> {
     }
 
     #[inline(always)]
-    async fn send_request(&self, task: &mut F::Task, need_flush: bool) -> Result<(), RpcIntErr> {
+    async fn send_request(&self, mut task: F::Task, need_flush: bool) -> Result<(), RpcIntErr> {
         let seq = self.seq_update();
         task.set_seq(seq);
         let buf = self.get_encoded_buf();
-        match proto::ReqHead::encode(&self.codec, buf, self.client_id, task) {
+        match proto::ReqHead::encode(&self.codec, buf, self.client_id, &task) {
             Err(_) => {
                 logger_warn!(self.logger(), "{:?} send_req encode req {:?} err", self, task);
                 return Err(RpcIntErr::Encode);
@@ -321,8 +311,18 @@ impl<F: ClientFactory> ClientStreamInner<F> {
                     self.has_err.store(true, Ordering::SeqCst);
                     let timer = self.get_timer_mut();
                     // TODO check stop_reg_task
+                    // rollback counter
+                    timer.pending_task_count_ref().fetch_sub(1, Ordering::SeqCst);
                     timer.stop_reg_task();
+                    logger_warn!(self.logger(), "{:?} sending task {:?} err: {}", self, task, e);
+                    task.set_rpc_error(RpcIntErr::IO);
+                    self.factory.error_handle(task);
                     return Err(RpcIntErr::IO);
+                } else {
+                    let wg = self.throttler.add_task();
+                    let timer = self.get_timer_mut();
+                    logger_trace!(self.logger(), "{:?} send task {:?} ok", self, task);
+                    timer.reg_task(task, wg).await;
                 }
                 return Ok(());
             }
