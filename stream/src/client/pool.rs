@@ -1,8 +1,11 @@
 use crate::client::stream::ClientStream;
-use crate::client::{ClientCaller, ClientCallerBlocking, ClientFactory, task::ClientTaskDone};
+use crate::client::{
+    ClientCaller, ClientCallerBlocking, ClientFactory, ClientTransport, task::ClientTaskDone,
+};
 use crossfire::{MAsyncRx, MAsyncTx, MTx, mpmc};
 use occams_rpc_core::{error::RpcIntErr, runtime::AsyncIO};
 use std::fmt;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic::{
     AtomicBool, AtomicUsize,
@@ -19,13 +22,13 @@ use std::time::Duration;
 /// - The task incoming might never stop until faulty pool remove from pools collection
 /// - If ping mixed with task with real business, might blocked due to throttler of in-flight
 /// message in the stream.
-pub struct ClientPool<F: ClientFactory> {
+pub struct ClientPool<F: ClientFactory, P: ClientTransport<F::IO>> {
     tx_async: MAsyncTx<F::Task>,
     tx: MTx<F::Task>,
-    inner: Arc<ClientPoolInner<F>>,
+    inner: Arc<ClientPoolInner<F, P>>,
 }
 
-struct ClientPoolInner<F: ClientFactory> {
+struct ClientPoolInner<F: ClientFactory, P: ClientTransport<F::IO>> {
     factory: Arc<F>,
     logger: F::Logger,
     rx: MAsyncRx<F::Task>,
@@ -39,11 +42,12 @@ struct ClientPoolInner<F: ClientFactory> {
     connected_worker_count: AtomicUsize,
     ///// Set by user
     //limit: AtomicUsize, // TODO
+    _phan: PhantomData<fn(&P)>,
 }
 
 const ONE_SEC: Duration = Duration::from_secs(1);
 
-impl<F: ClientFactory> ClientPool<F> {
+impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientPool<F, P> {
     pub fn new(factory: Arc<F>, addr: &str) -> Self {
         let config = factory.get_config();
         let (tx_async, rx) = mpmc::bounded_async(config.thresholds);
@@ -58,6 +62,7 @@ impl<F: ClientFactory> ClientPool<F> {
             is_ok: AtomicBool::new(true),
             worker_count: AtomicUsize::new(0),
             connected_worker_count: AtomicUsize::new(0),
+            _phan: Default::default(),
         });
         let s = Self { tx_async, tx, inner };
         s.spawn();
@@ -81,34 +86,34 @@ impl<F: ClientFactory> ClientPool<F> {
     }
 }
 
-impl<F: ClientFactory> Drop for ClientPool<F> {
+impl<F: ClientFactory, P: ClientTransport<F::IO>> Drop for ClientPool<F, P> {
     fn drop(&mut self) {
         self.inner.cleanup();
     }
 }
 
-impl<F: ClientFactory> ClientCaller<F> for ClientPool<F> {
+impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientCaller<F> for ClientPool<F, P> {
     #[inline]
     async fn send_req(&self, task: F::Task) {
         self.tx_async.send(task).await.expect("submit");
     }
 }
 
-impl<F: ClientFactory> ClientCallerBlocking<F> for ClientPool<F> {
+impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientCallerBlocking<F> for ClientPool<F, P> {
     #[inline]
     fn send_req_blocking(&self, task: F::Task) {
         self.tx.send(task).expect("submit");
     }
 }
 
-impl<F: ClientFactory> fmt::Display for ClientPoolInner<F> {
+impl<F: ClientFactory, P: ClientTransport<F::IO>> fmt::Display for ClientPoolInner<F, P> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ConnPool {:?}", self.conn_id)
     }
 }
 
-impl<F: ClientFactory> ClientPoolInner<F> {
+impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientPoolInner<F, P> {
     fn spawn_worker(self: Arc<Self>, worker_id: usize) {
         let factory = self.factory.clone();
         factory.spawn_detach(async move {
@@ -135,13 +140,13 @@ impl<F: ClientFactory> ClientPoolInner<F> {
     }
 
     #[inline]
-    async fn connect(&self) -> Result<ClientStream<F>, RpcIntErr> {
+    async fn connect(&self) -> Result<ClientStream<F, P>, RpcIntErr> {
         ClientStream::connect(self.factory.clone(), &self.addr, &self.conn_id, None).await
     }
 
     #[inline(always)]
     async fn _run_worker(
-        &self, _worker_id: usize, stream: &mut ClientStream<F>,
+        &self, _worker_id: usize, stream: &mut ClientStream<F, P>,
     ) -> Result<(), RpcIntErr> {
         loop {
             let task = self.rx.recv().await.unwrap();
@@ -154,7 +159,7 @@ impl<F: ClientFactory> ClientPoolInner<F> {
     }
 
     async fn run_worker(
-        &self, worker_id: usize, stream: &mut ClientStream<F>,
+        &self, worker_id: usize, stream: &mut ClientStream<F, P>,
     ) -> Result<(), RpcIntErr> {
         self.connected_worker_count.fetch_add(1, Acquire);
         let r = self._run_worker(worker_id, stream).await;

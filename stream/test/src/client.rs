@@ -10,32 +10,27 @@ use occams_rpc_stream::client::stream::ClientStream;
 use occams_rpc_stream::client::task::*;
 use occams_rpc_stream::client::*;
 use occams_rpc_stream::error::RpcIntErr;
+use occams_rpc_tcp::TcpClient;
 #[cfg(feature = "tokio")]
 use occams_rpc_tokio::TokioRT;
 use serde_derive::{Deserialize, Serialize};
-use std::sync::{Arc, atomic::AtomicU64}; // Re-added
+use std::sync::{Arc, atomic::AtomicU64};
 
 pub struct FileClient {
     config: ClientConfig,
     logger: Arc<LogFilter>,
-    #[cfg(feature = "tokio")]
-    rt: TokioRT,
-    #[cfg(not(feature = "tokio"))]
-    rt: SmolRT,
+    rt: crate::RT,
 }
 
 impl FileClient {
-    pub fn new(
-        config: ClientConfig, #[cfg(feature = "tokio")] rt: TokioRT,
-        #[cfg(not(feature = "tokio"))] rt: SmolRT,
-    ) -> Self {
+    pub fn new(config: ClientConfig, rt: crate::RT) -> Self {
         Self { config, logger: Arc::new(LogFilter::new()), rt }
     }
 }
 
 pub async fn init_client(
     config: ClientConfig, addr: &str, last_resp_ts: Option<Arc<AtomicU64>>,
-) -> Result<ClientStream<FileClient>, RpcIntErr> {
+) -> Result<ClientStream<FileClient, TcpClient<crate::RT>>, RpcIntErr> {
     #[cfg(feature = "tokio")]
     let rt = TokioRT::new(tokio::runtime::Handle::current());
     #[cfg(not(feature = "tokio"))]
@@ -50,8 +45,6 @@ impl ClientFactory for FileClient {
     type Task = FileClientTask;
 
     type Logger = Arc<LogFilter>;
-
-    type Transport = occams_rpc_tcp::TcpClient<Self>;
 
     type IO = crate::RT;
 

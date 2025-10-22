@@ -37,12 +37,12 @@ use sync_utils::time::DelayedTime;
 /// The user sends packets in sequence, with a throttler controlling the IO depth of in-flight packets.
 /// An internal timer then registers the request through a channel, and when the response
 /// is received, it can optionally notify the user through a user-defined channel or another mechanism.
-pub struct ClientStream<F: ClientFactory> {
+pub struct ClientStream<F: ClientFactory, P: ClientTransport<F::IO>> {
     close_tx: Option<MTx<()>>,
-    inner: Arc<ClientStreamInner<F>>,
+    inner: Arc<ClientStreamInner<F, P>>,
 }
 
-impl<F: ClientFactory> ClientStream<F> {
+impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientStream<F, P> {
     /// Make a streaming connection to the server, returns [ClientStream] on success
     #[inline]
     pub fn connect(
@@ -50,21 +50,14 @@ impl<F: ClientFactory> ClientStream<F> {
     ) -> impl Future<Output = Result<Self, RpcIntErr>> + Send {
         async move {
             let client_id = factory.get_client_id();
-            let logger = factory.new_logger(&conn_id);
-            let conn = <F::Transport as ClientTransport<F>>::connect(
-                addr,
-                conn_id,
-                factory.get_config(),
-                logger,
-            )
-            .await?;
-            Ok(ClientStream::new(factory, conn, client_id, conn_id.to_string(), last_resp_ts))
+            let conn = P::connect(addr, conn_id, factory.get_config()).await?;
+            Ok(Self::new(factory, conn, client_id, conn_id.to_string(), last_resp_ts))
         }
     }
 
     #[inline]
     fn new(
-        factory: Arc<F>, conn: F::Transport, client_id: u64, conn_id: String,
+        factory: Arc<F>, conn: P, client_id: u64, conn_id: String,
         last_resp_ts: Option<Arc<AtomicU64>>,
     ) -> Self {
         let (_close_tx, _close_rx) = mpmc::unbounded_async::<()>();
@@ -113,7 +106,7 @@ impl<F: ClientFactory> ClientStream<F> {
     /// You can call it when connectivity probes detect that a server is unreachable.
     pub async fn set_error_and_exit(&mut self) {
         self.inner.has_err.store(true, Ordering::SeqCst);
-        self.inner.conn.close_conn().await;
+        self.inner.conn.close_conn::<F>(&self.inner.logger).await;
         if let Some(close_tx) = self.close_tx.as_ref() {
             let _ = close_tx.send(()); // This equals to ClientStream::drop
         }
@@ -152,7 +145,7 @@ impl<F: ClientFactory> ClientStream<F> {
     }
 }
 
-impl<F: ClientFactory> Drop for ClientStream<F> {
+impl<F: ClientFactory, P: ClientTransport<F::IO>> Drop for ClientStream<F, P> {
     fn drop(&mut self) {
         self.close_tx.take();
         let timer = self.inner.get_timer_mut();
@@ -161,15 +154,15 @@ impl<F: ClientFactory> Drop for ClientStream<F> {
     }
 }
 
-impl<F: ClientFactory> fmt::Debug for ClientStream<F> {
+impl<F: ClientFactory, P: ClientTransport<F::IO>> fmt::Debug for ClientStream<F, P> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.inner.fmt(f)
     }
 }
 
-struct ClientStreamInner<F: ClientFactory> {
+struct ClientStreamInner<F: ClientFactory, P: ClientTransport<F::IO>> {
     client_id: u64,
-    conn: F::Transport,
+    conn: P,
     seq: AtomicU64,
     close_rx: MAsyncRx<()>, // When ClientStream(sender) dropped, receiver will be timer
     closed: AtomicBool,     // flag set by either sender or receive on there exit
@@ -180,23 +173,24 @@ struct ClientStreamInner<F: ClientFactory> {
     last_resp_ts: Option<Arc<AtomicU64>>,
     encode_buf: UnsafeCell<Vec<u8>>,
     codec: F::Codec,
+    logger: F::Logger,
     factory: Arc<F>,
 }
 
-unsafe impl<F: ClientFactory> Send for ClientStreamInner<F> {}
+unsafe impl<F: ClientFactory, P: ClientTransport<F::IO>> Send for ClientStreamInner<F, P> {}
 
-unsafe impl<F: ClientFactory> Sync for ClientStreamInner<F> {}
+unsafe impl<F: ClientFactory, P: ClientTransport<F::IO>> Sync for ClientStreamInner<F, P> {}
 
-impl<F: ClientFactory> fmt::Debug for ClientStreamInner<F> {
+impl<F: ClientFactory, P: ClientTransport<F::IO>> fmt::Debug for ClientStreamInner<F, P> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.conn.fmt(f)
     }
 }
 
-impl<F: ClientFactory> ClientStreamInner<F> {
+impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientStreamInner<F, P> {
     pub fn new(
-        factory: Arc<F>, conn: F::Transport, client_id: u64, conn_id: String,
-        close_rx: MAsyncRx<()>, last_resp_ts: Option<Arc<AtomicU64>>,
+        factory: Arc<F>, conn: P, client_id: u64, conn_id: String, close_rx: MAsyncRx<()>,
+        last_resp_ts: Option<Arc<AtomicU64>>,
     ) -> Self {
         let config = factory.get_config();
         let mut thresholds = config.thresholds;
@@ -209,26 +203,22 @@ impl<F: ClientFactory> ClientStreamInner<F> {
             close_rx,
             closed: AtomicBool::new(false),
             seq: AtomicU64::new(1),
-            timer: UnsafeCell::new(ClientTaskTimer::new(conn_id, config.task_timeout, thresholds)),
             encode_buf: UnsafeCell::new(Vec::with_capacity(1024)),
             throttler: Throttler::new(thresholds),
             last_resp_ts,
             has_err: AtomicBool::new(false),
             codec: F::Codec::default(),
+            logger: factory.new_logger(&conn_id),
+            timer: UnsafeCell::new(ClientTaskTimer::new(conn_id, config.task_timeout, thresholds)),
             factory,
         };
-        logger_trace!(
-            client_inner.logger(),
-            "{:?} throttler is set to {}",
-            client_inner,
-            thresholds,
-        );
+        logger_trace!(client_inner.logger, "{:?} throttler is set to {}", client_inner, thresholds,);
         client_inner
     }
 
     #[inline(always)]
     fn logger(&self) -> &F::Logger {
-        self.conn.get_logger()
+        &self.logger
     }
 
     #[inline(always)]
@@ -252,7 +242,7 @@ impl<F: ClientFactory> ClientStreamInner<F> {
         // review
         if self.closed.load(Ordering::Acquire) {
             logger_warn!(
-                self.logger(),
+                self.logger,
                 "{:?} sending task {:?} failed: {}",
                 self,
                 task,
@@ -279,8 +269,8 @@ impl<F: ClientFactory> ClientStreamInner<F> {
 
     #[inline(always)]
     async fn flush_req(&self) -> Result<(), RpcIntErr> {
-        if let Err(e) = self.conn.flush_req().await {
-            logger_warn!(self.logger(), "{:?} flush_req flush err: {}", self, e);
+        if let Err(e) = self.conn.flush_req::<F>(&self.logger).await {
+            logger_warn!(self.logger, "{:?} flush_req flush err: {}", self, e);
             self.closed.store(true, Ordering::SeqCst);
             self.has_err.store(true, Ordering::SeqCst);
             let timer = self.get_timer_mut();
@@ -297,13 +287,15 @@ impl<F: ClientFactory> ClientStreamInner<F> {
         let buf = self.get_encoded_buf();
         match proto::ReqHead::encode(&self.codec, buf, self.client_id, &task) {
             Err(_) => {
-                logger_warn!(self.logger(), "{:?} send_req encode req {:?} err", self, task);
+                logger_warn!(&self.logger, "{:?} send_req encode req {:?} err", self, task);
                 return Err(RpcIntErr::Encode);
             }
             Ok(blob_buf) => {
-                if let Err(e) = self.conn.write_req(buf, blob_buf, need_flush).await {
+                if let Err(e) =
+                    self.conn.write_req::<F>(&self.logger, buf, blob_buf, need_flush).await
+                {
                     logger_warn!(
-                        self.logger(),
+                        self.logger,
                         "{:?} send_req write req {:?} err: {:?}",
                         self,
                         task,
@@ -316,14 +308,14 @@ impl<F: ClientFactory> ClientStreamInner<F> {
                     // rollback counter
                     timer.pending_task_count_ref().fetch_sub(1, Ordering::SeqCst);
                     timer.stop_reg_task();
-                    logger_warn!(self.logger(), "{:?} sending task {:?} err: {}", self, task, e);
+                    logger_warn!(self.logger, "{:?} sending task {:?} err: {}", self, task, e);
                     task.set_rpc_error(RpcIntErr::IO);
                     self.factory.error_handle(task);
                     return Err(RpcIntErr::IO);
                 } else {
                     let wg = self.throttler.add_task();
                     let timer = self.get_timer_mut();
-                    logger_trace!(self.logger(), "{:?} send task {:?} ok", self, task);
+                    logger_trace!(self.logger, "{:?} send task {:?} ok", self, task);
                     timer.reg_task(task, wg).await;
                 }
                 return Ok(());
@@ -334,7 +326,7 @@ impl<F: ClientFactory> ClientStreamInner<F> {
     #[inline(always)]
     async fn send_ping_req(&self) -> Result<(), RpcIntErr> {
         if self.closed.load(Ordering::Acquire) {
-            logger_warn!(self.logger(), "{:?} send_ping_req skip as conn closed", self);
+            logger_warn!(self.logger, "{:?} send_ping_req skip as conn closed", self);
             return Err(RpcIntErr::IO);
         }
         // PING does not counted in throttler
@@ -342,8 +334,8 @@ impl<F: ClientFactory> ClientStreamInner<F> {
         proto::ReqHead::encode_ping(buf, self.client_id, self.seq_update());
         // Ping does not need to reg_task, and have no error_handle, just to keep the connection
         // alive. Connection Prober can monitor the liveness of ClientConn
-        if let Err(e) = self.conn.write_req(buf, None, true).await {
-            logger_warn!(self.logger(), "{:?} send ping err: {:?}", self, e);
+        if let Err(e) = self.conn.write_req::<F>(&self.logger, buf, None, true).await {
+            logger_warn!(self.logger, "{:?} send ping err: {:?}", self, e);
             self.closed.store(true, Ordering::SeqCst);
             return Err(RpcIntErr::IO);
         }
@@ -373,16 +365,15 @@ impl<F: ClientFactory> ClientStreamInner<F> {
         let timer = self.get_timer_mut();
         loop {
             if self.closed.load(Ordering::Acquire) {
-                logger_trace!(
-                    self.conn.get_logger(),
-                    "{:?} read_resp from already close",
-                    self.conn
-                );
+                logger_trace!(self.logger, "{:?} read_resp from already close", self.conn);
                 // ensure task receive on normal exit
                 if timer.check_pending_tasks_empty() || self.has_err.load(Ordering::Relaxed) {
                     return Err(RpcIntErr::IO);
                 }
-                if let Err(_e) = self.conn.read_resp(&self.factory, &self.codec, None, timer).await
+                if let Err(_e) = self
+                    .conn
+                    .read_resp(self.factory.as_ref(), &self.logger, &self.codec, None, timer)
+                    .await
                 {
                     self.closed.store(true, Ordering::SeqCst);
                     return Err(RpcIntErr::IO);
@@ -391,7 +382,13 @@ impl<F: ClientFactory> ClientStreamInner<F> {
                 // Block here for new header without timeout
                 match self
                     .conn
-                    .read_resp(&self.factory, &self.codec, Some(&self.close_rx), timer)
+                    .read_resp(
+                        self.factory.as_ref(),
+                        &self.logger,
+                        &self.codec,
+                        Some(&self.close_rx),
+                        timer,
+                    )
                     .await
                 {
                     Err(_e) => {
@@ -418,7 +415,7 @@ impl<F: ClientFactory> ClientStreamInner<F> {
             match selector.await {
                 Ok(_) => {}
                 Err(e) => {
-                    logger_debug!(self.logger(), "{:?} receive_loop error: {}", self, e);
+                    logger_debug!(self.logger, "{:?} receive_loop error: {}", self, e);
                     self.closed.store(true, Ordering::SeqCst);
                     let timer = self.get_timer_mut();
                     timer.clean_pending_tasks(self.factory.as_ref());
@@ -439,7 +436,7 @@ impl<F: ClientFactory> ClientStreamInner<F> {
     // Adjust the waiting queue
     fn time_reach(&self) {
         logger_trace!(
-            self.logger(),
+            self.logger,
             "{:?} has {} pending_tasks",
             self,
             self.throttler.get_inflight_count()
@@ -455,32 +452,33 @@ impl<F: ClientFactory> ClientStreamInner<F> {
     }
 }
 
-impl<F: ClientFactory> Drop for ClientStreamInner<F> {
+impl<F: ClientFactory, P: ClientTransport<F::IO>> Drop for ClientStreamInner<F, P> {
     fn drop(&mut self) {
         let timer = self.get_timer_mut();
         timer.clean_pending_tasks(self.factory.as_ref());
     }
 }
 
-struct ReceiverTimerFuture<'a, F, P>
+struct ReceiverTimerFuture<'a, F, P, I, FR>
 where
     F: ClientFactory,
-    P: Future<Output = Result<(), RpcIntErr>> + Unpin,
+    P: ClientTransport<F::IO>,
+    I: TimeInterval,
+    FR: Future<Output = Result<(), RpcIntErr>> + Unpin,
 {
-    client: &'a ClientStreamInner<F>,
-    inv: Pin<&'a mut <F::IO as AsyncIO>::Interval>,
-    recv_future: Pin<&'a mut P>,
+    client: &'a ClientStreamInner<F, P>,
+    inv: Pin<&'a mut I>,
+    recv_future: Pin<&'a mut FR>,
 }
 
-impl<'a, F, P> ReceiverTimerFuture<'a, F, P>
+impl<'a, F, P, I, FR> ReceiverTimerFuture<'a, F, P, I, FR>
 where
     F: ClientFactory,
-    P: Future<Output = Result<(), RpcIntErr>> + Unpin,
+    P: ClientTransport<F::IO>,
+    I: TimeInterval,
+    FR: Future<Output = Result<(), RpcIntErr>> + Unpin,
 {
-    fn new(
-        client: &'a ClientStreamInner<F>, inv: &'a mut <F::IO as AsyncIO>::Interval,
-        recv_future: &'a mut P,
-    ) -> Self {
+    fn new(client: &'a ClientStreamInner<F, P>, inv: &'a mut I, recv_future: &'a mut FR) -> Self {
         Self { inv: Pin::new(inv), client, recv_future: Pin::new(recv_future) }
     }
 }
@@ -488,10 +486,12 @@ where
 // Return Ok(true) to indicate Ok
 // Return Ok(false) when client sender has close normally
 // Err(e) when connection error
-impl<'a, F, P> Future for ReceiverTimerFuture<'a, F, P>
+impl<'a, F, P, I, FR> Future for ReceiverTimerFuture<'a, F, P, I, FR>
 where
     F: ClientFactory,
-    P: Future<Output = Result<(), RpcIntErr>> + Unpin,
+    P: ClientTransport<F::IO>,
+    I: TimeInterval,
+    FR: Future<Output = Result<(), RpcIntErr>> + Unpin,
 {
     type Output = Result<(), RpcIntErr>;
 

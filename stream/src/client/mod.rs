@@ -42,11 +42,6 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
     /// You can use macro [client_task_enum](crate::client::task::client_task_enum) and [client_task](crate::client::task::client_task) on task type
     type Task: ClientTask;
 
-    /// Define the transport layer protocol
-    ///
-    /// Refers to [ClientTransport]
-    type Transport: ClientTransport<Self>;
-
     /// Define the adaptor of async runtime
     ///
     /// Refers to [occams_rpc_core::runtime::AsyncIO](https://docs.rs/occams-rpc-core/latest/occams_rpc_core/runtime/index.html)
@@ -112,31 +107,33 @@ impl<F: ClientFactory, C: ClientCallerBlocking<F> + Send + Sync> ClientCallerBlo
 /// The implementation can be found on:
 ///
 /// - [occams-rpc-tcp](https://docs.rs/occams-rpc-tcp): For TCP and Unix socket
-pub trait ClientTransport<F: ClientFactory>: fmt::Debug + Send + Sized + 'static {
+///
+/// NOTE: we use IO in generic param instead of ClientFactory to break cycle dep.
+/// because FailoverPool will rewrap the factory into its own.
+pub trait ClientTransport<IO: AsyncIO>: fmt::Debug + Send + Sized + 'static {
     /// How to establish an async connection.
     ///
     /// conn_id: used for log fmt, can by the same of addr.
     fn connect(
-        addr: &str, conn_id: &str, config: &ClientConfig, logger: F::Logger,
+        addr: &str, conn_id: &str, config: &ClientConfig,
     ) -> impl Future<Output = Result<Self, RpcIntErr>> + Send;
 
-    /// The ClientTransport holds a logger, the server will use it by reference.
-    fn get_logger(&self) -> &F::Logger;
-
     /// Shutdown the write direction of the connection
-    fn close_conn(&self) -> impl Future<Output = ()> + Send;
+    fn close_conn<F: ClientFactory>(&self, logger: &F::Logger) -> impl Future<Output = ()> + Send;
 
     /// Flush the request for the socket writer, if the transport has buffering logic
-    fn flush_req(&self) -> impl Future<Output = io::Result<()>> + Send;
+    fn flush_req<F: ClientFactory>(
+        &self, logger: &F::Logger,
+    ) -> impl Future<Output = io::Result<()>> + Send;
 
     /// Write out the encoded request task
-    fn write_req<'a>(
-        &'a self, buf: &'a [u8], blob: Option<&'a [u8]>, need_flush: bool,
+    fn write_req<'a, F: ClientFactory>(
+        &'a self, logger: &F::Logger, buf: &'a [u8], blob: Option<&'a [u8]>, need_flush: bool,
     ) -> impl Future<Output = io::Result<()>> + Send;
 
     /// Read the response and decode it from the socket, find and notify the registered ClientTask
-    fn read_resp(
-        &self, factory: &F, codec: &F::Codec, close_ch: Option<&MAsyncRx<()>>,
+    fn read_resp<F: ClientFactory>(
+        &self, factory: &F, logger: &F::Logger, codec: &F::Codec, close_ch: Option<&MAsyncRx<()>>,
         task_reg: &mut ClientTaskTimer<F>,
     ) -> impl std::future::Future<Output = Result<bool, RpcIntErr>> + Send;
 }
