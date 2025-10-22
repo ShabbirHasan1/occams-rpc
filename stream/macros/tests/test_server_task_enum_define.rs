@@ -3,7 +3,7 @@
 #[allow(dead_code)]
 fn test_server_task_enum_define() {
     use nix::errno::Errno;
-    use occams_rpc_stream::server_impl::ServerTaskVariantFull;
+    use occams_rpc_stream::server::task::ServerTaskVariantFull;
     use occams_rpc_stream_macros::server_task_enum;
     use serde_derive::{Deserialize, Serialize};
 

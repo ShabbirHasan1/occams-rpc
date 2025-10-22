@@ -5,7 +5,7 @@ fn test_client_task_enum_define() {
     use crossfire::MTx;
     use nix::errno::Errno;
     use occams_rpc_core::error::RpcError;
-    use occams_rpc_stream::client::ClientTaskCommon;
+    use occams_rpc_stream::client::task::ClientTaskCommon;
     use occams_rpc_stream_macros::{client_task, client_task_enum};
 
     #[derive(PartialEq)]

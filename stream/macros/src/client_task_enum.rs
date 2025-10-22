@@ -123,41 +123,41 @@ pub fn client_task_enum_impl(attr: TokenStream, input: TokenStream) -> TokenStre
                 _ => panic!("Unsupported action type"),
             }
         } else {
-            quote! { #enum_name::#variant_name(inner) => occams_rpc_stream::client::ClientTaskAction::get_action(inner), }
+            quote! { #enum_name::#variant_name(inner) => occams_rpc_stream::client::task::ClientTaskAction::get_action(inner), }
         };
 
         get_action_arms.push(action_arm);
 
         encode_req_arms.push(quote! {
-            #enum_name::#variant_name(inner) => occams_rpc_stream::client::ClientTaskEncode::encode_req(inner, codec, buf),
+            #enum_name::#variant_name(inner) => occams_rpc_stream::client::task::ClientTaskEncode::encode_req(inner, codec, buf),
         });
 
         get_req_blob_arms.push(quote! {
-            #enum_name::#variant_name(inner) => occams_rpc_stream::client::ClientTaskEncode::get_req_blob(inner),
+            #enum_name::#variant_name(inner) => occams_rpc_stream::client::task::ClientTaskEncode::get_req_blob(inner),
         });
 
         decode_resp_arms.push(quote! {
-            #enum_name::#variant_name(inner) => occams_rpc_stream::client::ClientTaskDecode::decode_resp(inner, codec, buffer),
+            #enum_name::#variant_name(inner) => occams_rpc_stream::client::task::ClientTaskDecode::decode_resp(inner, codec, buffer),
         });
 
         reserve_resp_blob_arms.push(quote! {
-            #enum_name::#variant_name(inner) => occams_rpc_stream::client::ClientTaskDecode::reserve_resp_blob(inner, size),
+            #enum_name::#variant_name(inner) => occams_rpc_stream::client::task::ClientTaskDecode::reserve_resp_blob(inner, size),
         });
 
         get_result_arms.push(quote! {
-            #enum_name::#variant_name(inner) => occams_rpc_stream::client::ClientTaskGetResult::get_result(inner),
+            #enum_name::#variant_name(inner) => occams_rpc_stream::client::task::ClientTaskGetResult::get_result(inner),
         });
         set_custom_error_arms.push(quote! {
-            #enum_name::#variant_name(inner) => occams_rpc_stream::client::ClientTaskDone::set_custom_error(inner, codec, res),
+            #enum_name::#variant_name(inner) => occams_rpc_stream::client::task::ClientTaskDone::set_custom_error(inner, codec, res),
         });
         set_rpc_error_arms.push(quote! {
-            #enum_name::#variant_name(inner) => occams_rpc_stream::client::ClientTaskDone::set_rpc_error(inner, e),
+            #enum_name::#variant_name(inner) => occams_rpc_stream::client::task::ClientTaskDone::set_rpc_error(inner, e),
         });
         set_ok_arms.push(quote! {
-            #enum_name::#variant_name(inner) => occams_rpc_stream::client::ClientTaskDone::set_ok(inner),
+            #enum_name::#variant_name(inner) => occams_rpc_stream::client::task::ClientTaskDone::set_ok(inner),
         });
         done_arms.push(quote! {
-            #enum_name::#variant_name(inner) => occams_rpc_stream::client::ClientTaskDone::done(inner),
+            #enum_name::#variant_name(inner) => occams_rpc_stream::client::task::ClientTaskDone::done(inner),
         });
 
         deref_arms.push(quote! {
@@ -175,7 +175,7 @@ pub fn client_task_enum_impl(attr: TokenStream, input: TokenStream) -> TokenStre
         #(#from_impls)*
 
         impl #impl_generics std::ops::Deref for #enum_name #ty_generics #where_clause {
-            type Target = occams_rpc_stream::client::ClientTaskCommon;
+            type Target = occams_rpc_stream::client::task::ClientTaskCommon;
             #[inline]
             fn deref(&self) -> &Self::Target {
                 match self {
@@ -193,7 +193,7 @@ pub fn client_task_enum_impl(attr: TokenStream, input: TokenStream) -> TokenStre
             }
         }
 
-        impl #impl_generics occams_rpc_stream::client::ClientTaskEncode for #enum_name #ty_generics #where_clause {
+        impl #impl_generics occams_rpc_stream::client::task::ClientTaskEncode for #enum_name #ty_generics #where_clause {
             #[inline]
             fn encode_req<C: occams_rpc_core::Codec>(&self, codec: &C, buf: &mut Vec<u8>) -> Result<usize, ()> {
                 match self {
@@ -209,7 +209,7 @@ pub fn client_task_enum_impl(attr: TokenStream, input: TokenStream) -> TokenStre
             }
         }
 
-        impl #impl_generics occams_rpc_stream::client::ClientTaskDecode for #enum_name #ty_generics #where_clause {
+        impl #impl_generics occams_rpc_stream::client::task::ClientTaskDecode for #enum_name #ty_generics #where_clause {
             #[inline]
             fn decode_resp<C: occams_rpc_core::Codec>(&mut self, codec: &C, buffer: &[u8]) -> Result<(), ()> {
                 match self {
@@ -225,7 +225,7 @@ pub fn client_task_enum_impl(attr: TokenStream, input: TokenStream) -> TokenStre
             }
         }
 
-        impl #impl_generics occams_rpc_stream::client::ClientTaskAction for #enum_name #ty_generics #where_clause {
+        impl #impl_generics occams_rpc_stream::client::task::ClientTaskAction for #enum_name #ty_generics #where_clause {
             #[inline]
             fn get_action<'a>(&'a self) -> occams_rpc_stream::proto::RpcAction<'a> {
                 match self {
@@ -234,7 +234,7 @@ pub fn client_task_enum_impl(attr: TokenStream, input: TokenStream) -> TokenStre
             }
         }
 
-        impl #impl_generics occams_rpc_stream::client::ClientTaskGetResult<#error_type> for #enum_name #ty_generics #where_clause {
+        impl #impl_generics occams_rpc_stream::client::task::ClientTaskGetResult<#error_type> for #enum_name #ty_generics #where_clause {
             #[inline]
             fn get_result(&self) -> Result<(), &occams_rpc_core::error::RpcError<#error_type>> {
                 match self {
@@ -243,7 +243,7 @@ pub fn client_task_enum_impl(attr: TokenStream, input: TokenStream) -> TokenStre
             }
         }
 
-        impl #impl_generics occams_rpc_stream::client::ClientTaskDone for #enum_name #ty_generics #where_clause {
+        impl #impl_generics occams_rpc_stream::client::task::ClientTaskDone for #enum_name #ty_generics #where_clause {
             #[inline]
             fn set_custom_error<C: occams_rpc_core::Codec>(&mut self, codec: &C, res: occams_rpc_core::error::EncodedErr) {
                 match self {
@@ -273,7 +273,7 @@ pub fn client_task_enum_impl(attr: TokenStream, input: TokenStream) -> TokenStre
             }
         }
 
-        impl #impl_generics occams_rpc_stream::client::ClientTask for #enum_name #ty_generics #where_clause {}
+        impl #impl_generics occams_rpc_stream::client::task::ClientTask for #enum_name #ty_generics #where_clause {}
     };
 
     TokenStream::from(expanded)
@@ -281,7 +281,7 @@ pub fn client_task_enum_impl(attr: TokenStream, input: TokenStream) -> TokenStre
 
 /// ```compile_fail
 /// use occams_rpc_stream_macros::{client_task, client_task_enum};
-/// use occams_rpc_stream::client::ClientTaskCommon;
+/// use occams_rpc_stream::client::task::ClientTaskCommon;
 /// use occams_rpc_core::error::{RpcErrCodec, RpcError};
 /// use crossfire::MTx;
 /// use serde_derive::{Deserialize, Serialize};

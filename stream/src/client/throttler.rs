@@ -17,6 +17,7 @@ impl Throttler {
         self.wg.left() + 1 > self.thresholds.load(Ordering::Relaxed)
     }
 
+    #[allow(dead_code)]
     #[inline(always)]
     pub fn is_full(&self) -> bool {
         self.wg.left() >= self.thresholds.load(Ordering::Relaxed)

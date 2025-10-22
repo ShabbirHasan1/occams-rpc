@@ -4,10 +4,7 @@ use occams_rpc_core::{
     Codec,
     error::{RpcErrCodec, RpcError, RpcIntErr},
 };
-use occams_rpc_stream::client::{
-    ClientTaskAction, ClientTaskCommon, ClientTaskDecode, ClientTaskDone, ClientTaskEncode,
-    ClientTaskGetResult,
-};
+use occams_rpc_stream::client::task::*;
 
 use nix::errno::Errno;
 use occams_rpc_stream::proto::RpcAction;

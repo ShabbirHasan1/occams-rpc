@@ -6,9 +6,10 @@ use occams_rpc_codec::MsgpCodec;
 use occams_rpc_core::error::RpcError;
 #[cfg(not(feature = "tokio"))]
 use occams_rpc_smol::SmolRT;
+use occams_rpc_stream::client::stream::ClientStream;
+use occams_rpc_stream::client::task::*;
 use occams_rpc_stream::client::*;
-use occams_rpc_stream::client_stream::*;
-use occams_rpc_stream::{error::RpcIntErr, macros::*};
+use occams_rpc_stream::error::RpcIntErr;
 #[cfg(feature = "tokio")]
 use occams_rpc_tokio::TokioRT;
 use serde_derive::{Deserialize, Serialize};

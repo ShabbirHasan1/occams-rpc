@@ -31,16 +31,16 @@
 //! We utilize the [crossfire](https://docs.rs/crossfire) channel for parallelizing the work with
 //! coroutines.
 //!
-//! With an [ClientStream](crate::client_stream::ClientStream), the user sends packets in sequence,
+//! With an [ClientStream](crate::client::stream::ClientStream), the user sends packets in sequence,
 //! with a throttler controlling the IO depth of in-flight packets.
 //! An internal timer then registers the request through a channel, and when the response
 //! is received, it can optionally notify the user through a user-defined channel or another mechanism.
 //!
-//! In an [RpcServer](crate::server_impl::RpcServer), for each connection, there is one coroutine to read requests and one
+//! In an [RpcServer](crate::server::RpcServer), for each connection, there is one coroutine to read requests and one
 //! coroutine to write responses. Requests can be dispatched with a user-defined
-//! [ReqDispatch](crate::server::ReqDispatch) trait implementation.
+//! [ReqDispatch](crate::server::dispatch::ReqDispatch) trait implementation.
 //!
-//! Responses are received through a channel wrapped in [RespNoti](crate::server::RespNoti).
+//! Responses are received through a channel wrapped in [RespNoti](crate::server::task::RespNoti).
 //!
 //! ## Protocol
 //!
@@ -69,12 +69,6 @@
 extern crate captains_log;
 
 pub mod client;
-pub mod client_pool;
-pub mod client_stream;
-pub mod client_timer;
-pub mod macros;
 pub mod proto;
 pub mod server;
-pub mod server_impl;
-pub mod throttler;
 pub use occams_rpc_core::error;

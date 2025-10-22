@@ -2,7 +2,7 @@ use crossfire::{MTx, mpsc};
 use nix::errno::Errno;
 use occams_rpc_core::error::RpcError;
 use occams_rpc_stream::{
-    client::{ClientTaskAction, ClientTaskCommon, ClientTaskDone},
+    client::task::{ClientTaskAction, ClientTaskCommon, ClientTaskDone},
     proto::RpcAction,
 };
 use occams_rpc_stream_macros::{client_task, client_task_enum};

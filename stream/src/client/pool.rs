@@ -1,5 +1,5 @@
-use crate::client::{ClientCaller, ClientCallerBlocking, ClientFactory, ClientTaskDone};
-use crate::client_stream::ClientStream;
+use crate::client::stream::ClientStream;
+use crate::client::{ClientCaller, ClientCallerBlocking, ClientFactory, task::ClientTaskDone};
 use crossfire::{MAsyncRx, MAsyncTx, MTx, mpmc};
 use occams_rpc_core::{error::RpcIntErr, runtime::AsyncIO};
 use std::fmt;

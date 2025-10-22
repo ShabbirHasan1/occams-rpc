@@ -59,7 +59,7 @@ mod server_task_enum;
 /// use occams_rpc_stream_macros::client_task;
 /// use serde_derive::{Deserialize, Serialize};
 /// use crossfire::{mpsc, MTx};
-/// use occams_rpc_stream::client::*;
+/// use occams_rpc_stream::client::task::*;
 ///
 /// #[derive(Debug, Default, Deserialize, Serialize)]
 /// pub struct FileReadReq {
@@ -134,7 +134,7 @@ pub fn client_task(
 /// ### Example:
 ///
 /// ```rust
-/// use occams_rpc_stream::client::{ClientTask, ClientTaskCommon, ClientTaskAction, ClientTaskDone};
+/// use occams_rpc_stream::client::task::{ClientTask, ClientTaskCommon, ClientTaskAction, ClientTaskDone};
 /// use occams_rpc_core::error::RpcError;
 /// use nix::errno::Errno;
 /// use occams_rpc_stream_macros::{client_task, client_task_enum};
@@ -239,8 +239,8 @@ pub fn client_task_enum(
 /// ### Macro Arguments:
 ///
 /// The `server_task_enum` can accept either or both of "req" and "resp" flags.
-/// - If `req` is specified, the enum is request task, the macro will impl [ServerTaskDecode](crate::server::ServerTaskDecode), [ServerTaskAction](crate::ServerTaskAction). each variant must have an `#[action(...)]` attribute.
-/// - If "resp" is specified, the enum is response task. The macro will impl [ServerTaskEncode](crate::server::ServerTaskEncode), [ServerTaskDone](crate::server::ServerTaskDone)
+/// - If `req` is specified, the enum is request task, the macro will impl [ServerTaskDecode](crate::server::task::ServerTaskDecode), [ServerTaskAction](crate::server::task::ServerTaskAction). each variant must have an `#[action(...)]` attribute.
+/// - If "resp" is specified, the enum is response task. The macro will impl [ServerTaskEncode](crate::server::task::ServerTaskEncode), [ServerTaskDone](crate::server::task::ServerTaskDone)
 /// - If both `req` and `resp` is specified, the response type for `ServerTaskDecode<R>` and `ServerTaskDone<R>` is implicitly `Self` (the enum itself). `resp_type` can be omitted.
 /// - If only "req" is specified (and "resp" is not), then `resp_type` must be provided. This `resp_type` specifies the type `<R>` for parameters of `ServerTaskDecode<R>` and `ServerTaskDone<R>`.
 ///
@@ -253,7 +253,7 @@ pub fn client_task_enum(
 /// ### Example:
 ///
 /// ```rust
-/// use occams_rpc_stream::server_impl::ServerTaskVariant;
+/// use occams_rpc_stream::server::task::ServerTaskVariant;
 /// use occams_rpc_stream_macros::server_task_enum;
 /// use serde_derive::{Deserialize, Serialize};
 /// use nix::errno::Errno;

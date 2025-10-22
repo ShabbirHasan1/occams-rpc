@@ -2,7 +2,7 @@ use crate::client::*;
 use crate::server::*;
 use crate::*;
 use occams_rpc_stream::client::ClientConfig;
-use occams_rpc_stream::server::{ServerConfig, ServerTaskDone};
+use occams_rpc_stream::server::{ServerConfig, task::ServerTaskDone};
 
 #[logfn]
 #[rstest]

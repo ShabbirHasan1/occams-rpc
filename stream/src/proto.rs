@@ -37,8 +37,8 @@
 //! - `msg_len`
 //! - `blob_len`
 ///
-use crate::client::ClientTask;
-use crate::server::ServerTaskEncode;
+use crate::client::task::ClientTask;
+use crate::server::task::ServerTaskEncode;
 use occams_rpc_core::{Codec, error::*};
 use std::fmt;
 use std::io::Write;

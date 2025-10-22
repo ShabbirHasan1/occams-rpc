@@ -7,6 +7,14 @@
 //! An internal timer then registers the request through a channel, and when the response
 //! is received, it can optionally notify the user through a user-defined channel or another mechanism.
 
+use super::throttler::Throttler;
+use crate::client::task::ClientTaskDone;
+use crate::client::timer::ClientTaskTimer;
+use crate::{client::*, proto};
+use crossfire::*;
+use futures::pin_mut;
+use occams_rpc_core::runtime::*;
+use std::time::Duration;
 use std::{
     cell::UnsafeCell,
     fmt,
@@ -19,13 +27,6 @@ use std::{
     },
     task::{Context, Poll},
 };
-
-use crate::client_timer::ClientTaskTimer;
-use crate::{client::*, proto, throttler::*};
-use crossfire::*;
-use futures::pin_mut;
-use occams_rpc_core::{error::*, runtime::*};
-use std::time::Duration;
 use sync_utils::time::DelayedTime;
 
 /// ClientStream represents a client-side connection.

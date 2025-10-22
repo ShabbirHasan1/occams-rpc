@@ -4,9 +4,12 @@ use crate::*;
 use crossfire::mpsc;
 use io_buffer::{Buffer, rand_buffer}; // Added rand_buffer
 use nix::errno::Errno;
-use occams_rpc_stream::client::{ClientConfig, ClientTaskGetResult};
+use occams_rpc_stream::client::{ClientConfig, task::ClientTaskGetResult};
 use occams_rpc_stream::proto::RpcAction;
-use occams_rpc_stream::server::{ServerConfig, ServerTaskAction, ServerTaskDone};
+use occams_rpc_stream::server::{
+    ServerConfig,
+    task::{ServerTaskAction, ServerTaskDone},
+};
 
 use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};

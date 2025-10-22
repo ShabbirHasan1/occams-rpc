@@ -1,14 +1,22 @@
 //! This module contains traits defined for the server-side
 //!
 
-use std::{fmt, future::Future, io, sync::Arc};
+pub mod task;
+use task::*;
+
+mod server;
+pub use server::RpcServer;
+
+pub mod dispatch;
+use dispatch::ReqDispatch;
+
+pub use occams_rpc_core::ServerConfig;
 
 use crate::proto::RpcAction;
 use captains_log::filter::Filter;
-use crossfire::*;
 use io_buffer::Buffer;
-pub use occams_rpc_core::ServerConfig;
 use occams_rpc_core::{Codec, error::*, io::*, runtime::AsyncIO};
+use std::{fmt, future::Future, io, sync::Arc};
 
 /// A central hub defined by the user for the server-side, to define the customizable plugin.
 pub trait ServerFactory: Sync + Send + 'static + Sized {
@@ -90,107 +98,6 @@ pub trait ServerTransport<F: ServerFactory>: Send + Sync + Sized + 'static + fmt
     fn close_conn(&self) -> impl Future<Output = ()> + Send;
 }
 
-/// ReqDispatch should be a user-defined struct initialized for every connection, by ServerFactory::new_dispatcher.
-///
-/// ReqDispatch must have Sync, because the connection reader and writer access concurrently.
-///
-/// A `Codec` should be created and holds inside, shared by the read/write coroutine.
-/// If you have encryption in the Codec, it could have shared states.
-pub trait ReqDispatch<R: ServerTaskResp>: Send + Sync + Sized + 'static {
-    /// Decode and handle the request, called from the connection reader coroutine.
-    ///
-    /// You can dispatch them to a worker pool.
-    /// If you are processing them directly in the connection coroutine, should make sure not
-    /// blocking the thread for long.
-    /// This is an async fn, but you should avoid waiting as much as possible.
-    /// Should return Err(()) when codec decode_req failed.
-    fn dispatch_req<'a>(
-        &'a self, req: RpcSvrReq<'a>, noti: RespNoti<R>,
-    ) -> impl Future<Output = Result<(), ()>> + Send;
-
-    fn get_codec(&self) -> &impl Codec;
-}
-
-/// A writer channel to send response to the server framework.
-///
-/// It can be cloned anywhere.
-/// The user doesn't need to call it directly.
-pub struct RespNoti<T: Send + 'static>(
-    pub(crate) crossfire::MTx<Result<T, (u64, Option<RpcIntErr>)>>,
-);
-
-impl<T: Send + 'static> Clone for RespNoti<T> {
-    #[inline]
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
-impl<T: Send + 'static> RespNoti<T> {
-    pub fn new(tx: crossfire::MTx<Result<T, (u64, Option<RpcIntErr>)>>) -> Self {
-        Self(tx)
-    }
-
-    #[inline]
-    pub fn done(self, task: T) {
-        let _ = self.0.send(Ok(task));
-    }
-
-    #[inline]
-    pub(crate) fn send_err(&self, seq: u64, err: Option<RpcIntErr>) -> Result<(), ()> {
-        if self.0.send(Err((seq, err))).is_err() { return Err(()) } else { Ok(()) }
-    }
-}
-
-/// Sum up trait for server response task
-pub trait ServerTaskResp: ServerTaskEncode + Send + Sized + Unpin + 'static + fmt::Debug {}
-
-/// How to decode a server request
-pub trait ServerTaskDecode<R: Send + Unpin + 'static>: Send + Sized + Unpin + 'static {
-    fn decode_req<'a, C: Codec>(
-        codec: &'a C, action: RpcAction<'a>, seq: u64, req: &'a [u8], blob: Option<Buffer>,
-        noti: RespNoti<R>,
-    ) -> Result<Self, ()>;
-}
-
-/// How to encode a server response
-///
-/// For a server task with any type of buffer, user can always return u8 slice, so the framework
-/// don't need to known the type, but this requires reference and lifetime to the task.
-/// for the returning EncodedErr, it's possible generated during the encode,
-/// Otherwise when existing EncodedErr held in `res` field, the user need to take the res field out of the task.
-pub trait ServerTaskEncode: Send + 'static + Unpin {
-    fn encode_resp<'a, 'b, C: Codec>(
-        &'a mut self, codec: &'b C, buf: &'b mut Vec<u8>,
-    ) -> (u64, Result<(usize, Option<&'a [u8]>), EncodedErr>);
-}
-
-/// How to notify Rpc framework when a task is done
-///
-/// This is not mandatory for the framework, this a guideline,
-/// You can skip this as long as you send the result back to RespNoti.
-pub trait ServerTaskDone<T: Send + 'static, E: RpcErrCodec>: Sized + 'static {
-    /// Should implement for enum delegation, not intended for user call
-    fn _set_result(&mut self, res: Result<(), E>) -> RespNoti<T>;
-
-    /// For users, set the result in the task and send it back
-    #[inline]
-    fn set_result(mut self, res: Result<(), E>)
-    where
-        T: std::convert::From<Self>,
-    {
-        // NOTE: To allow a trait to consume self, must require Sized
-        let noti = self._set_result(res);
-        let parent: T = self.into();
-        noti.done(parent);
-    }
-}
-
-/// Get RpcAction from a enum task, or a sub-type that fits multiple RpcActions
-pub trait ServerTaskAction {
-    fn get_action<'a>(&'a self) -> RpcAction<'a>;
-}
-
 /// A temporary struct to hold data buffer return by ServerTransport
 ///
 /// NOTE: `RpcAction` and `msg` contains slice that reference to ServerTransport's internal buffer,
@@ -222,7 +129,7 @@ pub struct RpcSvrResp {
     pub res: Option<Result<(), EncodedErr>>,
 }
 
-impl ServerTaskEncode for RpcSvrResp {
+impl task::ServerTaskEncode for RpcSvrResp {
     #[inline]
     fn encode_resp<'a, 'b, C: Codec>(
         &'a mut self, _codec: &'b C, buf: &'b mut Vec<u8>,

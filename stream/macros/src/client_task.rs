@@ -159,7 +159,7 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
         };
 
         quote! {
-            impl #impl_generics_for_impl occams_rpc_stream::client::ClientTaskAction for #struct_name #ty_generics_for_impl #where_clause_for_impl {
+            impl #impl_generics_for_impl occams_rpc_stream::client::task::ClientTaskAction for #struct_name #ty_generics_for_impl #where_clause_for_impl {
                 #[inline]
                 fn get_action<'a>(&'a self) -> occams_rpc_stream::proto::RpcAction<'a> {
                     #action_conversion
@@ -185,7 +185,7 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
             ),
         };
         quote! {
-            impl #impl_generics_for_impl occams_rpc_stream::client::ClientTaskAction for #struct_name #ty_generics_for_impl #where_clause_for_impl {
+            impl #impl_generics_for_impl occams_rpc_stream::client::task::ClientTaskAction for #struct_name #ty_generics_for_impl #where_clause_for_impl {
                 #[inline]
                 fn get_action<'a>(&'a self) -> occams_rpc_stream::proto::RpcAction<'a> {
                     #action_token_stream
@@ -331,7 +331,7 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
         };
 
         quote! {
-            impl #impl_generics occams_rpc_stream::client::ClientTaskGetResult<#error_type> for #struct_name #ty_generics #where_clause {
+            impl #impl_generics occams_rpc_stream::client::task::ClientTaskGetResult<#error_type> for #struct_name #ty_generics #where_clause {
                 #[inline]
                 fn get_result(&self) -> Result<(), &occams_rpc_core::error::RpcError<#error_type>> {
                     match self.#res_field_name.as_ref() {
@@ -342,7 +342,7 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
                 }
             }
 
-            impl #impl_generics occams_rpc_stream::client::ClientTaskDone for #struct_name #ty_generics #where_clause_with_into {
+            impl #impl_generics occams_rpc_stream::client::task::ClientTaskDone for #struct_name #ty_generics #where_clause_with_into {
                 #[inline]
                 fn set_custom_error<C: occams_rpc_core::Codec>(&mut self, codec: &C, res: occams_rpc_core::error::EncodedErr) {
                     let rpc_error = match res {
@@ -434,7 +434,7 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
             }
         }
 
-        impl #impl_generics_for_impl occams_rpc_stream::client::ClientTaskEncode for #struct_name #ty_generics_for_impl #where_clause_for_impl {
+        impl #impl_generics_for_impl occams_rpc_stream::client::task::ClientTaskEncode for #struct_name #ty_generics_for_impl #where_clause_for_impl {
             #[inline]
             fn encode_req<C: occams_rpc_core::Codec>(&self, codec: &C, buf: &mut Vec<u8>) -> Result<usize, ()> {
                 codec.encode_into(&self.#req_field_name, buf)
@@ -443,7 +443,7 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
             #get_req_blob_body
         }
 
-        impl #impl_generics_for_impl occams_rpc_stream::client::ClientTaskDecode for #struct_name #ty_generics_for_impl #where_clause_for_impl {
+        impl #impl_generics_for_impl occams_rpc_stream::client::task::ClientTaskDecode for #struct_name #ty_generics_for_impl #where_clause_for_impl {
             #[inline]
             fn decode_resp<C: occams_rpc_core::Codec>(&mut self, codec: &C, buffer: &[u8]) -> Result<(), ()> {
                 let resp = codec.decode(buffer)?;
@@ -462,7 +462,7 @@ pub fn client_task_impl(attr: TokenStream, input: TokenStream) -> TokenStream {
 /// #[client_task]
 /// pub struct FileTaskWrongResp {
 ///     #[field(common)]
-///     common: occams_rpc_stream::client::ClientTaskCommon,
+///     common: occams_rpc_stream::client::task::ClientTaskCommon,
 ///     #[field(req)]
 ///     req: (),
 ///     #[field(resp)]
@@ -478,7 +478,7 @@ fn test_resp_not_option() {}
 /// #[client_task]
 /// pub struct FileTaskNoReq {
 ///     #[field(common)]
-///     common: occams_rpc_stream::client::ClientTaskCommon,
+///     common: occams_rpc_stream::client::task::ClientTaskCommon,
 ///     #[field(resp)]
 ///     resp: Option<()>,
 /// }
@@ -492,7 +492,7 @@ fn test_missing_req() {}
 /// #[client_task]
 /// pub struct FileTaskNoResp {
 ///     #[field(common)]
-///     common: occams_rpc_stream::client::ClientTaskCommon,
+///     common: occams_rpc_stream::client::task::ClientTaskCommon,
 ///     #[field(req)]
 ///     req: (),
 /// }
@@ -503,7 +503,7 @@ fn test_missing_resp() {}
 
 /// ```compile_fail
 /// use occams_rpc_stream_macros::*;
-/// use occams_rpc_stream::client::ClientTaskCommon;
+/// use occams_rpc_stream::client::task::ClientTaskCommon;
 /// use occams_rpc_core::error::RpcError;
 /// use nix::errno::Errno;
 ///
@@ -524,7 +524,7 @@ fn test_missing_noti_field() {}
 
 /// ```compile_fail
 /// use occams_rpc_stream_macros::*;
-/// use occams_rpc_stream::client::ClientTaskCommon;
+/// use occams_rpc_stream::client::task::ClientTaskCommon;
 /// use crossfire::MTx;
 ///
 /// #[client_task]

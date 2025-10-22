@@ -11,9 +11,9 @@ use std::{
     task::*,
 };
 
+use crate::client::task::ClientTaskDone;
 use crate::client::*;
 use crossfire::{stream::AsyncStream, *};
-use occams_rpc_core::error::*;
 use rustc_hash::FxHashMap;
 use sync_utils::waitgroup::WaitGroupGuard;
 
@@ -22,7 +22,7 @@ pub struct ClientTaskItem<T: ClientTask> {
     _upstream: WaitGroupGuard,
 }
 
-pub struct DelayTasksBatch<T: ClientTask> {
+pub(crate) struct DelayTasksBatch<T: ClientTask> {
     tasks: FxHashMap<u64, ClientTaskItem<T>>,
 }
 

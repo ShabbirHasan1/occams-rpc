@@ -6,10 +6,14 @@ use io_buffer::{Buffer, rand_buffer};
 use nix::errno::Errno;
 use occams_rpc_codec::MsgpCodec;
 use occams_rpc_stream::client::{
-    ClientConfig, ClientTaskDone, ClientTaskEncode, ClientTaskGetResult,
+    ClientConfig,
+    task::{ClientTaskDone, ClientTaskEncode, ClientTaskGetResult},
 };
 use occams_rpc_stream::proto::{RPC_REQ_HEADER_LEN, RpcAction};
-use occams_rpc_stream::server::{ServerConfig, ServerTaskAction, ServerTaskDone};
+use occams_rpc_stream::server::{
+    ServerConfig,
+    task::{ServerTaskAction, ServerTaskDone},
+};
 use std::convert::TryFrom;
 use std::time::Instant;
 
