@@ -249,38 +249,46 @@ impl RpcErrCodec for String {
 }
 
 /// "rpc_" prefix is reserved for internal error
+///
+/// NOTE Retriable error: RpcIntErr as u8 < RpcIntErr::Method
 #[derive(
-    strum::Display, strum::EnumString, strum::AsRefStr, PartialEq, Clone, thiserror::Error,
+    strum::Display,
+    strum::EnumString,
+    strum::AsRefStr,
+    PartialEq,
+    PartialOrd,
+    Clone,
+    thiserror::Error,
 )]
 #[repr(u8)]
 pub enum RpcIntErr {
     /// Ping or connect error
     #[strum(serialize = "rpc_unreachable")]
-    Unreachable,
+    Unreachable = 0,
     /// IO error
     #[strum(serialize = "rpc_io_err")]
-    IO,
+    IO = 1,
     /// Task timeout
     #[strum(serialize = "rpc_timeout")]
-    Timeout,
+    Timeout = 2,
     /// Method not found
     #[strum(serialize = "rpc_method_notfound")]
-    Method,
+    Method = 3,
     /// service notfound
     #[strum(serialize = "rpc_service_notfound")]
-    Service,
+    Service = 4,
     /// Encode Error
     #[strum(serialize = "rpc_encode")]
-    Encode,
+    Encode = 5,
     /// Decode Error
     #[strum(serialize = "rpc_decode")]
-    Decode,
+    Decode = 6,
     /// Internal error
     #[strum(serialize = "rpc_internal_err")]
-    Internal,
+    Internal = 7,
     /// invalid version number in rpc header
     #[strum(serialize = "rpc_invalid_ver")]
-    Version,
+    Version = 8,
 }
 
 // The default Debug derive just ignore strum customized string, by strum only have a Display derive
@@ -408,6 +416,9 @@ mod tests {
         let e = RpcIntErr::from_str(s).expect("parse");
         assert_eq!(e, RpcIntErr::Timeout);
         assert!(RpcIntErr::from_str("timeoutss").is_err());
+        assert!(RpcIntErr::Timeout < RpcIntErr::Method);
+        assert!(RpcIntErr::IO < RpcIntErr::Method);
+        assert!(RpcIntErr::Unreachable < RpcIntErr::Method);
     }
 
     #[test]
