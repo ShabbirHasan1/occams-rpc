@@ -6,18 +6,26 @@ pub const RPC_ERR_PREFIX: &'static str = "rpc_";
 /// A error type defined by client-side user logic
 ///
 /// Due to possible decode
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error)]
 pub enum RpcError<E: RpcErrCodec> {
     User(E),
     Rpc(RpcIntErr),
 }
+
 impl<E: RpcErrCodec> fmt::Display for RpcError<E> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::User(e) => fmt::Display::fmt(e, f),
+            Self::User(e) => RpcErrCodec::fmt(e, f),
             Self::Rpc(e) => fmt::Display::fmt(e, f),
         }
+    }
+}
+
+impl<E: RpcErrCodec> fmt::Debug for RpcError<E> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(self, f)
     }
 }
 
@@ -83,17 +91,26 @@ impl<E: RpcErrCodec> From<RpcIntErr> for RpcError<E> {
     }
 }
 
-/// Because Rust does not allow overlapping impl, we only imple RpcError trait for i32 and &str
-/// and String. If you use other type as error, you should add and implementation with code
-/// manually.
+/// Serialize and Deserialize trait for custom RpcError
+///
+/// There is only two forms for rpc transport layer, u32 and String, choose one of them.
+///
+/// Because Rust does not allow overlapping impl, we only imple RpcErrCodec trait by default for the following types:
+/// - ()
+/// - from i8 to u32
+/// - String
+/// - nix::errno::Errno
+///
+/// If you use other type as error, you can implement manually:
 ///
 /// # Example
 ///
+/// with serde_derive
 /// ```rust
 /// use serde_derive::{Serialize, Deserialize};
 /// use occams_rpc_core::{error::{RpcErrCodec, RpcIntErr, EncodedErr}, Codec};
 /// use strum::Display;
-/// #[derive(Serialize, Deserialize, Debug, Display)]
+/// #[derive(Serialize, Deserialize, Debug)]
 /// pub enum MyError {
 ///     NoSuchFile,
 ///     TooManyRequest,
@@ -107,6 +124,7 @@ impl<E: RpcErrCodec> From<RpcIntErr> for RpcError<E> {
 ///             Err(())=>EncodedErr::Rpc(RpcIntErr::Encode),
 ///         }
 ///     }
+///
 ///     #[inline(always)]
 ///     fn decode<C: Codec>(codec: &C, buf: Result<u32, &[u8]>) -> Result<Self, ()> {
 ///         if let Err(b) = buf {
@@ -115,12 +133,21 @@ impl<E: RpcErrCodec> From<RpcIntErr> for RpcError<E> {
 ///             Err(())
 ///         }
 ///     }
+///     #[inline(always)]
+///     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+///         std::fmt::Debug::fmt(self, f)
+///     }
 /// }
 /// ```
-pub trait RpcErrCodec: Send + Sized + 'static + Unpin + fmt::Debug + fmt::Display {
+pub trait RpcErrCodec: Send + Sized + 'static + Unpin {
     fn encode<C: Codec>(&self, codec: &C) -> EncodedErr;
 
     fn decode<C: Codec>(codec: &C, buf: Result<u32, &[u8]>) -> Result<Self, ()>;
+
+    /// You can choose to use std::fmt::Debug or std::fmt::Display for the type.
+    ///
+    /// NOTE that this method exists because rust does not have Display for ().
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result;
 }
 
 macro_rules! impl_rpc_error_for_num {
@@ -139,6 +166,11 @@ macro_rules! impl_rpc_error_for_num {
                     }
                 }
                 Err(())
+            }
+
+            #[inline(always)]
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "errno {}", self)
             }
         }
     };
@@ -166,6 +198,33 @@ impl RpcErrCodec for nix::errno::Errno {
         }
         Err(())
     }
+
+    #[inline(always)]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl RpcErrCodec for () {
+    #[inline(always)]
+    fn encode<C: Codec>(&self, _codec: &C) -> EncodedErr {
+        EncodedErr::Num(0u32)
+    }
+
+    #[inline(always)]
+    fn decode<C: Codec>(_codec: &C, buf: Result<u32, &[u8]>) -> Result<Self, ()> {
+        if let Ok(i) = buf {
+            if i == 0 {
+                return Ok(());
+            }
+        }
+        Err(())
+    }
+
+    #[inline(always)]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "err")
+    }
 }
 
 impl RpcErrCodec for String {
@@ -181,6 +240,11 @@ impl RpcErrCodec for String {
             }
         }
         Err(())
+    }
+
+    #[inline(always)]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
     }
 }
 
