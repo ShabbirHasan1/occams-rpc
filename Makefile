@@ -28,11 +28,11 @@ test-core: init
 
 .PHONY: test-stream-macros
 test-stream-macros: init
-	cargo test -p occams-rpc-stream-macros
+	cargo test -p occams-rpc-stream-macros -- --nocapture
 
 .PHONY: test-api-macros
 test-api-macros: init
-	cargo test -p occams-rpc-api-macros
+	RUST_BACKTRACE=1 cargo test -p occams-rpc-api-macros -- --nocapture
 
 # usage:
 # make test-stream "test_normal --features tokio"
