@@ -11,6 +11,8 @@ use timer::ClientTaskTimer;
 
 mod pool;
 pub use pool::ClientPool;
+mod failover;
+pub use failover::FailoverPool;
 
 mod throttler;
 

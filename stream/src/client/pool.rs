@@ -28,6 +28,12 @@ pub struct ClientPool<F: ClientFactory, P: ClientTransport<F::IO>> {
     inner: Arc<ClientPoolInner<F, P>>,
 }
 
+impl<F: ClientFactory, P: ClientTransport<F::IO>> Clone for ClientPool<F, P> {
+    fn clone(&self) -> Self {
+        Self { tx_async: self.tx_async.clone(), tx: self.tx.clone(), inner: self.inner.clone() }
+    }
+}
+
 struct ClientPoolInner<F: ClientFactory, P: ClientTransport<F::IO>> {
     factory: Arc<F>,
     logger: F::Logger,
@@ -48,9 +54,16 @@ struct ClientPoolInner<F: ClientFactory, P: ClientTransport<F::IO>> {
 const ONE_SEC: Duration = Duration::from_secs(1);
 
 impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientPool<F, P> {
-    pub fn new(factory: Arc<F>, addr: &str) -> Self {
+    pub fn new(factory: Arc<F>, addr: &str, mut channel_size: usize) -> Self {
         let config = factory.get_config();
-        let (tx_async, rx) = mpmc::bounded_async(config.thresholds);
+        if config.thresholds > 0 {
+            if channel_size < config.thresholds {
+                channel_size = config.thresholds;
+            }
+        } else if channel_size == 0 {
+            channel_size = 128;
+        }
+        let (tx_async, rx) = mpmc::bounded_async(channel_size);
         let tx = tx_async.clone().into();
         let conn_id = format!("to {}", addr);
         let inner = Arc::new(ClientPoolInner {
@@ -67,6 +80,16 @@ impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientPool<F, P> {
         let s = Self { tx_async, tx, inner };
         s.spawn();
         s
+    }
+
+    #[inline(always)]
+    pub fn is_healthy(&self) -> bool {
+        self.inner.is_ok.load(Relaxed)
+    }
+
+    #[inline]
+    pub fn get_addr(&self) -> &str {
+        &self.inner.addr
     }
 
     #[inline]
