@@ -4,7 +4,7 @@ use occams_rpc_core::{
     error::{EncodedErr, RpcIntErr},
     Codec,
 };
-use occams_rpc_stream::server::RespNoti;
+use occams_rpc_stream::server::task::RespNoti;
 use std::sync::Arc;
 
 mod common;
@@ -32,7 +32,7 @@ async fn test_multi_error_service() {
     ServiceStatic::serve(&service_impl, req).await;
     let resp = rx.recv().await.unwrap().unwrap();
     assert_eq!(resp.seq, 1);
-    assert!(resp.res.is_ok());
+    assert!(resp.res.as_ref().unwrap().is_ok());
     let decoded_resp: MyResp = codec.decode(&resp.msg.unwrap()).unwrap();
     assert_eq!(decoded_resp.result, 11);
 
@@ -47,7 +47,10 @@ async fn test_multi_error_service() {
     ServiceStatic::serve(&service_impl, req).await;
     let resp = rx.recv().await.unwrap().unwrap();
     assert_eq!(resp.seq, 2);
-    assert_eq!(resp.res.unwrap_err(), EncodedErr::Buf("string error".to_string().into_bytes()));
+    assert_eq!(
+        resp.res.unwrap().unwrap_err(),
+        EncodedErr::Buf("string error".to_string().into_bytes())
+    );
 
     // Test i32 error
     let req = create_mock_request(
@@ -60,7 +63,7 @@ async fn test_multi_error_service() {
     ServiceStatic::serve(&service_impl, req).await;
     let resp = rx.recv().await.unwrap().unwrap();
     assert_eq!(resp.seq, 3);
-    assert_eq!(resp.res.unwrap_err(), EncodedErr::Num(42));
+    assert_eq!(resp.res.unwrap().unwrap_err(), EncodedErr::Num(42));
 
     // Test errno error
     let req = create_mock_request(
@@ -73,7 +76,7 @@ async fn test_multi_error_service() {
     ServiceStatic::serve(&service_impl, req).await;
     let resp = rx.recv().await.unwrap().unwrap();
     assert_eq!(resp.seq, 4);
-    assert_eq!(resp.res.unwrap_err(), EncodedErr::Num(nix::errno::Errno::EPERM as i32));
+    assert_eq!(resp.res.unwrap().unwrap_err(), EncodedErr::Num(nix::errno::Errno::EPERM as u32));
 
     // Test unknown method
     let req = create_mock_request(
@@ -86,7 +89,7 @@ async fn test_multi_error_service() {
     ServiceStatic::serve(&service_impl, req).await;
     let resp = rx.recv().await.unwrap().unwrap();
     assert_eq!(resp.seq, 5);
-    assert_eq!(resp.res.unwrap_err(), EncodedErr::Rpc(RpcIntErr::Method));
+    assert_eq!(resp.res.unwrap().unwrap_err(), EncodedErr::Rpc(RpcIntErr::Method));
 }
 
 #[tokio::test]
@@ -107,7 +110,7 @@ async fn test_impl_future_service() {
     ServiceStatic::serve(&service_impl, req).await;
     let resp = rx.recv().await.unwrap().unwrap();
     assert_eq!(resp.seq, 1);
-    assert!(resp.res.is_ok());
+    assert!(resp.res.as_ref().unwrap().is_ok());
     let decoded_resp: MyResp = codec.decode(&resp.msg.unwrap()).unwrap();
     assert_eq!(decoded_resp.result, 11);
 }
@@ -133,7 +136,7 @@ async fn test_async_trait_service() {
     ServiceStatic::serve(&service_impl, req).await;
     let resp = rx.recv().await.unwrap().unwrap();
     assert_eq!(resp.seq, 1);
-    assert!(resp.res.is_ok());
+    assert!(resp.res.as_ref().unwrap().is_ok());
     let decoded_resp: MyResp = codec.decode(&resp.msg.unwrap()).unwrap();
     assert_eq!(decoded_resp.result, 20);
 }
@@ -159,7 +162,7 @@ async fn test_service_mux_struct() {
     ServiceStatic::serve(&services, req).await;
     let resp = rx.recv().await.unwrap().unwrap();
     assert_eq!(resp.seq, 1);
-    assert!(resp.res.is_ok());
+    assert!(resp.res.as_ref().unwrap().is_ok());
     let decoded_resp: MyResp = codec.decode(&resp.msg.unwrap()).unwrap();
     assert_eq!(decoded_resp.result, 11);
 
@@ -174,7 +177,7 @@ async fn test_service_mux_struct() {
     ServiceStatic::serve(&services, req).await;
     let resp = rx.recv().await.unwrap().unwrap();
     assert_eq!(resp.seq, 2);
-    assert!(resp.res.is_ok());
+    assert!(resp.res.as_ref().unwrap().is_ok());
     let decoded_resp: MyResp = codec.decode(&resp.msg.unwrap()).unwrap();
     assert_eq!(decoded_resp.result, 21);
 
@@ -189,5 +192,5 @@ async fn test_service_mux_struct() {
     ServiceStatic::serve(&services, req).await;
     let resp = rx.recv().await.unwrap().unwrap();
     assert_eq!(resp.seq, 3);
-    assert_eq!(resp.res.unwrap_err(), EncodedErr::Rpc(RpcIntErr::Service));
+    assert_eq!(resp.res.unwrap().unwrap_err(), EncodedErr::Rpc(RpcIntErr::Service));
 }

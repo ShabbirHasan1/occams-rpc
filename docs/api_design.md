@@ -12,7 +12,7 @@ In each Request, contains `service` field, which should mach service name (in Pa
 
 # Service trait
 
-We suggest you define service interface first, in sperate code/crate shared beteen server and client.
+We suggest you define service interface first, in separate code/crate shared between server and client.
 ```
 #[endpoint_async(DemoClient)]
 pub trait DemoService {

@@ -4,11 +4,14 @@ mod factory;
 pub use factory::*;
 
 mod task;
-use task::APIClientReq;
+pub use task::APIClientReq;
+
+pub use occams_rpc_api_macros::endpoint_async;
+pub use occams_rpc_stream::client::ClientCaller;
 
 use occams_rpc_core::Codec;
 use occams_rpc_core::error::{EncodedErr, RpcErrCodec, RpcError, RpcIntErr};
-use occams_rpc_stream::client::{ClientCaller, ClientCallerBlocking, ClientFactory};
+use occams_rpc_stream::client::{ClientCallerBlocking, ClientFactory};
 use std::fmt;
 
 pub struct AsyncEndpoint<C>
@@ -28,7 +31,7 @@ where
     }
 
     pub async fn call<Req, Resp, E>(
-        &mut self, service_method: &'static str, req: &Req,
+        &self, service_method: &'static str, req: &Req,
     ) -> Result<Resp, RpcError<E>>
     where
         Req: serde::Serialize + fmt::Debug,
@@ -37,7 +40,8 @@ where
     {
         let (tx, rx) = crossfire::spsc::bounded_tx_blocking_rx_async::<APIClientReq>(1);
         // TODO should optimize one shot channel
-        ClientCaller::send_req(&self.caller, make_req(&self.codec, service_method, req, tx)).await;
+        <C as ClientCaller>::send_req(&self.caller, make_req(&self.codec, service_method, req, tx))
+            .await;
         return process_res(&self.codec, rx.recv().await);
     }
 }
