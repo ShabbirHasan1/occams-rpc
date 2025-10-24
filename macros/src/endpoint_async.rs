@@ -123,7 +123,7 @@ fn generate_client_struct(client_name: &Ident) -> proc_macro2::TokenStream {
             C: Clone,
             C: Sync,
             C: 'static,
-            C::Factory: occams_rpc_stream::client::ClientFactory<Task = occams_rpc::client::APIClientReq>,
+            C::Facts: occams_rpc_stream::client::ClientFacts<Task = occams_rpc::client::APIClientReq>,
         {
             pub endpoint: occams_rpc::client::AsyncEndpoint<C>,
         }
@@ -147,7 +147,7 @@ fn generate_client_impl(client_name: &Ident) -> proc_macro2::TokenStream {
             C: Clone,
             C: Sync,
             C: 'static,
-            C::Factory: occams_rpc_stream::client::ClientFactory<Task = occams_rpc::client::APIClientReq>,
+            C::Facts: occams_rpc_stream::client::ClientFacts<Task = occams_rpc::client::APIClientReq>,
         {
             #new_method
         }
@@ -284,7 +284,7 @@ fn generate_trait_impl(
                 C: Clone,
                 C: Sync,
                 C: 'static,
-                C::Factory: occams_rpc_stream::client::ClientFactory<Task = occams_rpc::client::APIClientReq>,
+                C::Facts: occams_rpc_stream::client::ClientFacts<Task = occams_rpc::client::APIClientReq>,
             {
                 #(#impl_methods)*
             }
@@ -297,7 +297,7 @@ fn generate_trait_impl(
                 C: Clone,
                 C: Sync,
                 C: 'static,
-                C::Factory: occams_rpc_stream::client::ClientFactory<Task = occams_rpc::client::APIClientReq>,
+                C::Facts: occams_rpc_stream::client::ClientFacts<Task = occams_rpc::client::APIClientReq>,
             {
                 #(#impl_methods)*
             }

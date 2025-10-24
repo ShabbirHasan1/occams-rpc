@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "codec", "macros", "runtime/tokio", "runtime/smol", "stream", "stream/macros", "transport/tcp", "transport/rdma", "transport/quic", "stream/test", ]
+members = ["core", "codec", "macros", "runtime/tokio", "runtime/smol", "stream", "stream/macros", "transport/tcp", "transport/rdma", "transport/quic", "test-suite", ]
 
 [package]
 name = "occams-rpc"

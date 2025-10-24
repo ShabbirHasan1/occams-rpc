@@ -25,7 +25,7 @@ you have to apply #[endpoint_async] macro to generate the client code with speci
 
 The generated `DemoClient` is a wrapper to
 
-will have a generic param `<C: ClientCaller<Factory: ClientFactory<Task = APIClientReq>>>`, and a new function to wrap a generic ClientCaller.
+will have a generic param `<C: ClientCaller<Factory: ClientFact<Task = APIClientReq>>>`, and a new function to wrap a generic ClientCaller.
 
 # Client
 
@@ -35,7 +35,7 @@ At the client-side. there should be:
 - ClientCaller: from occams_rpc_stream
     - ClientPool: To maintain worker pool,
     - FailoverPool: loadbalance and fail over then server unreachable.
-- ClientCactory: default factory that implements occams-rpc-stream::client::ClientFactory
+- ClientFactsDefault: default facts that implements occams-rpc-stream::client::ClientFact
 - AsyncEndpoint: provides `async fn call`  (occams_rpc::client), a wrapper of ClientCaller. AsyncEndpoint can be clone if ClientCaller impl Clone.
 - BlockingEndpoint: provides `fn call` (occams_rpc::client)
 

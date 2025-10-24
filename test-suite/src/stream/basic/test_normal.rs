@@ -1,5 +1,4 @@
-use crate::client::*;
-use crate::server::*;
+use crate::stream::{client::*, server::*};
 use crate::*;
 use crossfire::mpsc;
 use io_buffer::{Buffer, rand_buffer}; // Added rand_buffer

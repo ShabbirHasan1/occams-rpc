@@ -1,4 +1,6 @@
-use super::server::Request;
+pub use occams_rpc_api_macros::{service, service_mux_struct};
+
+use super::server::ServerReq;
 use occams_rpc_core::{Codec, error::RpcIntErr};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
@@ -13,10 +15,12 @@ pub trait ServiceStatic<C: Codec>: Send + Sync + 'static + Sized {
     /// For server_mux_struct to match
     const SERVICE_NAME: &'static str;
 
+    /// the #[service] macro should generate code like this:
+    /// ```no_compile
     /// match req.method
     ///     match req.decode::<RequestType>() {
     ///         Err(())=>{
-    ///             req.set_error(occams_rpc_core::error::RPC_ERR_DECODE);
+    ///             req.set_rpc_error(occams_rpc_core::error::RpcIntErr::Decode);
     ///             returnl
     ///         }
     ///         Ok(arg)=>{
@@ -25,19 +29,20 @@ pub trait ServiceStatic<C: Codec>: Send + Sync + 'static + Sized {
     ///                     req.set_result(resp);
     ///                 }
     ///                 Err(e)=>{
-    ///                     req.set_error()
+    ///                     req.set_error::<E: RpcErrCodec>(e)
     ///                 }
     ///             }
     ///         }
     ///     }
-    fn serve(&self, req: Request<C>) -> impl Future<Output = ()> + Send + Sized;
+    /// ```
+    fn serve(&self, req: ServerReq<C>) -> impl Future<Output = ()> + Send + Sized;
 }
 
 impl<S: ServiceStatic<C>, C: Codec> ServiceStatic<C> for Arc<S> {
     const SERVICE_NAME: &'static str = S::SERVICE_NAME;
 
     #[inline(always)]
-    fn serve(&self, req: Request<C>) -> impl Future<Output = ()> + Send + Sized {
+    fn serve(&self, req: ServerReq<C>) -> impl Future<Output = ()> + Send + Sized {
         self.as_ref().serve(req)
     }
 }
@@ -49,7 +54,7 @@ impl<S: ServiceStatic<C>, C: Codec> ServiceStatic<C> for Arc<S> {
 pub trait ServiceDyn<C: Codec>: Send + Sync + 'static {
     fn get_service_name(&self) -> &'static str;
 
-    async fn serve_dyn(&self, req: Request<C>);
+    async fn serve_dyn(&self, req: ServerReq<C>);
 }
 
 #[async_trait::async_trait]
@@ -60,7 +65,7 @@ impl<S: ServiceStatic<C>, C: Codec> ServiceDyn<C> for S {
     }
 
     #[inline(always)]
-    async fn serve_dyn(&self, req: Request<C>) {
+    async fn serve_dyn(&self, req: ServerReq<C>) {
         self.serve(req).await
     }
 }
@@ -88,7 +93,7 @@ impl<C: Codec> ServiceStatic<C> for ServiceMuxDyn<C> {
     const SERVICE_NAME: &'static str = "";
 
     #[inline(always)]
-    fn serve(&self, req: Request<C>) -> impl Future<Output = ()> + Send + Sized {
+    fn serve(&self, req: ServerReq<C>) -> impl Future<Output = ()> + Send + Sized {
         async move {
             if let Some(service) = self.map.get(req.service.as_str()) {
                 service.serve_dyn(req).await

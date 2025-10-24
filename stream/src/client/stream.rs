@@ -37,32 +37,32 @@ use sync_utils::time::DelayedTime;
 /// The user sends packets in sequence, with a throttler controlling the IO depth of in-flight packets.
 /// An internal timer then registers the request through a channel, and when the response
 /// is received, it can optionally notify the user through a user-defined channel or another mechanism.
-pub struct ClientStream<F: ClientFactory, P: ClientTransport<F::IO>> {
+pub struct ClientStream<F: ClientFacts, P: ClientTransport<F::IO>> {
     close_tx: Option<MTx<()>>,
     inner: Arc<ClientStreamInner<F, P>>,
 }
 
-impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientStream<F, P> {
+impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientStream<F, P> {
     /// Make a streaming connection to the server, returns [ClientStream] on success
     #[inline]
     pub fn connect(
-        factory: Arc<F>, addr: &str, conn_id: &str, last_resp_ts: Option<Arc<AtomicU64>>,
+        facts: Arc<F>, addr: &str, conn_id: &str, last_resp_ts: Option<Arc<AtomicU64>>,
     ) -> impl Future<Output = Result<Self, RpcIntErr>> + Send {
         async move {
-            let client_id = factory.get_client_id();
-            let conn = P::connect(addr, conn_id, factory.get_config()).await?;
-            Ok(Self::new(factory, conn, client_id, conn_id.to_string(), last_resp_ts))
+            let client_id = facts.get_client_id();
+            let conn = P::connect(addr, conn_id, facts.get_config()).await?;
+            Ok(Self::new(facts, conn, client_id, conn_id.to_string(), last_resp_ts))
         }
     }
 
     #[inline]
     fn new(
-        factory: Arc<F>, conn: P, client_id: u64, conn_id: String,
+        facts: Arc<F>, conn: P, client_id: u64, conn_id: String,
         last_resp_ts: Option<Arc<AtomicU64>>,
     ) -> Self {
         let (_close_tx, _close_rx) = mpmc::unbounded_async::<()>();
         let inner = Arc::new(ClientStreamInner::new(
-            factory,
+            facts,
             conn,
             client_id,
             conn_id,
@@ -71,7 +71,7 @@ impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientStream<F, P> {
         ));
         logger_debug!(inner.logger(), "{:?} connected", inner);
         let _inner = inner.clone();
-        inner.factory.spawn_detach(async move {
+        inner.facts.spawn_detach(async move {
             _inner.receive_loop().await;
         });
         Self { close_tx: Some(_close_tx), inner }
@@ -145,7 +145,7 @@ impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientStream<F, P> {
     }
 }
 
-impl<F: ClientFactory, P: ClientTransport<F::IO>> Drop for ClientStream<F, P> {
+impl<F: ClientFacts, P: ClientTransport<F::IO>> Drop for ClientStream<F, P> {
     fn drop(&mut self) {
         self.close_tx.take();
         let timer = self.inner.get_timer_mut();
@@ -154,13 +154,13 @@ impl<F: ClientFactory, P: ClientTransport<F::IO>> Drop for ClientStream<F, P> {
     }
 }
 
-impl<F: ClientFactory, P: ClientTransport<F::IO>> fmt::Debug for ClientStream<F, P> {
+impl<F: ClientFacts, P: ClientTransport<F::IO>> fmt::Debug for ClientStream<F, P> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.inner.fmt(f)
     }
 }
 
-struct ClientStreamInner<F: ClientFactory, P: ClientTransport<F::IO>> {
+struct ClientStreamInner<F: ClientFacts, P: ClientTransport<F::IO>> {
     client_id: u64,
     conn: P,
     seq: AtomicU64,
@@ -174,25 +174,25 @@ struct ClientStreamInner<F: ClientFactory, P: ClientTransport<F::IO>> {
     encode_buf: UnsafeCell<Vec<u8>>,
     codec: F::Codec,
     logger: F::Logger,
-    factory: Arc<F>,
+    facts: Arc<F>,
 }
 
-unsafe impl<F: ClientFactory, P: ClientTransport<F::IO>> Send for ClientStreamInner<F, P> {}
+unsafe impl<F: ClientFacts, P: ClientTransport<F::IO>> Send for ClientStreamInner<F, P> {}
 
-unsafe impl<F: ClientFactory, P: ClientTransport<F::IO>> Sync for ClientStreamInner<F, P> {}
+unsafe impl<F: ClientFacts, P: ClientTransport<F::IO>> Sync for ClientStreamInner<F, P> {}
 
-impl<F: ClientFactory, P: ClientTransport<F::IO>> fmt::Debug for ClientStreamInner<F, P> {
+impl<F: ClientFacts, P: ClientTransport<F::IO>> fmt::Debug for ClientStreamInner<F, P> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.conn.fmt(f)
     }
 }
 
-impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientStreamInner<F, P> {
+impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientStreamInner<F, P> {
     pub fn new(
-        factory: Arc<F>, conn: P, client_id: u64, conn_id: String, close_rx: MAsyncRx<()>,
+        facts: Arc<F>, conn: P, client_id: u64, conn_id: String, close_rx: MAsyncRx<()>,
         last_resp_ts: Option<Arc<AtomicU64>>,
     ) -> Self {
-        let config = factory.get_config();
+        let config = facts.get_config();
         let mut thresholds = config.thresholds;
         if thresholds == 0 {
             thresholds = 128;
@@ -208,9 +208,9 @@ impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientStreamInner<F, P> {
             last_resp_ts,
             has_err: AtomicBool::new(false),
             codec: F::Codec::default(),
-            logger: factory.new_logger(&conn_id),
+            logger: facts.new_logger(&conn_id),
             timer: UnsafeCell::new(ClientTaskTimer::new(conn_id, config.task_timeout, thresholds)),
-            factory,
+            facts,
         };
         logger_trace!(client_inner.logger, "{:?} throttler is set to {}", client_inner, thresholds,);
         client_inner
@@ -249,7 +249,7 @@ impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientStreamInner<F, P> {
                 RpcIntErr::IO,
             );
             task.set_rpc_error(RpcIntErr::IO);
-            self.factory.error_handle(task);
+            self.facts.error_handle(task);
             timer.pending_task_count_ref().fetch_sub(1, Ordering::SeqCst); // rollback
             return Err(RpcIntErr::IO);
         }
@@ -310,7 +310,7 @@ impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientStreamInner<F, P> {
                     timer.stop_reg_task();
                     logger_warn!(self.logger, "{:?} sending task {:?} err: {}", self, task, e);
                     task.set_rpc_error(RpcIntErr::IO);
-                    self.factory.error_handle(task);
+                    self.facts.error_handle(task);
                     return Err(RpcIntErr::IO);
                 } else {
                     let wg = self.throttler.add_task();
@@ -372,7 +372,7 @@ impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientStreamInner<F, P> {
                 }
                 if let Err(_e) = self
                     .conn
-                    .read_resp(self.factory.as_ref(), &self.logger, &self.codec, None, timer)
+                    .read_resp(self.facts.as_ref(), &self.logger, &self.codec, None, timer)
                     .await
                 {
                     self.closed.store(true, Ordering::SeqCst);
@@ -383,7 +383,7 @@ impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientStreamInner<F, P> {
                 match self
                     .conn
                     .read_resp(
-                        self.factory.as_ref(),
+                        self.facts.as_ref(),
                         &self.logger,
                         &self.codec,
                         Some(&self.close_rx),
@@ -418,13 +418,13 @@ impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientStreamInner<F, P> {
                     logger_debug!(self.logger, "{:?} receive_loop error: {}", self, e);
                     self.closed.store(true, Ordering::SeqCst);
                     let timer = self.get_timer_mut();
-                    timer.clean_pending_tasks(self.factory.as_ref());
+                    timer.clean_pending_tasks(self.facts.as_ref());
                     // If pending_task_count > 0 means some tasks may still remain in the pending chan
                     while timer.pending_task_count_ref().load(Ordering::SeqCst) > 0 {
                         // After the 'closed' flag has taken effect,
                         // pending_task_count will not keep growing,
                         // so there is no need to sleep here.
-                        timer.clean_pending_tasks(self.factory.as_ref());
+                        timer.clean_pending_tasks(self.facts.as_ref());
                         <F::IO as AsyncIO>::sleep(Duration::from_secs(1)).await;
                     }
                     return;
@@ -442,7 +442,7 @@ impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientStreamInner<F, P> {
             self.throttler.get_inflight_count()
         );
         let timer = self.get_timer_mut();
-        timer.adjust_task_queue(self.factory.as_ref());
+        timer.adjust_task_queue(self.facts.as_ref());
         return;
     }
 
@@ -452,16 +452,16 @@ impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientStreamInner<F, P> {
     }
 }
 
-impl<F: ClientFactory, P: ClientTransport<F::IO>> Drop for ClientStreamInner<F, P> {
+impl<F: ClientFacts, P: ClientTransport<F::IO>> Drop for ClientStreamInner<F, P> {
     fn drop(&mut self) {
         let timer = self.get_timer_mut();
-        timer.clean_pending_tasks(self.factory.as_ref());
+        timer.clean_pending_tasks(self.facts.as_ref());
     }
 }
 
 struct ReceiverTimerFuture<'a, F, P, I, FR>
 where
-    F: ClientFactory,
+    F: ClientFacts,
     P: ClientTransport<F::IO>,
     I: TimeInterval,
     FR: Future<Output = Result<(), RpcIntErr>> + Unpin,
@@ -473,7 +473,7 @@ where
 
 impl<'a, F, P, I, FR> ReceiverTimerFuture<'a, F, P, I, FR>
 where
-    F: ClientFactory,
+    F: ClientFacts,
     P: ClientTransport<F::IO>,
     I: TimeInterval,
     FR: Future<Output = Result<(), RpcIntErr>> + Unpin,
@@ -488,7 +488,7 @@ where
 // Err(e) when connection error
 impl<'a, F, P, I, FR> Future for ReceiverTimerFuture<'a, F, P, I, FR>
 where
-    F: ClientFactory,
+    F: ClientFacts,
     P: ClientTransport<F::IO>,
     I: TimeInterval,
     FR: Future<Output = Result<(), RpcIntErr>> + Unpin,

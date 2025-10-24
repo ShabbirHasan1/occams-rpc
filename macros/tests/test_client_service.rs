@@ -6,7 +6,7 @@ use occams_rpc_core::{ClientConfig, Codec};
 use occams_rpc_stream::client::task::{
     ClientTaskAction, ClientTaskDecode, ClientTaskDone, ClientTaskEncode,
 };
-use occams_rpc_stream::client::{ClientCaller, ClientFactory};
+use occams_rpc_stream::client::{ClientCaller, ClientFacts};
 use occams_rpc_stream::proto::RpcAction;
 use occams_rpc_tokio::TokioRT;
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,7 @@ struct StoredReq {
 #[derive(Clone)]
 struct MockFactory(ClientConfig);
 
-impl ClientFactory for MockFactory {
+impl ClientFacts for MockFactory {
     type Logger = captains_log::filter::DummyFilter;
     type Codec = MsgpCodec;
     type Task = APIClientReq;
@@ -60,7 +60,7 @@ impl MockCaller {
 }
 
 impl ClientCaller for MockCaller {
-    type Factory = MockFactory;
+    type Facts = MockFactory;
 
     async fn send_req(&self, mut task: APIClientReq) {
         println!("Sending request: {:?}", task);

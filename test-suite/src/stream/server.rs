@@ -1,6 +1,7 @@
 use super::client::{FileAction, FileIOReq, FileIOResp, FileOpenReq};
 use occams_rpc_codec::MsgpCodec;
 use occams_rpc_stream::server::{dispatch::*, task::*, *};
+use occams_rpc_tcp::TcpServer;
 use std::sync::Arc;
 
 use captains_log::filter::LogFilter;
@@ -13,9 +14,9 @@ where
     H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
     FH: Future<Output = Result<(), ()>> + Send + 'static,
 {
-    let factory = Arc::new(FileServer::new(server_handle, config));
-    let mut server = RpcServer::new(factory);
-    let local_addr = server.listen(addr)?;
+    let facts = Arc::new(FileServer::new(server_handle, config));
+    let mut server = RpcServer::new(facts);
+    let local_addr = server.listen::<TcpServer<crate::RT>>(addr)?;
     Ok((server, local_addr))
 }
 
@@ -39,14 +40,12 @@ where
     }
 }
 
-impl<H, FH> ServerFactory for FileServer<H, FH>
+impl<H, FH> ServerFacts for FileServer<H, FH>
 where
     H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
     FH: Future<Output = Result<(), ()>> + Send + 'static,
 {
     type Logger = Arc<LogFilter>;
-
-    type Transport = occams_rpc_tcp::TcpServer<Self>;
 
     type IO = crate::RT;
 

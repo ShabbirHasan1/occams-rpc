@@ -35,11 +35,11 @@ pub async fn init_client(
     let rt = TokioRT::new(tokio::runtime::Handle::current());
     #[cfg(not(feature = "tokio"))]
     let rt = SmolRT::new_global();
-    let factory = Arc::new(FileClient::new(config, rt));
-    ClientStream::connect(factory, addr, &format!("to {}", addr), last_resp_ts).await
+    let facts = Arc::new(FileClient::new(config, rt));
+    ClientStream::connect(facts, addr, &format!("to {}", addr), last_resp_ts).await
 }
 
-impl ClientFactory for FileClient {
+impl ClientFacts for FileClient {
     type Codec = MsgpCodec;
 
     type Task = FileClientTask;

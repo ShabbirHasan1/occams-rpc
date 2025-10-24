@@ -6,7 +6,7 @@ use occams_rpc_core::runtime::AsyncIO;
 use occams_rpc_core::{ClientConfig, error::*};
 use occams_rpc_stream::client::task::{ClientTaskDecode, ClientTaskDone};
 use occams_rpc_stream::client::timer::ClientTaskTimer;
-use occams_rpc_stream::client::{ClientFactory, ClientTransport};
+use occams_rpc_stream::client::{ClientFacts, ClientTransport};
 use occams_rpc_stream::proto;
 use std::cell::UnsafeCell;
 use std::mem::transmute;
@@ -48,9 +48,7 @@ impl<IO: AsyncIO> TcpClient<IO> {
         buf
     }
 
-    async fn _recv_and_dump<F: ClientFactory>(
-        &self, logger: &F::Logger, l: usize,
-    ) -> io::Result<()> {
+    async fn _recv_and_dump<F: ClientFacts>(&self, logger: &F::Logger, l: usize) -> io::Result<()> {
         let reader = self.get_stream_mut();
         // TODO is there dump ?
         match Buffer::alloc(l as i32) {
@@ -70,8 +68,8 @@ impl<IO: AsyncIO> TcpClient<IO> {
     }
 
     #[inline]
-    async fn _recv_error<F: ClientFactory>(
-        &self, factory: &F, logger: &F::Logger, codec: &F::Codec, resp_head: &proto::RespHead,
+    async fn _recv_error<F: ClientFacts>(
+        &self, facts: &F, logger: &F::Logger, codec: &F::Codec, resp_head: &proto::RespHead,
         mut task: F::Task,
     ) -> io::Result<()> {
         log_debug_assert!(resp_head.flag > 0);
@@ -79,7 +77,7 @@ impl<IO: AsyncIO> TcpClient<IO> {
         match resp_head.flag {
             1 => {
                 task.set_custom_error(codec, EncodedErr::Num(resp_head.msg_len.get()));
-                factory.error_handle(task);
+                facts.error_handle(task);
                 return Ok(());
             }
             2 => {
@@ -88,7 +86,7 @@ impl<IO: AsyncIO> TcpClient<IO> {
                     Err(e) => {
                         logger_warn!(logger, "{:?} recv buffer error: {}", self, e);
                         task.set_rpc_error(RpcIntErr::IO);
-                        factory.error_handle(task);
+                        facts.error_handle(task);
                         return Err(e);
                     }
                     Ok(_) => {
@@ -97,13 +95,13 @@ impl<IO: AsyncIO> TcpClient<IO> {
                             if let Ok(s) = str::from_utf8(buf) {
                                 if let Ok(e) = RpcIntErr::from_str(s) {
                                     task.set_rpc_error(e);
-                                    factory.error_handle(task);
+                                    facts.error_handle(task);
                                     return Ok(());
                                 }
                             }
                         }
                         task.set_custom_error(codec, EncodedErr::Buf(buf.clone()));
-                        factory.error_handle(task);
+                        facts.error_handle(task);
                         return Ok(());
                     }
                 }
@@ -113,9 +111,9 @@ impl<IO: AsyncIO> TcpClient<IO> {
     }
 
     #[inline]
-    async fn _recv_resp_body<F: ClientFactory>(
-        &self, factory: &F, logger: &F::Logger, codec: &F::Codec,
-        task_reg: &mut ClientTaskTimer<F>, resp_head: &proto::RespHead,
+    async fn _recv_resp_body<F: ClientFacts>(
+        &self, facts: &F, logger: &F::Logger, codec: &F::Codec, task_reg: &mut ClientTaskTimer<F>,
+        resp_head: &proto::RespHead,
     ) -> io::Result<()> {
         let reader = self.get_stream_mut();
         let read_timeout = self.read_timeout;
@@ -124,12 +122,12 @@ impl<IO: AsyncIO> TcpClient<IO> {
         if let Some(mut task_item) = task_reg.take_task(resp_head.seq.get()).await {
             let mut task = task_item.task.take().unwrap();
             if resp_head.flag > 0 {
-                return self._recv_error(factory, logger, codec, resp_head, task).await;
+                return self._recv_error(facts, logger, codec, resp_head, task).await;
             }
             if resp_head.msg_len > 0 {
                 if let Err(e) = io_with_timeout!(IO, read_timeout, reader.read_exact(read_buf)) {
                     task.set_rpc_error(RpcIntErr::IO);
-                    factory.error_handle(task);
+                    facts.error_handle(task);
                     return Err(e);
                 }
             } // When msg_len == 0, read_buf has 0 size
@@ -144,7 +142,7 @@ impl<IO: AsyncIO> TcpClient<IO> {
                             task,
                         );
                         task.set_rpc_error(RpcIntErr::Decode);
-                        factory.error_handle(task);
+                        facts.error_handle(task);
                         return self._recv_and_dump::<F>(logger, blob_len as usize).await;
                     }
                     Some(buf) => {
@@ -157,7 +155,7 @@ impl<IO: AsyncIO> TcpClient<IO> {
                                 e
                             );
                             task.set_rpc_error(RpcIntErr::IO);
-                            factory.error_handle(task);
+                            facts.error_handle(task);
                             return Err(e);
                         }
                     }
@@ -169,7 +167,7 @@ impl<IO: AsyncIO> TcpClient<IO> {
                 if let Err(_) = task.decode_resp(codec, read_buf) {
                     logger_warn!(logger, "{:?} rpc client reader decode resp err", self,);
                     task.set_rpc_error(RpcIntErr::Decode);
-                    factory.error_handle(task);
+                    facts.error_handle(task);
                     return Ok(());
                 } else {
                     task.set_ok();
@@ -240,7 +238,7 @@ impl<IO: AsyncIO> ClientTransport<IO> for TcpClient<IO> {
     }
 
     #[inline(always)]
-    async fn close_conn<F: ClientFactory>(&self, logger: &F::Logger) {
+    async fn close_conn<F: ClientFacts>(&self, logger: &F::Logger) {
         if self.flush_req::<F>(logger).await.is_ok() {
             // stream close is just shutdown on sending, receiver might not be notified on peer dead
             let stream = self.get_stream_mut();
@@ -249,7 +247,7 @@ impl<IO: AsyncIO> ClientTransport<IO> for TcpClient<IO> {
     }
 
     #[inline(always)]
-    async fn flush_req<F: ClientFactory>(&self, logger: &F::Logger) -> io::Result<()> {
+    async fn flush_req<F: ClientFacts>(&self, logger: &F::Logger) -> io::Result<()> {
         let writer = self.get_stream_mut();
         if let Err(e) = io_with_timeout!(IO, self.write_timeout, writer.flush()) {
             logger_warn!(logger, "{:?} flush_req flush err: {}", self, e);
@@ -260,7 +258,7 @@ impl<IO: AsyncIO> ClientTransport<IO> for TcpClient<IO> {
     }
 
     #[inline(always)]
-    async fn write_req<'a, F: ClientFactory>(
+    async fn write_req<'a, F: ClientFacts>(
         &'a self, logger: &F::Logger, buf: &'a [u8], blob: Option<&'a [u8]>, need_flush: bool,
     ) -> io::Result<()> {
         let writer = self.get_stream_mut();
@@ -286,8 +284,8 @@ impl<IO: AsyncIO> ClientTransport<IO> for TcpClient<IO> {
 
     /// return false to indicate aborted by close_f
     #[inline]
-    async fn read_resp<F: ClientFactory>(
-        &self, factory: &F, logger: &F::Logger, codec: &F::Codec, close_ch: Option<&MAsyncRx<()>>,
+    async fn read_resp<F: ClientFacts>(
+        &self, facts: &F, logger: &F::Logger, codec: &F::Codec, close_ch: Option<&MAsyncRx<()>>,
         task_reg: &mut ClientTaskTimer<F>,
     ) -> Result<bool, RpcIntErr> {
         let mut resp_head_buf = [0u8; proto::RPC_RESP_HEADER_LEN];
@@ -322,8 +320,7 @@ impl<IO: AsyncIO> ClientTransport<IO> for TcpClient<IO> {
             }
             Ok(head) => {
                 logger_trace!(logger, "{:?} rpc client read head response {}", self, &head);
-                if let Err(e) = self._recv_resp_body(factory, logger, codec, task_reg, &head).await
-                {
+                if let Err(e) = self._recv_resp_body(facts, logger, codec, task_reg, &head).await {
                     return Err(e.into());
                 }
                 return Ok(true);

@@ -26,7 +26,7 @@ pub(crate) struct DelayTasksBatch<T: ClientTask> {
     tasks: FxHashMap<u64, ClientTaskItem<T>>,
 }
 
-pub struct ClientTaskTimer<F: ClientFactory> {
+pub struct ClientTaskTimer<F: ClientFacts> {
     conn_id: String,
     pending_tasks_recv: AsyncStream<ClientTaskItem<F::Task>>,
     pending_tasks_sender: MAsyncTx<ClientTaskItem<F::Task>>,
@@ -42,10 +42,10 @@ pub struct ClientTaskTimer<F: ClientFactory> {
     reg_stopped_flag: AtomicBool,
 }
 
-unsafe impl<T: ClientFactory> Send for ClientTaskTimer<T> {}
-unsafe impl<T: ClientFactory> Sync for ClientTaskTimer<T> {}
+unsafe impl<T: ClientFacts> Send for ClientTaskTimer<T> {}
+unsafe impl<T: ClientFacts> Sync for ClientTaskTimer<T> {}
 
-impl<F: ClientFactory> ClientTaskTimer<F> {
+impl<F: ClientFacts> ClientTaskTimer<F> {
     pub fn new(conn_id: String, task_timeout: usize, mut thresholds: usize) -> Self {
         if thresholds == 0 {
             thresholds = 500;
@@ -69,7 +69,7 @@ impl<F: ClientFactory> ClientTaskTimer<F> {
         &self.pending_task_count
     }
 
-    pub fn clean_pending_tasks(&mut self, factory: &F) {
+    pub fn clean_pending_tasks(&mut self, facts: &F) {
         loop {
             match self.pending_tasks_recv.try_recv() {
                 Ok(task) => {
@@ -88,7 +88,7 @@ impl<F: ClientFactory> ClientTaskTimer<F> {
             let mut task_item = self.sent_tasks.remove(&key).unwrap();
             let mut task = task_item.task.take().unwrap();
             task.set_rpc_error(RpcIntErr::IO);
-            factory.error_handle(task);
+            facts.error_handle(task);
         }
         for tasks_batch_in_second in self.delay_tasks_queue.iter_mut() {
             let mut task_seqs: Vec<u64> = Vec::with_capacity(tasks_batch_in_second.tasks.len());
@@ -99,7 +99,7 @@ impl<F: ClientFactory> ClientTaskTimer<F> {
                 let mut task_item = tasks_batch_in_second.tasks.remove(&key).unwrap();
                 let mut task = task_item.task.take().unwrap();
                 task.set_rpc_error(RpcIntErr::IO);
-                factory.error_handle(task);
+                facts.error_handle(task);
             }
         }
     }
@@ -190,7 +190,7 @@ impl<F: ClientFactory> ClientTaskTimer<F> {
         self.sent_tasks.insert(task_seq, task_item);
     }
 
-    pub fn adjust_task_queue(&mut self, factory: &F) {
+    pub fn adjust_task_queue(&mut self, facts: &F) {
         // 1. move wait_confirmed to overtime
         let mut tasks_batch_in_second = FxHashMap::default();
         swap(&mut self.sent_tasks, &mut tasks_batch_in_second);
@@ -214,7 +214,7 @@ impl<F: ClientFactory> ClientTaskTimer<F> {
                     }
                     warn!("{} task {:?} is timeout", self.conn_id, task,);
                     task.set_rpc_error(RpcIntErr::Timeout);
-                    factory.error_handle(task);
+                    facts.error_handle(task);
                 }
                 self.min_delay_seq = min_seq;
             }
@@ -224,7 +224,7 @@ impl<F: ClientFactory> ClientTaskTimer<F> {
 
 struct WaitRegTaskFuture<'a, F>
 where
-    F: ClientFactory,
+    F: ClientFacts,
 {
     noti: &'a mut ClientTaskTimer<F>,
     target_seq: u64,
@@ -232,7 +232,7 @@ where
 
 impl<'a, F> Future for WaitRegTaskFuture<'a, F>
 where
-    F: ClientFactory,
+    F: ClientFacts,
 {
     type Output = Result<(), ()>;
 

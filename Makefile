@@ -14,7 +14,7 @@ fmt: init
 	cargo fmt
 
 .PHONY: test
-test: test-core test-codec test-stream-macros test-stream
+all_test: test-core test-codec test-stream-macros test-api-macros test
 	echo run all tests
 
 .PHONY: test-core
@@ -35,17 +35,17 @@ test-api-macros: init
 	RUST_BACKTRACE=1 cargo test -p occams-rpc-api-macros -- --nocapture
 
 # usage:
-# make test-stream "test_normal --features tokio"
-# make test-stream "test_normal --features smol"
+# make test-stream "test_normal --F tokio"
+# make test-stream "test_normal --F smol"
 # make test-stream - "--features smol"
-.PHONY: test-stream
-test-stream: init
-	@echo "Run stream integration tests"
-	cargo test -p stream_test ${ARGS} -- --nocapture --test-threads=1
+.PHONY: test-basic
+test: init
+	@echo "Run integration tests"
+	cargo test -p occams-rpc-test ${ARGS} -- --nocapture --test-threads=1
 	@echo "Done"
 
-bench-stream: init
-	cargo test -p stream_test ${ARGS} --release bench -- --nocapture --test-threads=1
+pressure: init
+	cargo test -p occams-rpc-test ${ARGS} --release bench -- --nocapture --test-threads=1
 
 .PHONY: build
 build: init
@@ -55,7 +55,7 @@ build: init
 	cargo build -p occams-rpc-stream-macros
 	cargo build -p occams-rpc-stream
 	cargo build -p occams-rpc-tcp
-	cargo build -p stream_test
+	cargo build -p occams-rpc-test
 	cargo build
 
 .DEFAULT_GOAL = build

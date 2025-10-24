@@ -6,14 +6,14 @@ use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// An RpcServer that listen, accept, and server connections, according to ServerFactory interface.
+/// An RpcServer that listen, accept, and server connections, according to ServerFacts interface.
 pub struct RpcServer<F>
 where
-    F: ServerFactory,
+    F: ServerFacts,
 {
     listeners_abort: Vec<(AbortHandle, String)>,
     logger: F::Logger,
-    factory: Arc<F>,
+    facts: Arc<F>,
     conn_ref_count: Arc<()>,
     server_close_tx: Mutex<Option<crossfire::MTx<()>>>,
     server_close_rx: crossfire::MAsyncRx<()>,
@@ -21,22 +21,22 @@ where
 
 impl<F> RpcServer<F>
 where
-    F: ServerFactory,
+    F: ServerFacts,
 {
-    pub fn new(factory: Arc<F>) -> Self {
+    pub fn new(facts: Arc<F>) -> Self {
         let (tx, rx) = crossfire::mpmc::unbounded_async();
         Self {
             listeners_abort: Vec::new(),
-            logger: factory.new_logger(),
-            factory,
+            logger: facts.new_logger(),
+            facts,
             conn_ref_count: Arc::new(()),
             server_close_tx: Mutex::new(Some(tx)),
             server_close_rx: rx,
         }
     }
 
-    pub fn listen(&mut self, addr: &str) -> io::Result<String> {
-        match <<F::Transport as ServerTransport<F>>::Listener as AsyncListener>::bind(addr) {
+    pub fn listen<T: ServerTransport<F::IO>>(&mut self, addr: &str) -> io::Result<String> {
+        match <T::Listener as AsyncListener>::bind(addr) {
             Err(e) => {
                 error!("bind addr {:?} err: {}", addr, e);
                 return Err(e);
@@ -54,7 +54,7 @@ where
                     }
                 };
                 let (abort_handle, abort_registration) = AbortHandle::new_pair();
-                let factory = self.factory.clone();
+                let facts = self.facts.clone();
                 let conn_ref_count = self.conn_ref_count.clone();
                 let listener_info = format!("listener {:?}", addr);
                 let server_close_rx = self.server_close_rx.clone();
@@ -68,12 +68,12 @@ where
                                     return;
                                 }
                                 Ok(stream) => {
-                                    let conn = F::Transport::new_conn(
+                                    let conn = T::new_conn(
                                         stream,
-                                        &factory,
+                                        facts.get_config(),
                                         conn_ref_count.clone(),
                                     );
-                                    Self::server_conn(conn, &factory, server_close_rx.clone())
+                                    Self::server_conn::<T>(conn, &facts, server_close_rx.clone())
                                 }
                             }
                         }
@@ -81,31 +81,41 @@ where
                     abort_registration,
                 );
 
-                self.factory.spawn_detach(abrt);
+                self.facts.spawn_detach(abrt);
                 self.listeners_abort.push((abort_handle, listener_info));
                 return Ok(local_addr);
             }
         }
     }
 
-    fn server_conn(conn: F::Transport, factory: &F, server_close_rx: crossfire::MAsyncRx<()>) {
+    fn server_conn<T: ServerTransport<F::IO>>(
+        conn: T, facts: &F, server_close_rx: crossfire::MAsyncRx<()>,
+    ) {
         let conn = Arc::new(conn);
 
-        let dispatch = Arc::new(factory.new_dispatcher());
+        let dispatch = Arc::new(facts.new_dispatcher());
         let (done_tx, done_rx) = crossfire::mpsc::unbounded_async();
 
         let noti = RespNoti(done_tx);
-        struct Reader<F: ServerFactory, D: ReqDispatch<R>, R: ServerTaskResp> {
+        struct Reader<
+            T: ServerTransport<F::IO>,
+            F: ServerFacts,
+            D: ReqDispatch<R>,
+            R: ServerTaskResp,
+        > {
             noti: RespNoti<R>,
-            conn: Arc<F::Transport>,
+            conn: Arc<T>,
             server_close_rx: crossfire::MAsyncRx<()>,
             dispatch: Arc<D>,
+            logger: F::Logger,
         }
 
-        impl<F: ServerFactory, D: ReqDispatch<R>, R: ServerTaskResp> Reader<F, D, R> {
+        impl<T: ServerTransport<F::IO>, F: ServerFacts, D: ReqDispatch<R>, R: ServerTaskResp>
+            Reader<T, F, D, R>
+        {
             async fn run(self) -> Result<(), ()> {
                 loop {
-                    match self.conn.read_req(&self.server_close_rx).await {
+                    match self.conn.read_req::<F>(&self.logger, &self.server_close_rx).await {
                         Ok(req) => {
                             if req.action == RpcAction::Num(0) && req.msg.len() == 0 {
                                 // ping request
@@ -129,41 +139,52 @@ where
             #[inline]
             fn send_quick_resp(&self, seq: u64, err: Option<RpcIntErr>) -> Result<(), ()> {
                 if self.noti.send_err(seq, err).is_err() {
-                    logger_warn!(
-                        self.conn.get_logger(),
-                        "{:?} reader abort due to writer has err",
-                        self.conn
-                    );
+                    logger_warn!(self.logger, "{:?} reader abort due to writer has err", self.conn);
                     return Err(());
                 }
                 Ok(())
             }
         }
-        let reader = Reader::<F, _, _> {
+        let reader = Reader::<T, F, _, _> {
             noti,
             conn: conn.clone(),
             server_close_rx,
             dispatch: dispatch.clone(),
+            logger: facts.new_logger(),
         };
-        factory.spawn_detach(async move { reader.run().await });
+        facts.spawn_detach(async move { reader.run().await });
 
-        struct Writer<F: ServerFactory, D: ReqDispatch<R>, R: ServerTaskResp> {
+        struct Writer<
+            T: ServerTransport<F::IO>,
+            F: ServerFacts,
+            D: ReqDispatch<R>,
+            R: ServerTaskResp,
+        > {
             dispatch: Arc<D>,
             done_rx: crossfire::AsyncRx<Result<R, (u64, Option<RpcIntErr>)>>,
-            conn: Arc<F::Transport>,
+            conn: Arc<T>,
+            logger: F::Logger,
         }
 
-        impl<F: ServerFactory, D: ReqDispatch<R>, R: ServerTaskResp> Writer<F, D, R> {
+        impl<T: ServerTransport<F::IO>, F: ServerFacts, D: ReqDispatch<R>, R: ServerTaskResp>
+            Writer<T, F, D, R>
+        {
             async fn run(self) -> Result<(), io::Error> {
                 macro_rules! process {
                     ($task: expr) => {{
                         match $task {
                             Ok(_task) => {
-                                logger_trace!(self.conn.get_logger(), "write_resp {:?}", _task);
-                                self.conn.write_resp(self.dispatch.get_codec(), _task).await?;
+                                logger_trace!(self.logger, "write_resp {:?}", _task);
+                                self.conn
+                                    .write_resp::<F, R>(
+                                        &self.logger,
+                                        self.dispatch.get_codec(),
+                                        _task,
+                                    )
+                                    .await?;
                             }
                             Err((seq, err)) => {
-                                self.conn.write_resp_internal(seq, err).await?;
+                                self.conn.write_resp_internal::<F>(&self.logger, seq, err).await?;
                             }
                         }
                     }};
@@ -173,15 +194,15 @@ where
                     while let Ok(task) = self.done_rx.try_recv() {
                         process!(task);
                     }
-                    self.conn.flush_resp().await?;
+                    self.conn.flush_resp::<F>(&self.logger).await?;
                 }
-                logger_trace!(self.conn.get_logger(), "{:?} writer exits", self.conn);
-                self.conn.close_conn().await;
+                logger_trace!(self.logger, "{:?} writer exits", self.conn);
+                self.conn.close_conn::<F>(&self.logger).await;
                 Ok(())
             }
         }
-        let writer = Writer::<F, _, _> { done_rx, conn, dispatch };
-        factory.spawn_detach(async move { writer.run().await });
+        let writer = Writer::<T, F, _, _> { done_rx, conn, dispatch, logger: facts.new_logger() };
+        facts.spawn_detach(async move { writer.run().await });
     }
 
     #[inline]
@@ -209,7 +230,7 @@ where
         let mut exists_count = self.get_alive_conn();
         // wait client close all connections
         let start_ts = Instant::now();
-        let config = self.factory.get_config();
+        let config = self.facts.get_config();
         while exists_count > 0 {
             <F::IO as AsyncIO>::sleep(Duration::from_secs(1)).await;
             exists_count = self.get_alive_conn();

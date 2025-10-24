@@ -1,7 +1,5 @@
-extern crate occams_rpc_stream;
-
-pub mod client;
-pub mod server;
+pub mod api;
+pub mod stream;
 
 extern crate captains_log;
 extern crate log;
@@ -19,6 +17,8 @@ use tokio::runtime::Runtime;
 pub type RT = occams_rpc_tokio::TokioRT;
 #[cfg(not(feature = "tokio"))]
 pub type RT = occams_rpc_smol::SmolRT;
+
+pub type Codec = occams_rpc_codec::MsgpCodec;
 
 #[macro_export]
 macro_rules! async_spawn {
@@ -74,6 +74,3 @@ impl TestRunner {
         }
     }
 }
-
-#[cfg(test)]
-pub mod tests;

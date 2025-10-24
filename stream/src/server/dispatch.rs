@@ -3,7 +3,7 @@ use super::task::*;
 use occams_rpc_core::Codec;
 use std::marker::PhantomData;
 
-/// ReqDispatch should be a user-defined struct initialized for every connection, by ServerFactory::new_dispatcher.
+/// ReqDispatch should be a user-defined struct initialized for every connection, by ServerFacts::new_dispatcher.
 ///
 /// ReqDispatch must have Sync, because the connection reader and writer access concurrently.
 ///
@@ -31,8 +31,8 @@ pub trait ReqDispatch<R: ServerTaskResp>: Send + Sync + Sized + 'static {
 /// # Example
 ///
 /// ```no_compile,ignore
-/// use occams_rpc_stream::server::{ServerFactory, ReqDispatch};
-/// impl ServerFactory for YourServer {
+/// use occams_rpc_stream::server::{ServerFacts, ReqDispatch};
+/// impl ServerFacts for YourServer {
 ///
 ///     ...
 ///

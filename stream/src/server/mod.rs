@@ -19,24 +19,19 @@ use occams_rpc_core::{Codec, error::*, io::*, runtime::AsyncIO};
 use std::{fmt, future::Future, io, sync::Arc};
 
 /// A central hub defined by the user for the server-side, to define the customizable plugin.
-pub trait ServerFactory: Sync + Send + 'static + Sized {
+pub trait ServerFacts: Sync + Send + 'static + Sized {
     /// A [captains-log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/index.html) implementation.
     /// The type that new_logger returns.
     ///
     /// maybe a `Arc<LogFilter> or KeyFilter<Arc<LogFilter>>`
-    type Logger: Filter + Send + 'static;
-
-    /// Define the transport layer protocol
-    ///
-    /// Refers to [ServerTransport]
-    type Transport: ServerTransport<Self>;
+    type Logger: Filter + Send + Sync + 'static;
 
     /// Define the adaptor of async runtime
     ///
     /// Refers to [occams_rpc_core::runtime::AsyncIO](https://docs.rs/occams-rpc-core/latest/occams_rpc_core/runtime/index.html)
     type IO: AsyncIO;
 
-    /// You should keep ServerConfig inside ServerFactory, get_config() will return the reference.
+    /// You should keep ServerConfig inside, get_config() will return the reference.
     fn get_config(&self) -> &ServerConfig;
 
     /// Construct a [captains_log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/trait.Filter.html) to oganize log of a client
@@ -65,37 +60,36 @@ pub trait ServerFactory: Sync + Send + 'static + Sized {
 /// The implementation can be found on:
 ///
 /// - [occams-rpc-tcp](https://docs.rs/occams-rpc-tcp): For TCP and Unix socket
-pub trait ServerTransport<F: ServerFactory>: Send + Sync + Sized + 'static + fmt::Debug {
+pub trait ServerTransport<IO: AsyncIO>: Send + Sync + Sized + 'static + fmt::Debug {
     type Listener: AsyncListener;
-
-    /// The ServerTransport holds a logger, the server will use it by reference.
-    fn get_logger(&self) -> &F::Logger;
 
     /// The implementation is expected to store the conn_count until dropped
     fn new_conn(
-        stream: <Self::Listener as AsyncListener>::Conn, f: &F, conn_count: Arc<()>,
+        stream: <Self::Listener as AsyncListener>::Conn, config: &ServerConfig, conn_count: Arc<()>,
     ) -> Self;
 
     /// Read a request from the socket
-    fn read_req<'a>(
-        &'a self, close_ch: &crossfire::MAsyncRx<()>,
+    fn read_req<'a, F: ServerFacts>(
+        &'a self, logger: &F::Logger, close_ch: &crossfire::MAsyncRx<()>,
     ) -> impl Future<Output = Result<RpcSvrReq<'a>, RpcIntErr>> + Send;
 
     /// Write our user task response
-    fn write_resp<C: Codec, T: ServerTaskEncode>(
-        &self, codec: &C, task: T,
+    fn write_resp<F: ServerFacts, T: ServerTaskEncode>(
+        &self, logger: &F::Logger, codec: &impl Codec, task: T,
     ) -> impl Future<Output = io::Result<()>> + Send;
 
     /// Write out ping resp or error
-    fn write_resp_internal(
-        &self, seq: u64, err: Option<RpcIntErr>,
+    fn write_resp_internal<F: ServerFacts>(
+        &self, logger: &F::Logger, seq: u64, err: Option<RpcIntErr>,
     ) -> impl Future<Output = io::Result<()>> + Send;
 
     /// Flush the response for the socket writer, if the transport has buffering logic
-    fn flush_resp(&self) -> impl Future<Output = io::Result<()>> + Send;
+    fn flush_resp<F: ServerFacts>(
+        &self, logger: &F::Logger,
+    ) -> impl Future<Output = io::Result<()>> + Send;
 
     /// Shutdown the write direction of the connection
-    fn close_conn(&self) -> impl Future<Output = ()> + Send;
+    fn close_conn<F: ServerFacts>(&self, logger: &F::Logger) -> impl Future<Output = ()> + Send;
 }
 
 /// A temporary struct to hold data buffer return by ServerTransport

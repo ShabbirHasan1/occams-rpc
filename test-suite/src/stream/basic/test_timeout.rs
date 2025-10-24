@@ -1,31 +1,36 @@
-use crate::client::*;
-use crate::server::*;
+use crate::stream::{client::*, server::*};
 use crate::*;
 use crossfire::mpsc;
-use nix::errno::Errno;
 use occams_rpc_core::error::RpcError;
 use occams_rpc_stream::client::{ClientConfig, task::ClientTaskGetResult};
+use occams_rpc_stream::error::RpcIntErr;
 use occams_rpc_stream::server::{ServerConfig, task::ServerTaskDone};
+use std::time::Duration;
 
 #[logfn]
 #[rstest]
 #[case(true)]
 #[case(false)]
-fn test_server_returns_error(runner: TestRunner, #[case] is_tcp: bool) {
-    let client_config = ClientConfig::default();
+fn test_client_task_timeout(runner: TestRunner, #[case] is_tcp: bool) {
+    // Set a short timeout for the client
+    let client_config = ClientConfig {
+        task_timeout: 2, // seconds
+        ..Default::default()
+    };
     let server_config = ServerConfig::default();
 
     let dispatch_task = move |task: FileServerTask| {
         async move {
             match task {
                 FileServerTask::Open(open_task) => {
-                    info!("Server received Open task, will return error: {:?}", open_task.req);
-                    open_task.set_result(Err(Errno::EACCES));
+                    info!("Server received Open task, will delay response: {:?}", open_task.req);
+                    // Delay for longer than the client's timeout
+                    crate::RT::sleep(Duration::from_secs(4)).await;
+                    open_task.set_result(Ok(()));
                     Ok(())
                 }
                 FileServerTask::IO(mut io_task) => {
-                    // For IO tasks, just succeed to make sure we can test both cases.
-                    info!("Server received IO task, will succeed: {:?}", io_task.req);
+                    // Other tasks succeed immediately
                     io_task.resp = Some(Default::default());
                     io_task.set_result(Ok(()));
                     Ok(())
@@ -43,9 +48,9 @@ fn test_server_returns_error(runner: TestRunner, #[case] is_tcp: bool) {
         let mut client =
             init_client(client_config, &actual_server_addr, None).await.expect("connect client");
 
-        // Test Open task that should fail
+        // Test Open task that should time out
         let (tx, rx) = mpsc::unbounded_async();
-        let open_task = FileClientTaskOpen::new(tx.clone(), "/root/secret.txt".to_string());
+        let open_task = FileClientTaskOpen::new(tx.clone(), "/tmp/test.txt".to_string());
         client.send_task(open_task.into(), true).await.expect("send open task");
 
         let completed_open_task = rx.recv().await.unwrap();
@@ -53,15 +58,7 @@ fn test_server_returns_error(runner: TestRunner, #[case] is_tcp: bool) {
 
         let result = completed_open_task.get_result();
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), &RpcError::User(Errno::EACCES));
-        log::info!("Open task failed as expected.");
-
-        // Test a Write task that should succeed
-        let write_task = FileClientTaskWrite::new(tx.clone(), 1, 0, vec![1, 2, 3].into());
-        client.send_task(write_task.into(), true).await.expect("send write task");
-        let completed_write_task = rx.recv().await.unwrap();
-        assert!(matches!(completed_write_task, FileClientTask::Write(_)));
-        assert!(completed_write_task.get_result().is_ok());
-        log::info!("Write task completed successfully.");
+        assert_eq!(result.unwrap_err(), &RpcError::Rpc(RpcIntErr::Timeout));
+        log::info!("Open task timed out as expected.");
     });
 }

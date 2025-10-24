@@ -1,10 +1,6 @@
-use crate::client::*;
-use crate::server::*;
-use crate::*;
 use crossfire::mpsc;
 use io_buffer::{Buffer, rand_buffer};
 use nix::errno::Errno;
-use occams_rpc_codec::MsgpCodec;
 use occams_rpc_stream::client::{
     ClientConfig,
     task::{ClientTaskDone, ClientTaskEncode, ClientTaskGetResult},
@@ -14,8 +10,12 @@ use occams_rpc_stream::server::{
     ServerConfig,
     task::{ServerTaskAction, ServerTaskDone},
 };
+use occams_rpc_test::stream::{client::*, server::*};
+use occams_rpc_test::*;
 use std::convert::TryFrom;
 use std::time::Instant;
+use captains_log::*;
+use rstest::*;
 
 #[logfn]
 #[rstest]
@@ -81,7 +81,7 @@ fn test_throughput(runner: TestRunner, #[case] is_tcp: bool) {
 
         let write_task = FileClientTaskWrite::new(tx.clone(), 1, 0, write_data.clone());
         let mut task: FileClientTask = write_task.into();
-        let codec = MsgpCodec::default();
+        let codec = occams_rpc_test::Codec::default();
         let mut req_buf = Vec::new();
         task.encode_req(&codec, &mut req_buf).expect("encode");
         let req_size = req_buf.len() + RPC_REQ_HEADER_LEN + data_len as usize;

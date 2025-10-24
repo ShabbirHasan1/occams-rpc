@@ -1,6 +1,6 @@
 use crate::client::stream::ClientStream;
 use crate::client::{
-    ClientCaller, ClientCallerBlocking, ClientFactory, ClientTransport, task::ClientTaskDone,
+    ClientCaller, ClientCallerBlocking, ClientFacts, ClientTransport, task::ClientTaskDone,
 };
 use crossfire::{MAsyncRx, MAsyncTx, MTx, mpmc};
 use occams_rpc_core::{error::RpcIntErr, runtime::AsyncIO};
@@ -22,20 +22,20 @@ use std::time::Duration;
 /// - The task incoming might never stop until faulty pool remove from pools collection
 /// - If ping mixed with task with real business, might blocked due to throttler of in-flight
 /// message in the stream.
-pub struct ClientPool<F: ClientFactory, P: ClientTransport<F::IO>> {
+pub struct ClientPool<F: ClientFacts, P: ClientTransport<F::IO>> {
     tx_async: MAsyncTx<F::Task>,
     tx: MTx<F::Task>,
     inner: Arc<ClientPoolInner<F, P>>,
 }
 
-impl<F: ClientFactory, P: ClientTransport<F::IO>> Clone for ClientPool<F, P> {
+impl<F: ClientFacts, P: ClientTransport<F::IO>> Clone for ClientPool<F, P> {
     fn clone(&self) -> Self {
         Self { tx_async: self.tx_async.clone(), tx: self.tx.clone(), inner: self.inner.clone() }
     }
 }
 
-struct ClientPoolInner<F: ClientFactory, P: ClientTransport<F::IO>> {
-    factory: Arc<F>,
+struct ClientPoolInner<F: ClientFacts, P: ClientTransport<F::IO>> {
+    facts: Arc<F>,
     logger: F::Logger,
     rx: MAsyncRx<F::Task>,
     addr: String,
@@ -53,9 +53,9 @@ struct ClientPoolInner<F: ClientFactory, P: ClientTransport<F::IO>> {
 
 const ONE_SEC: Duration = Duration::from_secs(1);
 
-impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientPool<F, P> {
-    pub fn new(factory: Arc<F>, addr: &str, mut channel_size: usize) -> Self {
-        let config = factory.get_config();
+impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientPool<F, P> {
+    pub fn new(facts: Arc<F>, addr: &str, mut channel_size: usize) -> Self {
+        let config = facts.get_config();
         if config.thresholds > 0 {
             if channel_size < config.thresholds {
                 channel_size = config.thresholds;
@@ -67,8 +67,8 @@ impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientPool<F, P> {
         let tx = tx_async.clone().into();
         let conn_id = format!("to {}", addr);
         let inner = Arc::new(ClientPoolInner {
-            logger: factory.new_logger(&conn_id),
-            factory: factory.clone(),
+            logger: facts.new_logger(&conn_id),
+            facts: facts.clone(),
             rx,
             addr: addr.to_string(),
             conn_id,
@@ -109,39 +109,39 @@ impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientPool<F, P> {
     }
 }
 
-impl<F: ClientFactory, P: ClientTransport<F::IO>> Drop for ClientPool<F, P> {
+impl<F: ClientFacts, P: ClientTransport<F::IO>> Drop for ClientPool<F, P> {
     fn drop(&mut self) {
         self.inner.cleanup();
     }
 }
 
-impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientCaller for ClientPool<F, P> {
-    type Factory = F;
+impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientCaller for ClientPool<F, P> {
+    type Facts = F;
     #[inline]
     async fn send_req(&self, task: F::Task) {
         self.tx_async.send(task).await.expect("submit");
     }
 }
 
-impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientCallerBlocking for ClientPool<F, P> {
-    type Factory = F;
+impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientCallerBlocking for ClientPool<F, P> {
+    type Facts = F;
     #[inline]
     fn send_req_blocking(&self, task: F::Task) {
         self.tx.send(task).expect("submit");
     }
 }
 
-impl<F: ClientFactory, P: ClientTransport<F::IO>> fmt::Display for ClientPoolInner<F, P> {
+impl<F: ClientFacts, P: ClientTransport<F::IO>> fmt::Display for ClientPoolInner<F, P> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ConnPool {:?}", self.conn_id)
     }
 }
 
-impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientPoolInner<F, P> {
+impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientPoolInner<F, P> {
     fn spawn_worker(self: Arc<Self>, worker_id: usize) {
-        let factory = self.factory.clone();
-        factory.spawn_detach(async move {
+        let facts = self.facts.clone();
+        facts.spawn_detach(async move {
             logger_trace!(&self.logger, "{} worker_id={} running", self, worker_id);
             self.run(worker_id).await;
             self.worker_count.fetch_sub(1, SeqCst);
@@ -166,7 +166,7 @@ impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientPoolInner<F, P> {
 
     #[inline]
     async fn connect(&self) -> Result<ClientStream<F, P>, RpcIntErr> {
-        ClientStream::connect(self.factory.clone(), &self.addr, &self.conn_id, None).await
+        ClientStream::connect(self.facts.clone(), &self.addr, &self.conn_id, None).await
     }
 
     #[inline(always)]
@@ -271,7 +271,7 @@ impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientPoolInner<F, P> {
     fn cleanup(&self) {
         while let Ok(mut task) = self.rx.try_recv() {
             task.set_rpc_error(RpcIntErr::Unreachable);
-            self.factory.error_handle(task);
+            self.facts.error_handle(task);
         }
     }
 }

@@ -24,11 +24,11 @@ use std::sync::Arc;
 use std::{fmt, io};
 
 /// A trait implemented by the user for the client-side, to define the customizable plugin.
-pub trait ClientFactory: Send + Sync + Sized + 'static {
+pub trait ClientFacts: Send + Sync + Sized + 'static {
     /// A [captains-log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/index.html) implementation
     /// The type that new_logger returns.
     ///
-    /// maybe a `Arc<LogFilter> or KeyFilter<Arc<LogFilter>>`
+    /// maybe a `Arc<LogFilter> or KeyFilter<Arc<LogFilter>>, or DummyFilter`
     type Logger: Filter + Send + Sync + 'static;
 
     /// Define the codec to serialization and deserialization
@@ -57,7 +57,7 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
         F: Future<Output = R> + Send + 'static,
         R: Send + 'static;
 
-    /// You should keep clientConfig inside ServerFactory, get_config() will return the reference.
+    /// You should keep ClientConfig inside, get_config() will return the reference.
     fn get_config(&self) -> &ClientConfig;
 
     /// Construct a [captains_log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/trait.Filter.html) to oganize log of a client
@@ -81,30 +81,29 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
 }
 
 pub trait ClientCaller: Send {
-    type Factory: ClientFactory;
-    fn send_req(
-        &self, task: <Self::Factory as ClientFactory>::Task,
-    ) -> impl Future<Output = ()> + Send;
+    type Facts: ClientFacts;
+    fn send_req(&self, task: <Self::Facts as ClientFacts>::Task)
+    -> impl Future<Output = ()> + Send;
 }
 
 pub trait ClientCallerBlocking: Send {
-    type Factory: ClientFactory;
-    fn send_req_blocking(&self, task: <Self::Factory as ClientFactory>::Task);
+    type Facts: ClientFacts;
+    fn send_req_blocking(&self, task: <Self::Facts as ClientFacts>::Task);
 }
 
 impl<C: ClientCaller + Send + Sync> ClientCaller for Arc<C> {
-    type Factory = C::Factory;
+    type Facts = C::Facts;
     #[inline(always)]
-    async fn send_req(&self, task: <Self::Factory as ClientFactory>::Task) {
+    async fn send_req(&self, task: <Self::Facts as ClientFacts>::Task) {
         self.as_ref().send_req(task).await
     }
 }
 
 impl<C: ClientCallerBlocking + Send + Sync> ClientCallerBlocking for Arc<C> {
-    type Factory = C::Factory;
+    type Facts = C::Facts;
 
     #[inline(always)]
-    fn send_req_blocking(&self, task: <Self::Factory as ClientFactory>::Task) {
+    fn send_req_blocking(&self, task: <Self::Facts as ClientFacts>::Task) {
         self.as_ref().send_req_blocking(task);
     }
 }
@@ -115,8 +114,8 @@ impl<C: ClientCallerBlocking + Send + Sync> ClientCallerBlocking for Arc<C> {
 ///
 /// - [occams-rpc-tcp](https://docs.rs/occams-rpc-tcp): For TCP and Unix socket
 ///
-/// NOTE: we use IO in generic param instead of ClientFactory to break cycle dep.
-/// because FailoverPool will rewrap the factory into its own.
+/// NOTE: we use IO in generic param instead of ClientFacts to break cycle dep.
+/// because FailoverPool will rewrap the facts into its own.
 pub trait ClientTransport<IO: AsyncIO>: fmt::Debug + Send + Sized + 'static {
     /// How to establish an async connection.
     ///
@@ -126,21 +125,21 @@ pub trait ClientTransport<IO: AsyncIO>: fmt::Debug + Send + Sized + 'static {
     ) -> impl Future<Output = Result<Self, RpcIntErr>> + Send;
 
     /// Shutdown the write direction of the connection
-    fn close_conn<F: ClientFactory>(&self, logger: &F::Logger) -> impl Future<Output = ()> + Send;
+    fn close_conn<F: ClientFacts>(&self, logger: &F::Logger) -> impl Future<Output = ()> + Send;
 
     /// Flush the request for the socket writer, if the transport has buffering logic
-    fn flush_req<F: ClientFactory>(
+    fn flush_req<F: ClientFacts>(
         &self, logger: &F::Logger,
     ) -> impl Future<Output = io::Result<()>> + Send;
 
     /// Write out the encoded request task
-    fn write_req<'a, F: ClientFactory>(
+    fn write_req<'a, F: ClientFacts>(
         &'a self, logger: &F::Logger, buf: &'a [u8], blob: Option<&'a [u8]>, need_flush: bool,
     ) -> impl Future<Output = io::Result<()>> + Send;
 
     /// Read the response and decode it from the socket, find and notify the registered ClientTask
-    fn read_resp<F: ClientFactory>(
-        &self, factory: &F, logger: &F::Logger, codec: &F::Codec, close_ch: Option<&MAsyncRx<()>>,
+    fn read_resp<F: ClientFacts>(
+        &self, facts: &F, logger: &F::Logger, codec: &F::Codec, close_ch: Option<&MAsyncRx<()>>,
         task_reg: &mut ClientTaskTimer<F>,
     ) -> impl std::future::Future<Output = Result<bool, RpcIntErr>> + Send;
 }

@@ -1,5 +1,4 @@
-use crate::client::*;
-use crate::server::*;
+use crate::stream::{client::*, server::*};
 use crate::*;
 use crossfire::mpsc;
 use occams_rpc_stream::client::{ClientConfig, task::ClientTaskGetResult};

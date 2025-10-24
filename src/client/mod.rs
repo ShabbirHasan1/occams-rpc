@@ -1,7 +1,7 @@
 #[cfg(any(feature = "tokio", feature = "smol"))]
-mod factory;
+mod facts;
 #[cfg(any(feature = "tokio", feature = "smol"))]
-pub use factory::*;
+pub use facts::*;
 
 mod task;
 pub use task::APIClientReq;
@@ -11,20 +11,61 @@ pub use occams_rpc_stream::client::ClientCaller;
 
 use occams_rpc_core::Codec;
 use occams_rpc_core::error::{EncodedErr, RpcErrCodec, RpcError, RpcIntErr};
-use occams_rpc_stream::client::{ClientCallerBlocking, ClientFactory};
+use occams_rpc_stream::client::{
+    ClientCallerBlocking, ClientFacts, ClientPool, ClientTransport, FailoverPool,
+};
 use std::fmt;
+use std::sync::Arc;
+
+pub trait APIClientFacts: ClientFacts<Task = APIClientReq> {
+    fn create_endpoint_async<T: ClientTransport<<Self as ClientFacts>::IO>>(
+        self: Arc<Self>, addr: &str,
+    ) -> AsyncEndpoint<ClientPool<Self, T>> {
+        return AsyncEndpoint::new(ClientPool::new(self.clone(), addr, 0));
+    }
+
+    fn create_endpoint_async_failover<T: ClientTransport<<Self as ClientFacts>::IO>>(
+        self: Arc<Self>, addrs: Vec<String>, round_robin: bool, retry_limit: usize,
+    ) -> AsyncEndpoint<Arc<FailoverPool<Self, T>>> {
+        return AsyncEndpoint::new(Arc::new(FailoverPool::new(
+            self.clone(),
+            addrs,
+            round_robin,
+            retry_limit,
+            0,
+        )));
+    }
+
+    fn create_endpoint_blocking<T: ClientTransport<<Self as ClientFacts>::IO>>(
+        self: Arc<Self>, addr: &str,
+    ) -> BlockingEndpoint<ClientPool<Self, T>> {
+        return BlockingEndpoint::new(ClientPool::new(self.clone(), addr, 0));
+    }
+
+    fn create_endpoint_blocking_failover<T: ClientTransport<<Self as ClientFacts>::IO>>(
+        self: Arc<Self>, addrs: Vec<String>, round_robin: bool, retry_limit: usize,
+    ) -> BlockingEndpoint<Arc<FailoverPool<Self, T>>> {
+        return BlockingEndpoint::new(Arc::new(FailoverPool::new(
+            self.clone(),
+            addrs,
+            round_robin,
+            retry_limit,
+            0,
+        )));
+    }
+}
 
 pub struct AsyncEndpoint<C>
 where
-    C: ClientCaller<Factory: ClientFactory<Task = APIClientReq>>,
+    C: ClientCaller<Facts: ClientFacts<Task = APIClientReq>>,
 {
     caller: C,
-    codec: <C::Factory as ClientFactory>::Codec,
+    codec: <C::Facts as ClientFacts>::Codec,
 }
 
 impl<C> AsyncEndpoint<C>
 where
-    C: ClientCaller<Factory: ClientFactory<Task = APIClientReq>>,
+    C: ClientCaller<Facts: ClientFacts<Task = APIClientReq>>,
 {
     pub fn new(caller: C) -> Self {
         Self { caller, codec: Default::default() }
@@ -48,7 +89,7 @@ where
 
 impl<C> Clone for AsyncEndpoint<C>
 where
-    C: Clone + ClientCaller<Factory: ClientFactory<Task = APIClientReq>>,
+    C: Clone + ClientCaller<Facts: ClientFacts<Task = APIClientReq>>,
 {
     fn clone(&self) -> Self {
         Self::new(self.caller.clone())
@@ -57,7 +98,7 @@ where
 
 impl<C> std::ops::Deref for AsyncEndpoint<C>
 where
-    C: ClientCaller<Factory: ClientFactory<Task = APIClientReq>>,
+    C: ClientCaller<Facts: ClientFacts<Task = APIClientReq>>,
 {
     type Target = C;
 
@@ -68,15 +109,15 @@ where
 
 pub struct BlockingEndpoint<C>
 where
-    C: ClientCallerBlocking<Factory: ClientFactory<Task = APIClientReq>>,
+    C: ClientCallerBlocking<Facts: ClientFacts<Task = APIClientReq>>,
 {
     caller: C,
-    codec: <C::Factory as ClientFactory>::Codec,
+    codec: <C::Facts as ClientFacts>::Codec,
 }
 
 impl<C> BlockingEndpoint<C>
 where
-    C: ClientCallerBlocking<Factory: ClientFactory<Task = APIClientReq>>,
+    C: ClientCallerBlocking<Facts: ClientFacts<Task = APIClientReq>>,
 {
     fn new(caller: C) -> Self {
         Self { caller, codec: Default::default() }
@@ -99,7 +140,7 @@ where
 
 impl<C> Clone for BlockingEndpoint<C>
 where
-    C: Clone + ClientCallerBlocking<Factory: ClientFactory<Task = APIClientReq>>,
+    C: Clone + ClientCallerBlocking<Facts: ClientFacts<Task = APIClientReq>>,
 {
     fn clone(&self) -> Self {
         Self::new(self.caller.clone())
@@ -108,7 +149,7 @@ where
 
 impl<C> std::ops::Deref for BlockingEndpoint<C>
 where
-    C: ClientCallerBlocking<Factory: ClientFactory<Task = APIClientReq>>,
+    C: ClientCallerBlocking<Facts: ClientFacts<Task = APIClientReq>>,
 {
     type Target = C;
 

@@ -112,7 +112,7 @@ pub fn service(_attr: TokenStream, item: TokenStream) -> TokenStream {
             let handler_methods = methods_data.iter().map(|(method_name, arg_ty)| {
                 let handler_name = format_ident!("__handle_{}", method_name);
                 quote! {
-                    async fn #handler_name<C: Codec>(&self, req: Request<C>) {
+                    async fn #handler_name<C: Codec>(&self, req: occams_rpc::server::ServerReq<C>) {
                         let arg = match req.req.as_ref() {
                             None => {
                                 unreachable!();
@@ -162,7 +162,7 @@ pub fn service(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
                 impl #service_trait_impl_generics occams_rpc::service::ServiceStatic<C> for #self_ty #service_trait_where_clause {
                     const SERVICE_NAME: &'static str = #service_name_pascal;
-                    fn serve(&self, req: Request<C>) -> impl std::future::Future<Output = ()> + Send {
+                    fn serve(&self, req: occams_rpc::server::ServerReq<C>) -> impl std::future::Future<Output = ()> + Send {
                         async move {
                             match req.method.as_str() {
                                 #(#dispatch_arms)*

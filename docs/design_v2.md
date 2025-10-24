@@ -37,7 +37,7 @@ Response format: Each response package has a fixed-length header (RespHead), fol
 
 src/stream/server.rs:
 
-`ServerFactory` is the interface for a user to assign or customize with various plugins (transport, codec, etc.).
+`ServerFact` is the interface for a user to assign or customize with various plugins (transport, codec, etc.).
 
 src/stream/server_impl.rs:
 
@@ -89,5 +89,5 @@ The dispatcher is responsible for decoding the task and dispatching it to the ba
 
 The codec is intended to support encryption, so there should be a shared state, which needs to be initialized as an Arc<Codec> and shared between the connection reader and writer. Therefore, the dispatcher should be an Arc shared between the reader and writer.
 
-We set RespTask in ServerFactory as an associated type, to defined the task type for the RespNoti channel but we leave ReqDispatch to be inferred from
+We set RespTask in ServerFact as an associated type, to defined the task type for the RespNoti channel but we leave ReqDispatch to be inferred from
 ` fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespReceiver>``, because, like ReqDispatchClosure, it usually comes with a closure capturing the context about how to dispatch the task. This may be a Fn or a struct defined by the user.

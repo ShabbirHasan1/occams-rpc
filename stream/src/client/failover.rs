@@ -1,7 +1,5 @@
 use crate::client::task::*;
-use crate::client::{
-    ClientCaller, ClientCallerBlocking, ClientFactory, ClientPool, ClientTransport,
-};
+use crate::client::{ClientCaller, ClientCallerBlocking, ClientFacts, ClientPool, ClientTransport};
 use crate::proto::RpcAction;
 use arc_swap::ArcSwapOption;
 use crossfire::*;
@@ -25,17 +23,17 @@ use std::sync::{
 /// don't clone FailoverPool as it has custom drop. FailoverPool should be put in Arc for usage.
 pub struct FailoverPool<F, P>(Arc<FailoverPoolInner<F, P>>)
 where
-    F: ClientFactory,
+    F: ClientFacts,
     P: ClientTransport<F::IO>;
 
 struct FailoverPoolInner<F, P>
 where
-    F: ClientFactory,
+    F: ClientFacts,
     P: ClientTransport<F::IO>,
 {
     pools: ArcSwapOption<ClusterConfig<F, P>>,
     round_robin: bool,
-    factory: Arc<F>,
+    facts: Arc<F>,
     retry_limit: usize,
     retry_tx: MTx<FailoverTask<F::Task>>,
     ver: AtomicU64,
@@ -45,7 +43,7 @@ where
 
 struct ClusterConfig<F, P>
 where
-    F: ClientFactory,
+    F: ClientFacts,
     P: ClientTransport<F::IO>,
 {
     pools: Vec<ClientPool<FailoverPoolInner<F, P>, P>>,
@@ -54,11 +52,11 @@ where
 
 impl<F, P> FailoverPool<F, P>
 where
-    F: ClientFactory,
+    F: ClientFacts,
     P: ClientTransport<F::IO>,
 {
     pub fn new(
-        factory: Arc<F>, addrs: Vec<String>, round_robin: bool, retry_limit: usize,
+        facts: Arc<F>, addrs: Vec<String>, round_robin: bool, retry_limit: usize,
         pool_channel_size: usize,
     ) -> Self {
         let (retry_tx, retry_rx) = mpsc::unbounded_async();
@@ -66,7 +64,7 @@ where
         let inner = Arc::new(FailoverPoolInner::<F, P> {
             pools: ArcSwapOption::new(None),
             round_robin,
-            factory: factory.clone(),
+            facts: facts.clone(),
             retry_limit,
             retry_tx: retry_tx.into(),
             ver: AtomicU64::new(1),
@@ -80,9 +78,9 @@ where
         }
         inner.pools.store(Some(Arc::new(ClusterConfig { ver: 0, pools })));
 
-        let retry_logger = factory.new_logger("");
+        let retry_logger = facts.new_logger("");
         let weak_self = Arc::downgrade(&inner);
-        factory.spawn_detach(async move {
+        facts.spawn_detach(async move {
             FailoverPoolInner::retry_worker(weak_self, retry_logger, retry_rx).await;
         });
         Self(inner)
@@ -118,7 +116,7 @@ where
 
 impl<F, P> ClusterConfig<F, P>
 where
-    F: ClientFactory,
+    F: ClientFacts,
     P: ClientTransport<F::IO>,
 {
     #[inline]
@@ -148,7 +146,7 @@ where
 
 impl<F, P> FailoverPoolInner<F, P>
 where
-    F: ClientFactory,
+    F: ClientFacts,
     P: ClientTransport<F::IO>,
 {
     async fn retry_worker(
@@ -187,7 +185,7 @@ where
 
 impl<F, P> Drop for FailoverPool<F, P>
 where
-    F: ClientFactory,
+    F: ClientFacts,
     P: ClientTransport<F::IO>,
 {
     fn drop(&mut self) {
@@ -196,9 +194,9 @@ where
     }
 }
 
-impl<F, P> ClientFactory for FailoverPoolInner<F, P>
+impl<F, P> ClientFacts for FailoverPoolInner<F, P>
 where
-    F: ClientFactory,
+    F: ClientFacts,
     P: ClientTransport<F::IO>,
 {
     type Logger = F::Logger;
@@ -215,17 +213,17 @@ where
         FR: Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
-        self.factory.spawn_detach(f);
+        self.facts.spawn_detach(f);
     }
 
     #[inline]
     fn new_logger(&self, _conn_id: &str) -> F::Logger {
-        self.factory.new_logger(_conn_id)
+        self.facts.new_logger(_conn_id)
     }
 
     #[inline]
     fn get_config(&self) -> &ClientConfig {
-        self.factory.get_config()
+        self.facts.get_config()
     }
 
     #[inline]
@@ -244,10 +242,10 @@ where
 
 impl<F, P> ClientCaller for FailoverPool<F, P>
 where
-    F: ClientFactory,
+    F: ClientFacts,
     P: ClientTransport<F::IO>,
 {
-    type Factory = F;
+    type Facts = F;
 
     async fn send_req(&self, mut task: F::Task) {
         let cluster = self.0.pools.load();
@@ -275,10 +273,10 @@ where
 
 impl<F, P> ClientCallerBlocking for FailoverPool<F, P>
 where
-    F: ClientFactory,
+    F: ClientFacts,
     P: ClientTransport<F::IO>,
 {
-    type Factory = F;
+    type Facts = F;
     fn send_req_blocking(&self, mut task: F::Task) {
         let cluster = self.0.pools.load();
         if let Some(cluster) = cluster.as_ref() {
