@@ -242,11 +242,13 @@ where
     }
 }
 
-impl<F, P> ClientCaller<F> for FailoverPool<F, P>
+impl<F, P> ClientCaller for FailoverPool<F, P>
 where
     F: ClientFactory,
     P: ClientTransport<F::IO>,
 {
+    type Factory = F;
+
     async fn send_req(&self, mut task: F::Task) {
         let cluster = self.0.pools.load();
         if let Some(cluster) = cluster.as_ref() {
@@ -271,11 +273,12 @@ where
     }
 }
 
-impl<F, P> ClientCallerBlocking<F> for FailoverPool<F, P>
+impl<F, P> ClientCallerBlocking for FailoverPool<F, P>
 where
     F: ClientFactory,
     P: ClientTransport<F::IO>,
 {
+    type Factory = F;
     fn send_req_blocking(&self, mut task: F::Task) {
         let cluster = self.0.pools.load();
         if let Some(cluster) = cluster.as_ref() {

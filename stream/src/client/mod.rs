@@ -80,26 +80,31 @@ pub trait ClientFactory: Send + Sync + Sized + 'static {
     }
 }
 
-pub trait ClientCaller<F: ClientFactory>: Send {
-    fn send_req(&self, task: F::Task) -> impl Future<Output = ()> + Send;
+pub trait ClientCaller: Send {
+    type Factory: ClientFactory;
+    fn send_req(
+        &self, task: <Self::Factory as ClientFactory>::Task,
+    ) -> impl Future<Output = ()> + Send;
 }
 
-pub trait ClientCallerBlocking<F: ClientFactory>: Send {
-    fn send_req_blocking(&self, task: F::Task);
+pub trait ClientCallerBlocking: Send {
+    type Factory: ClientFactory;
+    fn send_req_blocking(&self, task: <Self::Factory as ClientFactory>::Task);
 }
 
-impl<F: ClientFactory, C: ClientCaller<F> + Send + Sync> ClientCaller<F> for Arc<C> {
+impl<C: ClientCaller + Send + Sync> ClientCaller for Arc<C> {
+    type Factory = C::Factory;
     #[inline(always)]
-    async fn send_req(&self, task: F::Task) {
+    async fn send_req(&self, task: <Self::Factory as ClientFactory>::Task) {
         self.as_ref().send_req(task).await
     }
 }
 
-impl<F: ClientFactory, C: ClientCallerBlocking<F> + Send + Sync> ClientCallerBlocking<F>
-    for Arc<C>
-{
+impl<C: ClientCallerBlocking + Send + Sync> ClientCallerBlocking for Arc<C> {
+    type Factory = C::Factory;
+
     #[inline(always)]
-    fn send_req_blocking(&self, task: F::Task) {
+    fn send_req_blocking(&self, task: <Self::Factory as ClientFactory>::Task) {
         self.as_ref().send_req_blocking(task);
     }
 }

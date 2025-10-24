@@ -115,14 +115,16 @@ impl<F: ClientFactory, P: ClientTransport<F::IO>> Drop for ClientPool<F, P> {
     }
 }
 
-impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientCaller<F> for ClientPool<F, P> {
+impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientCaller for ClientPool<F, P> {
+    type Factory = F;
     #[inline]
     async fn send_req(&self, task: F::Task) {
         self.tx_async.send(task).await.expect("submit");
     }
 }
 
-impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientCallerBlocking<F> for ClientPool<F, P> {
+impl<F: ClientFactory, P: ClientTransport<F::IO>> ClientCallerBlocking for ClientPool<F, P> {
+    type Factory = F;
     #[inline]
     fn send_req_blocking(&self, task: F::Task) {
         self.tx.send(task).expect("submit");
