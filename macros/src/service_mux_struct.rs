@@ -18,7 +18,7 @@ pub fn service_mux_struct(_attr: TokenStream, item: TokenStream) -> TokenStream 
     });
 
     let expanded = quote! {
-        impl<C: Codec> occams_rpc::service::ServiceStatic <C> for #struct_name {
+        impl<C: occams_rpc_core::Codec> occams_rpc::service::ServiceStatic <C> for #struct_name {
             const SERVICE_NAME: &'static str = "";
             fn serve(&self, req: occams_rpc::server::ServerReq<C>) -> impl std::future::Future<Output = ()> + Send {
                 async move {

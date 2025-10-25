@@ -112,7 +112,7 @@ pub fn service(_attr: TokenStream, item: TokenStream) -> TokenStream {
             let handler_methods = methods_data.iter().map(|(method_name, arg_ty)| {
                 let handler_name = format_ident!("__handle_{}", method_name);
                 quote! {
-                    async fn #handler_name<C: Codec>(&self, req: occams_rpc::server::ServerReq<C>) {
+                    async fn #handler_name<C: occams_rpc_core::Codec>(&self, req: occams_rpc::server::ServerReq<C>) {
                         let arg = match req.req.as_ref() {
                             None => {
                                 unreachable!();
@@ -151,7 +151,7 @@ pub fn service(_attr: TokenStream, item: TokenStream) -> TokenStream {
             let (impl_generics, _ty_generics, where_clause) = item_impl.generics.split_for_impl();
 
             let mut service_trait_generics = item_impl.generics.clone();
-            service_trait_generics.params.push(syn::parse_quote!(C: Codec));
+            service_trait_generics.params.push(syn::parse_quote!(C: occams_rpc_core::Codec));
             let (service_trait_impl_generics, _, service_trait_where_clause) =
                 service_trait_generics.split_for_impl();
 
