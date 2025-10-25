@@ -2,6 +2,7 @@ use super::RpcSvrReq;
 use super::task::*;
 use occams_rpc_core::Codec;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 /// Dispatch should be a user-defined struct initialized for every connection, by ServerFacts::new_dispatcher.
 ///
@@ -22,7 +23,7 @@ pub trait Dispatch: Send + Sync + Sized + Clone + 'static {
     /// This is an async fn, but you should avoid waiting as much as possible.
     /// Should return Err(()) when codec decode_req failed.
     fn dispatch_req<'a>(
-        &'a self, codec: &Self::Codec, req: RpcSvrReq<'a>, noti: RespNoti<Self::RespTask>,
+        &'a self, codec: &Arc<Self::Codec>, req: RpcSvrReq<'a>, noti: RespNoti<Self::RespTask>,
     ) -> impl Future<Output = Result<(), ()>> + Send;
 }
 
@@ -104,10 +105,15 @@ where
 
     #[inline]
     async fn dispatch_req<'a>(
-        &'a self, codec: &Self::Codec, req: RpcSvrReq<'a>, noti: RespNoti<R>,
+        &'a self, codec: &Arc<Self::Codec>, req: RpcSvrReq<'a>, noti: RespNoti<R>,
     ) -> Result<(), ()> {
         match <T as ServerTaskDecode<R>>::decode_req(
-            codec, req.action, req.seq, req.msg, req.blob, noti,
+            codec.as_ref(),
+            req.action,
+            req.seq,
+            req.msg,
+            req.blob,
+            noti,
         ) {
             Err(_) => {
                 error!("action {:?} seq={} decode err", req.action, req.seq);

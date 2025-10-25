@@ -30,4 +30,3 @@ pub type RT = occams_rpc_smol::SmolRT;
 
 pub mod client;
 pub mod server;
-pub mod service;

@@ -135,7 +135,7 @@ where
                                 let seq = req.seq;
                                 if self
                                     .dispatch
-                                    .dispatch_req(self.codec.as_ref(), req, self.noti.clone())
+                                    .dispatch_req(&self.codec, req, self.noti.clone())
                                     .await
                                     .is_err()
                                 {
