@@ -4,7 +4,6 @@ use captains_log::filter::LogFilter;
 use futures::future::{AbortHandle, Abortable};
 use occams_rpc_core::{error::*, io::AsyncListener, runtime::AsyncIO};
 use std::io;
-use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -37,7 +36,9 @@ where
         }
     }
 
-    pub fn listen<T: ServerTransport>(&mut self, addr: &str) -> io::Result<String> {
+    pub fn listen<T: ServerTransport, D: Dispatch>(
+        &mut self, addr: &str, dispatch: D,
+    ) -> io::Result<String> {
         match <T::Listener as AsyncListener>::bind(addr) {
             Err(e) => {
                 error!("bind addr {:?} err: {}", addr, e);
@@ -75,7 +76,12 @@ where
                                         facts.get_config(),
                                         conn_ref_count.clone(),
                                     );
-                                    Self::server_conn::<T>(conn, &facts, server_close_rx.clone())
+                                    Self::server_conn::<T, D>(
+                                        conn,
+                                        &facts,
+                                        dispatch.clone(),
+                                        server_close_rx.clone(),
+                                    )
                                 }
                             }
                         }
@@ -90,25 +96,34 @@ where
         }
     }
 
-    fn server_conn<T: ServerTransport>(
-        conn: T, facts: &F, server_close_rx: crossfire::MAsyncRx<()>,
+    fn server_conn<T: ServerTransport, D: Dispatch>(
+        conn: T, facts: &F, dispatch: D, server_close_rx: crossfire::MAsyncRx<()>,
     ) {
         let conn = Arc::new(conn);
 
-        let dispatch = Arc::new(facts.new_dispatcher());
         let (done_tx, done_rx) = crossfire::mpsc::unbounded_async();
+        let codec = Arc::new(D::Codec::default());
 
         let noti = RespNoti(done_tx);
-        struct Reader<T: ServerTransport, IO: AsyncIO, D: ReqDispatch<R>, R: ServerTaskResp> {
-            noti: RespNoti<R>,
+        struct Reader<T: ServerTransport, D: Dispatch> {
+            noti: RespNoti<D::RespTask>,
             conn: Arc<T>,
             server_close_rx: crossfire::MAsyncRx<()>,
-            dispatch: Arc<D>,
+            codec: Arc<D::Codec>,
+            dispatch: D,
             logger: Arc<LogFilter>,
-            _phan: PhantomData<fn(&IO)>,
         }
+        let reader = Reader::<T, D> {
+            noti,
+            codec: codec.clone(),
+            dispatch,
+            conn: conn.clone(),
+            server_close_rx,
+            logger: facts.new_logger(),
+        };
+        AsyncIO::spawn_detach(facts, async move { reader.run().await });
 
-        impl<T: ServerTransport, IO: AsyncIO, D: ReqDispatch<R>, R: ServerTaskResp> Reader<T, IO, D, R> {
+        impl<T: ServerTransport, D: Dispatch> Reader<T, D> {
             async fn run(self) -> Result<(), ()> {
                 loop {
                     match self.conn.read_req(&self.logger, &self.server_close_rx).await {
@@ -118,7 +133,11 @@ where
                                 self.send_quick_resp(req.seq, None)?;
                             } else {
                                 let seq = req.seq;
-                                if self.dispatch.dispatch_req(req, self.noti.clone()).await.is_err()
+                                if self
+                                    .dispatch
+                                    .dispatch_req(self.codec.as_ref(), req, self.noti.clone())
+                                    .await
+                                    .is_err()
                                 {
                                     self.send_quick_resp(seq, Some(RpcIntErr::Decode.into()))?;
                                 }
@@ -141,25 +160,17 @@ where
                 Ok(())
             }
         }
-        let reader = Reader::<T, F, _, _> {
-            noti,
-            conn: conn.clone(),
-            server_close_rx,
-            dispatch: dispatch.clone(),
-            logger: facts.new_logger(),
-            _phan: Default::default(),
-        };
-        AsyncIO::spawn_detach(facts, async move { reader.run().await });
 
-        struct Writer<T: ServerTransport, IO: AsyncIO, D: ReqDispatch<R>, R: ServerTaskResp> {
-            dispatch: Arc<D>,
-            done_rx: crossfire::AsyncRx<Result<R, (u64, Option<RpcIntErr>)>>,
+        struct Writer<T: ServerTransport, D: Dispatch> {
+            codec: Arc<D::Codec>,
+            done_rx: crossfire::AsyncRx<Result<D::RespTask, (u64, Option<RpcIntErr>)>>,
             conn: Arc<T>,
             logger: Arc<LogFilter>,
-            _phan: PhantomData<fn(&IO)>,
         }
+        let writer = Writer::<T, D> { done_rx, codec, conn, logger: facts.new_logger() };
+        AsyncIO::spawn_detach(facts, async move { writer.run().await });
 
-        impl<T: ServerTransport, IO: AsyncIO, D: ReqDispatch<R>, R: ServerTaskResp> Writer<T, IO, D, R> {
+        impl<T: ServerTransport, D: Dispatch> Writer<T, D> {
             async fn run(self) -> Result<(), io::Error> {
                 macro_rules! process {
                     ($task: expr) => {{
@@ -167,7 +178,11 @@ where
                             Ok(_task) => {
                                 logger_trace!(self.logger, "write_resp {:?}", _task);
                                 self.conn
-                                    .write_resp::<R>(&self.logger, self.dispatch.get_codec(), _task)
+                                    .write_resp::<D::RespTask>(
+                                        &self.logger,
+                                        self.codec.as_ref(),
+                                        _task,
+                                    )
                                     .await?;
                             }
                             Err((seq, err)) => {
@@ -188,14 +203,6 @@ where
                 Ok(())
             }
         }
-        let writer = Writer::<T, F, _, _> {
-            done_rx,
-            conn,
-            dispatch,
-            logger: facts.new_logger(),
-            _phan: Default::default(),
-        };
-        AsyncIO::spawn_detach(facts, async move { writer.run().await });
     }
 
     #[inline]

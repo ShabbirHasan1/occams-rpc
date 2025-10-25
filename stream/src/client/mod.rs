@@ -129,7 +129,7 @@ pub trait ClientTransport: fmt::Debug + Send + Sized + 'static {
     ) -> impl std::future::Future<Output = Result<bool, RpcIntErr>> + Send;
 }
 
-/// An example ClientFacts for API Clients
+/// An example ClientFacts for general use
 pub struct ClientDefault<T: ClientTask, IO: AsyncIO, C: Codec> {
     pub logger: Arc<LogFilter>,
     config: ClientConfig,

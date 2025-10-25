@@ -8,7 +8,7 @@ mod server;
 pub use server::RpcServer;
 
 pub mod dispatch;
-use dispatch::ReqDispatch;
+use dispatch::Dispatch;
 
 pub use occams_rpc_core::ServerConfig;
 
@@ -28,13 +28,6 @@ pub trait ServerFacts: AsyncIO + Sync + Send + 'static + Sized {
 
     /// Construct a [captains_log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/trait.Filter.html) to oganize log of a client
     fn new_logger(&self) -> Arc<LogFilter>;
-
-    type RespTask: ServerTaskResp;
-
-    /// Called when a server stream is established, initialize a ReqDispatch for the connection.
-    ///
-    /// The dispatch is likely to be a closure or object, in order to dispatch tasks to different workers
-    fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespTask>;
 }
 
 /// This trait is for server-side transport layer protocol.
@@ -121,5 +114,42 @@ impl task::ServerTaskEncode for RpcSvrResp {
             }
             Err(e) => return (self.seq, Err(e)),
         }
+    }
+}
+
+/// An ServerFacts for general use
+pub struct ServerDefault<IO: AsyncIO> {
+    pub logger: Arc<LogFilter>,
+    config: ServerConfig,
+    rt: IO,
+}
+
+impl<IO: AsyncIO> ServerDefault<IO> {
+    pub fn new(config: ServerConfig, rt: IO) -> Arc<Self> {
+        Arc::new(Self { logger: Arc::new(LogFilter::new()), config, rt })
+    }
+
+    #[inline]
+    pub fn set_log_level(&self, level: log::Level) {
+        self.logger.set_level(level);
+    }
+}
+
+impl<IO: AsyncIO> std::ops::Deref for ServerDefault<IO> {
+    type Target = IO;
+    fn deref(&self) -> &Self::Target {
+        &self.rt
+    }
+}
+
+impl<IO: AsyncIO> ServerFacts for ServerDefault<IO> {
+    #[inline]
+    fn new_logger(&self) -> Arc<LogFilter> {
+        self.logger.clone()
+    }
+
+    #[inline]
+    fn get_config(&self) -> &ServerConfig {
+        &self.config
     }
 }

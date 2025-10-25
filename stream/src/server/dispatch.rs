@@ -3,13 +3,17 @@ use super::task::*;
 use occams_rpc_core::Codec;
 use std::marker::PhantomData;
 
-/// ReqDispatch should be a user-defined struct initialized for every connection, by ServerFacts::new_dispatcher.
+/// Dispatch should be a user-defined struct initialized for every connection, by ServerFacts::new_dispatcher.
 ///
-/// ReqDispatch must have Sync, because the connection reader and writer access concurrently.
+/// Dispatch must have Sync, because the connection reader and writer access concurrently.
 ///
 /// A `Codec` should be created and holds inside, shared by the read/write coroutine.
 /// If you have encryption in the Codec, it could have shared states.
-pub trait ReqDispatch<R: ServerTaskResp>: Send + Sync + Sized + 'static {
+pub trait Dispatch: Send + Sync + Sized + Clone + 'static {
+    type RespTask: ServerTaskResp;
+
+    type Codec: Codec;
+
     /// Decode and handle the request, called from the connection reader coroutine.
     ///
     /// You can dispatch them to a worker pool.
@@ -18,38 +22,36 @@ pub trait ReqDispatch<R: ServerTaskResp>: Send + Sync + Sized + 'static {
     /// This is an async fn, but you should avoid waiting as much as possible.
     /// Should return Err(()) when codec decode_req failed.
     fn dispatch_req<'a>(
-        &'a self, req: RpcSvrReq<'a>, noti: RespNoti<R>,
+        &'a self, codec: &Self::Codec, req: RpcSvrReq<'a>, noti: RespNoti<Self::RespTask>,
     ) -> impl Future<Output = Result<(), ()>> + Send;
-
-    fn get_codec(&self) -> &impl Codec;
 }
 
-/// A ReqDispatch trait impl with a closure, only useful for writing tests.
+/// A Dispatch trait impl with a closure, only useful for writing tests.
 ///
 /// NOTE: The closure requires Clone.
 ///
 /// # Example
 ///
 /// ```no_compile,ignore
-/// use occams_rpc_stream::server::{ServerFacts, ReqDispatch};
+/// use occams_rpc_stream::server::{ServerFacts, Dispatch};
 /// impl ServerFacts for YourServer {
 ///
 ///     ...
 ///
 ///     #[inline]
-///     fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespTask> {
+///     fn new_dispatcher(&self) -> impl Dispatch<Self::RespTask> {
 ///         let dispatch_f = move |task: FileServerTask| {
 ///             async move {
 ///                 todo!();
 ///             }
 ///         }
-///         return ReqDispatchClosure::<MsgpCodec, YourServerTask, Self::RespTask, _, _>::new(
+///         return DispatchClosure::<MsgpCodec, YourServerTask, Self::RespTask, _, _>::new(
 ///             dispatch_f,
 ///         );
 ///     }
 /// }
 /// ```
-pub struct ReqDispatchClosure<C, T, R, H, F>
+pub struct DispatchClosure<C, T, R, H, F>
 where
     C: Codec,
     T: ServerTaskDecode<R>,
@@ -57,12 +59,11 @@ where
     H: FnOnce(T) -> F + Send + Sync + 'static + Clone,
     F: Future<Output = Result<(), ()>> + Send + 'static,
 {
-    codec: C,
     task_handle: H,
-    _phan: PhantomData<fn(&R, &T)>,
+    _phan: PhantomData<fn(&R, &T, &C)>,
 }
 
-impl<C, T, R, H, F> ReqDispatchClosure<C, T, R, H, F>
+impl<C, T, R, H, F> DispatchClosure<C, T, R, H, F>
 where
     C: Codec,
     T: ServerTaskDecode<R>,
@@ -72,11 +73,11 @@ where
 {
     #[inline]
     pub fn new(task_handle: H) -> Self {
-        Self { codec: C::default(), task_handle, _phan: Default::default() }
+        Self { task_handle, _phan: Default::default() }
     }
 }
 
-impl<C, T, R, H, F> ReqDispatch<R> for ReqDispatchClosure<C, T, R, H, F>
+impl<C, T, R, H, F> Clone for DispatchClosure<C, T, R, H, F>
 where
     C: Codec,
     T: ServerTaskDecode<R>,
@@ -85,14 +86,28 @@ where
     F: Future<Output = Result<(), ()>> + Send + 'static,
 {
     #[inline]
-    async fn dispatch_req<'a>(&'a self, req: RpcSvrReq<'a>, noti: RespNoti<R>) -> Result<(), ()> {
+    fn clone(&self) -> Self {
+        Self::new(self.task_handle.clone())
+    }
+}
+impl<C, T, R, H, F> Dispatch for DispatchClosure<C, T, R, H, F>
+where
+    C: Codec,
+    T: ServerTaskDecode<R>,
+    R: ServerTaskResp,
+    H: FnOnce(T) -> F + Send + Sync + 'static + Clone,
+    F: Future<Output = Result<(), ()>> + Send + 'static,
+{
+    type Codec = C;
+
+    type RespTask = R;
+
+    #[inline]
+    async fn dispatch_req<'a>(
+        &'a self, codec: &Self::Codec, req: RpcSvrReq<'a>, noti: RespNoti<R>,
+    ) -> Result<(), ()> {
         match <T as ServerTaskDecode<R>>::decode_req(
-            &self.codec,
-            req.action,
-            req.seq,
-            req.msg,
-            req.blob,
-            noti,
+            codec, req.action, req.seq, req.msg, req.blob, noti,
         ) {
             Err(_) => {
                 error!("action {:?} seq={} decode err", req.action, req.seq);
@@ -107,10 +122,5 @@ where
                 Ok(())
             }
         }
-    }
-
-    #[inline(always)]
-    fn get_codec(&self) -> &impl Codec {
-        &self.codec
     }
 }

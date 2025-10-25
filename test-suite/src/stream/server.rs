@@ -1,85 +1,37 @@
 use super::client::{FileAction, FileIOReq, FileIOResp, FileOpenReq};
+use nix::errno::Errno;
 use occams_rpc_codec::MsgpCodec;
+#[cfg(not(feature = "tokio"))]
+use occams_rpc_smol::{ServerDefault, SmolRT};
 use occams_rpc_stream::server::{dispatch::*, task::*, *};
 use occams_rpc_tcp::TcpServer;
-use std::sync::Arc;
-
-use captains_log::filter::LogFilter;
-use nix::errno::Errno;
+#[cfg(feature = "tokio")]
+use occams_rpc_tokio::{ServerDefault, TokioRT};
 
 pub fn init_server<H, FH>(
     server_handle: H, config: ServerConfig, addr: &str,
-) -> Result<(RpcServer<FileServer<H, FH>>, String), std::io::Error>
+) -> Result<(RpcServer<ServerDefault>, String), std::io::Error>
 where
     H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
     FH: Future<Output = Result<(), ()>> + Send + 'static,
 {
     #[cfg(feature = "tokio")]
-    let rt = crate::RT::new(tokio::runtime::Handle::current());
+    let rt = TokioRT::new(tokio::runtime::Handle::current());
     #[cfg(not(feature = "tokio"))]
-    let rt = crate::RT::new_global();
-    let facts = Arc::new(FileServer::new(rt, server_handle, config));
+    let rt = SmolRT::new_global();
+    let facts = ServerDefault::new(config, rt);
+    let dispatch = new_closure_dispatcher(server_handle);
     let mut server = RpcServer::new(facts);
-    let local_addr = server.listen::<TcpServer<crate::RT>>(addr)?;
+    let local_addr = server.listen::<TcpServer<crate::RT>, _>(addr, dispatch)?;
     Ok((server, local_addr))
 }
 
-pub struct FileServer<H, FH>
+pub fn new_closure_dispatcher<H, FH>(handle: H) -> impl Dispatch
 where
     H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
     FH: Future<Output = Result<(), ()>> + Send + 'static,
 {
-    rt: crate::RT,
-    config: ServerConfig,
-    server_handle: H,
-    logger: Arc<LogFilter>,
-}
-
-impl<H, FH> FileServer<H, FH>
-where
-    H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
-    FH: Future<Output = Result<(), ()>> + Send + 'static,
-{
-    pub fn new(rt: crate::RT, server_handle: H, config: ServerConfig) -> Self {
-        Self { rt, config, server_handle, logger: Arc::new(LogFilter::new()) }
-    }
-}
-
-impl<H, FH> std::ops::Deref for FileServer<H, FH>
-where
-    H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
-    FH: Future<Output = Result<(), ()>> + Send + 'static,
-{
-    type Target = crate::RT;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.rt
-    }
-}
-
-impl<H, FH> ServerFacts for FileServer<H, FH>
-where
-    H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
-    FH: Future<Output = Result<(), ()>> + Send + 'static,
-{
-    type RespTask = FileServerTask;
-
-    #[inline]
-    fn new_dispatcher(&self) -> impl ReqDispatch<Self::RespTask> {
-        return ReqDispatchClosure::<MsgpCodec, FileServerTask, Self::RespTask, _, _>::new(
-            self.server_handle.clone(),
-        );
-    }
-
-    #[inline]
-    fn new_logger(&self) -> Arc<LogFilter> {
-        self.logger.clone()
-    }
-
-    #[inline]
-    fn get_config(&self) -> &ServerConfig {
-        &self.config
-    }
+    DispatchClosure::<MsgpCodec, FileServerTask, FileServerTask, _, _>::new(handle.clone())
 }
 
 #[server_task_enum(req, resp, error = Errno)]

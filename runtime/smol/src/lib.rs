@@ -154,3 +154,4 @@ impl<T: AsRawFd + AsFd + Send + Sync + 'static> Deref for SmolFD<T> {
 }
 
 pub type ClientDefault<T, C> = occams_rpc_stream::client::ClientDefault<T, SmolRT, C>;
+pub type ServerDefault = occams_rpc_stream::server::ServerDefault<SmolRT>;
