@@ -11,6 +11,7 @@ use super::throttler::Throttler;
 use crate::client::task::ClientTaskDone;
 use crate::client::timer::ClientTaskTimer;
 use crate::{client::*, proto};
+use captains_log::filter::LogFilter;
 use crossfire::*;
 use futures::pin_mut;
 use occams_rpc_core::runtime::*;
@@ -37,12 +38,12 @@ use sync_utils::time::DelayedTime;
 /// The user sends packets in sequence, with a throttler controlling the IO depth of in-flight packets.
 /// An internal timer then registers the request through a channel, and when the response
 /// is received, it can optionally notify the user through a user-defined channel or another mechanism.
-pub struct ClientStream<F: ClientFacts, P: ClientTransport<F::IO>> {
+pub struct ClientStream<F: ClientFacts, P: ClientTransport> {
     close_tx: Option<MTx<()>>,
     inner: Arc<ClientStreamInner<F, P>>,
 }
 
-impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientStream<F, P> {
+impl<F: ClientFacts, P: ClientTransport> ClientStream<F, P> {
     /// Make a streaming connection to the server, returns [ClientStream] on success
     #[inline]
     pub fn connect(
@@ -69,7 +70,7 @@ impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientStream<F, P> {
             _close_rx,
             last_resp_ts,
         ));
-        logger_debug!(inner.logger(), "{:?} connected", inner);
+        logger_debug!(inner.logger, "{:?} connected", inner);
         let _inner = inner.clone();
         inner.facts.spawn_detach(async move {
             _inner.receive_loop().await;
@@ -145,7 +146,7 @@ impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientStream<F, P> {
     }
 }
 
-impl<F: ClientFacts, P: ClientTransport<F::IO>> Drop for ClientStream<F, P> {
+impl<F: ClientFacts, P: ClientTransport> Drop for ClientStream<F, P> {
     fn drop(&mut self) {
         self.close_tx.take();
         let timer = self.inner.get_timer_mut();
@@ -154,13 +155,13 @@ impl<F: ClientFacts, P: ClientTransport<F::IO>> Drop for ClientStream<F, P> {
     }
 }
 
-impl<F: ClientFacts, P: ClientTransport<F::IO>> fmt::Debug for ClientStream<F, P> {
+impl<F: ClientFacts, P: ClientTransport> fmt::Debug for ClientStream<F, P> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.inner.fmt(f)
     }
 }
 
-struct ClientStreamInner<F: ClientFacts, P: ClientTransport<F::IO>> {
+struct ClientStreamInner<F: ClientFacts, P: ClientTransport> {
     client_id: u64,
     conn: P,
     seq: AtomicU64,
@@ -173,21 +174,21 @@ struct ClientStreamInner<F: ClientFacts, P: ClientTransport<F::IO>> {
     last_resp_ts: Option<Arc<AtomicU64>>,
     encode_buf: UnsafeCell<Vec<u8>>,
     codec: F::Codec,
-    logger: F::Logger,
+    logger: Arc<LogFilter>,
     facts: Arc<F>,
 }
 
-unsafe impl<F: ClientFacts, P: ClientTransport<F::IO>> Send for ClientStreamInner<F, P> {}
+unsafe impl<F: ClientFacts, P: ClientTransport> Send for ClientStreamInner<F, P> {}
 
-unsafe impl<F: ClientFacts, P: ClientTransport<F::IO>> Sync for ClientStreamInner<F, P> {}
+unsafe impl<F: ClientFacts, P: ClientTransport> Sync for ClientStreamInner<F, P> {}
 
-impl<F: ClientFacts, P: ClientTransport<F::IO>> fmt::Debug for ClientStreamInner<F, P> {
+impl<F: ClientFacts, P: ClientTransport> fmt::Debug for ClientStreamInner<F, P> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.conn.fmt(f)
     }
 }
 
-impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientStreamInner<F, P> {
+impl<F: ClientFacts, P: ClientTransport> ClientStreamInner<F, P> {
     pub fn new(
         facts: Arc<F>, conn: P, client_id: u64, conn_id: String, close_rx: MAsyncRx<()>,
         last_resp_ts: Option<Arc<AtomicU64>>,
@@ -208,17 +209,12 @@ impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientStreamInner<F, P> {
             last_resp_ts,
             has_err: AtomicBool::new(false),
             codec: F::Codec::default(),
-            logger: facts.new_logger(&conn_id),
+            logger: facts.new_logger(),
             timer: UnsafeCell::new(ClientTaskTimer::new(conn_id, config.task_timeout, thresholds)),
             facts,
         };
         logger_trace!(client_inner.logger, "{:?} throttler is set to {}", client_inner, thresholds,);
         client_inner
-    }
-
-    #[inline(always)]
-    fn logger(&self) -> &F::Logger {
-        &self.logger
     }
 
     #[inline(always)]
@@ -407,7 +403,7 @@ impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientStreamInner<F, P> {
     }
 
     async fn receive_loop(&self) {
-        let mut tick = <F::IO as AsyncIO>::tick(Duration::from_secs(1));
+        let mut tick = <F as AsyncIO>::tick(Duration::from_secs(1));
         loop {
             let f = self.recv_some();
             pin_mut!(f);
@@ -425,7 +421,7 @@ impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientStreamInner<F, P> {
                         // pending_task_count will not keep growing,
                         // so there is no need to sleep here.
                         timer.clean_pending_tasks(self.facts.as_ref());
-                        <F::IO as AsyncIO>::sleep(Duration::from_secs(1)).await;
+                        <F as AsyncIO>::sleep(Duration::from_secs(1)).await;
                     }
                     return;
                 }
@@ -452,7 +448,7 @@ impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientStreamInner<F, P> {
     }
 }
 
-impl<F: ClientFacts, P: ClientTransport<F::IO>> Drop for ClientStreamInner<F, P> {
+impl<F: ClientFacts, P: ClientTransport> Drop for ClientStreamInner<F, P> {
     fn drop(&mut self) {
         let timer = self.get_timer_mut();
         timer.clean_pending_tasks(self.facts.as_ref());
@@ -462,7 +458,7 @@ impl<F: ClientFacts, P: ClientTransport<F::IO>> Drop for ClientStreamInner<F, P>
 struct ReceiverTimerFuture<'a, F, P, I, FR>
 where
     F: ClientFacts,
-    P: ClientTransport<F::IO>,
+    P: ClientTransport,
     I: TimeInterval,
     FR: Future<Output = Result<(), RpcIntErr>> + Unpin,
 {
@@ -474,7 +470,7 @@ where
 impl<'a, F, P, I, FR> ReceiverTimerFuture<'a, F, P, I, FR>
 where
     F: ClientFacts,
-    P: ClientTransport<F::IO>,
+    P: ClientTransport,
     I: TimeInterval,
     FR: Future<Output = Result<(), RpcIntErr>> + Unpin,
 {
@@ -489,7 +485,7 @@ where
 impl<'a, F, P, I, FR> Future for ReceiverTimerFuture<'a, F, P, I, FR>
 where
     F: ClientFacts,
-    P: ClientTransport<F::IO>,
+    P: ClientTransport,
     I: TimeInterval,
     FR: Future<Output = Result<(), RpcIntErr>> + Unpin,
 {
@@ -497,7 +493,6 @@ where
 
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         let mut _self = self.get_mut();
-        //let _inv = Pin::new(<<_self.inv as F::IO as AsyncIO>::Interval as TimeInterval>);
         // In case ticker not fire, and ensure ticker schedule after ready
         while let Poll::Ready(_) = _self.inv.as_mut().poll_tick(ctx) {
             _self.client.time_reach();

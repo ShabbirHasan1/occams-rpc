@@ -14,7 +14,11 @@ where
     H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
     FH: Future<Output = Result<(), ()>> + Send + 'static,
 {
-    let facts = Arc::new(FileServer::new(server_handle, config));
+    #[cfg(feature = "tokio")]
+    let rt = crate::RT::new(tokio::runtime::Handle::current());
+    #[cfg(not(feature = "tokio"))]
+    let rt = crate::RT::new_global();
+    let facts = Arc::new(FileServer::new(rt, server_handle, config));
     let mut server = RpcServer::new(facts);
     let local_addr = server.listen::<TcpServer<crate::RT>>(addr)?;
     Ok((server, local_addr))
@@ -25,6 +29,7 @@ where
     H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
     FH: Future<Output = Result<(), ()>> + Send + 'static,
 {
+    rt: crate::RT,
     config: ServerConfig,
     server_handle: H,
     logger: Arc<LogFilter>,
@@ -35,8 +40,20 @@ where
     H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
     FH: Future<Output = Result<(), ()>> + Send + 'static,
 {
-    pub fn new(server_handle: H, config: ServerConfig) -> Self {
-        Self { config, server_handle, logger: Arc::new(LogFilter::new()) }
+    pub fn new(rt: crate::RT, server_handle: H, config: ServerConfig) -> Self {
+        Self { rt, config, server_handle, logger: Arc::new(LogFilter::new()) }
+    }
+}
+
+impl<H, FH> std::ops::Deref for FileServer<H, FH>
+where
+    H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
+    FH: Future<Output = Result<(), ()>> + Send + 'static,
+{
+    type Target = crate::RT;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.rt
     }
 }
 
@@ -45,10 +62,6 @@ where
     H: FnOnce(FileServerTask) -> FH + Send + Sync + 'static + Clone,
     FH: Future<Output = Result<(), ()>> + Send + 'static,
 {
-    type Logger = Arc<LogFilter>;
-
-    type IO = crate::RT;
-
     type RespTask = FileServerTask;
 
     #[inline]
@@ -59,16 +72,7 @@ where
     }
 
     #[inline]
-    fn spawn_detach<F, R>(&self, f: F)
-    where
-        F: Future<Output = R> + Send + 'static,
-        R: Send + 'static,
-    {
-        crate::async_spawn!(f);
-    }
-
-    #[inline]
-    fn new_logger(&self) -> Self::Logger {
+    fn new_logger(&self) -> Arc<LogFilter> {
         self.logger.clone()
     }
 

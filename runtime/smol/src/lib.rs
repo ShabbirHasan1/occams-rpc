@@ -7,6 +7,7 @@
 //! It implements the [`AsyncIO`](https://docs.rs/occams-rpc-core/latest/occams_rpc_core/runtime/index.html) trait to support `async-io` of `smol`.
 
 use async_executor::Executor;
+use async_io::{Async, Timer};
 use occams_rpc_core::io::*;
 use occams_rpc_core::runtime::{AsyncFdTrait, AsyncIO, TimeInterval};
 use std::future::Future;
@@ -21,8 +22,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::*;
 use std::time::{Duration, Instant};
-
-use async_io::{Async, Timer};
 
 /// The main struct for async-io, assign this type to AsyncIO trait when used:
 ///
@@ -41,25 +40,6 @@ impl SmolRT {
     #[inline]
     pub fn new(executor: Arc<Executor<'static>>) -> Self {
         Self(Some(executor))
-    }
-
-    #[inline]
-    pub fn spawn_detach<F, R>(&self, f: F)
-    where
-        F: Future<Output = R> + Send + 'static,
-        R: Send + 'static,
-    {
-        if let Some(executor) = self.0.as_ref() {
-            executor.spawn(f).detach();
-        } else {
-            #[cfg(feature = "global")]
-            {
-                smol::spawn(f).detach();
-                return;
-            }
-            #[cfg(not(feature = "global"))]
-            unreachable!();
-        }
     }
 }
 
@@ -112,6 +92,25 @@ impl AsyncIO for SmolRT {
     ) -> io::Result<Self::AsyncFd<T>> {
         Ok(SmolFD(Async::new(fd)?))
     }
+
+    #[inline]
+    fn spawn_detach<F, R>(&self, f: F)
+    where
+        F: Future<Output = R> + Send + 'static,
+        R: Send + 'static,
+    {
+        if let Some(executor) = self.0.as_ref() {
+            executor.spawn(f).detach();
+        } else {
+            #[cfg(feature = "global")]
+            {
+                smol::spawn(f).detach();
+                return;
+            }
+            #[cfg(not(feature = "global"))]
+            unreachable!();
+        }
+    }
 }
 
 /// Associate type for SmolRT
@@ -153,3 +152,5 @@ impl<T: AsRawFd + AsFd + Send + Sync + 'static> Deref for SmolFD<T> {
         self.0.get_ref()
     }
 }
+
+pub type ClientDefault<T, C> = occams_rpc_stream::client::ClientDefault<T, SmolRT, C>;

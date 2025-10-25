@@ -18,6 +18,7 @@ with a low-level streaming interface, and high-level remote API call interface.
 [dependencies]
 tokio = { version = "1", features = ["net", "time", "rt"] }
 occams-rpc-core = { path = "../../core/", version="0" }
+occams-rpc-stream = { path = "../../stream", version="0" }
 
 [package.metadata.docs.rs]
 all-features = true

@@ -33,15 +33,6 @@ impl TokioRT {
     pub fn new(handle: Handle) -> Self {
         Self(handle)
     }
-
-    #[inline]
-    pub fn spawn_detach<F, R>(&self, f: F)
-    where
-        F: Future<Output = R> + Send + 'static,
-        R: Send + 'static,
-    {
-        self.0.spawn(f);
-    }
 }
 
 impl AsyncIO for TokioRT {
@@ -94,6 +85,15 @@ impl AsyncIO for TokioRT {
         use tokio::io::Interest;
         Ok(TokioFD(io::unix::AsyncFd::with_interest(fd, Interest::READABLE | Interest::WRITABLE)?))
     }
+
+    #[inline]
+    fn spawn_detach<F, R>(&self, f: F)
+    where
+        F: Future<Output = R> + Send + 'static,
+        R: Send + 'static,
+    {
+        self.0.spawn(f);
+    }
 }
 
 /// Associate type for TokioRT
@@ -134,3 +134,5 @@ impl<T: AsRawFd + AsFd + Send + Sync + 'static> Deref for TokioFD<T> {
         self.0.get_ref()
     }
 }
+
+pub type ClientDefault<T, C> = occams_rpc_stream::client::ClientDefault<T, TokioRT, C>;

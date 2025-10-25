@@ -1,11 +1,11 @@
+use crate::net::{UnifyListener, UnifyStream};
+use captains_log::filter::LogFilter;
+use io_buffer::Buffer;
 use occams_rpc_core::io::{AsyncBufStream, AsyncRead, AsyncWrite, Cancellable, io_with_timeout};
 use occams_rpc_core::runtime::AsyncIO;
 use occams_rpc_core::{Codec, ServerConfig, error::*};
-use occams_rpc_stream::server::{RpcSvrReq, ServerFacts, ServerTransport, task::ServerTaskEncode};
+use occams_rpc_stream::server::{RpcSvrReq, ServerTransport, task::ServerTaskEncode};
 use occams_rpc_stream::{proto, proto::RpcAction};
-
-use crate::net::{UnifyListener, UnifyStream};
-use io_buffer::Buffer;
 use std::cell::UnsafeCell;
 use std::mem::transmute;
 use std::sync::Arc;
@@ -60,7 +60,8 @@ impl<IO: AsyncIO> fmt::Debug for TcpServer<IO> {
     }
 }
 
-impl<IO: AsyncIO> ServerTransport<IO> for TcpServer<IO> {
+impl<IO: AsyncIO> ServerTransport for TcpServer<IO> {
+    type IO = IO;
     type Listener = UnifyListener<IO>;
 
     fn new_conn(stream: UnifyStream<IO>, config: &ServerConfig, conn_count: Arc<()>) -> Self {
@@ -82,8 +83,8 @@ impl<IO: AsyncIO> ServerTransport<IO> for TcpServer<IO> {
     /// recv_req and return a temporary structure.
     ///
     /// NOTE: you should consume the buffer ref before recv another request.
-    async fn read_req<'a, F: ServerFacts>(
-        &'a self, logger: &F::Logger, close_ch: &crossfire::MAsyncRx<()>,
+    async fn read_req<'a>(
+        &'a self, logger: &LogFilter, close_ch: &crossfire::MAsyncRx<()>,
     ) -> Result<RpcSvrReq<'a>, RpcIntErr> {
         let reader = self.get_stream_mut();
         let read_timeout = self.config.read_timeout;
@@ -168,8 +169,8 @@ impl<IO: AsyncIO> ServerTransport<IO> for TcpServer<IO> {
     }
 
     #[inline]
-    async fn write_resp<F: ServerFacts, T: ServerTaskEncode>(
-        &self, logger: &F::Logger, codec: &impl Codec, mut task: T,
+    async fn write_resp<T: ServerTaskEncode>(
+        &self, logger: &LogFilter, codec: &impl Codec, mut task: T,
     ) -> io::Result<()> {
         let writer = self.get_stream_mut();
         let write_timeout = self.config.write_timeout;
@@ -196,8 +197,8 @@ impl<IO: AsyncIO> ServerTransport<IO> for TcpServer<IO> {
     }
 
     #[inline(always)]
-    async fn write_resp_internal<F: ServerFacts>(
-        &self, logger: &F::Logger, seq: u64, err: Option<RpcIntErr>,
+    async fn write_resp_internal(
+        &self, logger: &LogFilter, seq: u64, err: Option<RpcIntErr>,
     ) -> io::Result<()> {
         let writer = self.get_stream_mut();
         let write_timeout = self.config.write_timeout;
@@ -212,7 +213,7 @@ impl<IO: AsyncIO> ServerTransport<IO> for TcpServer<IO> {
     }
 
     #[inline(always)]
-    async fn flush_resp<F: ServerFacts>(&self, logger: &F::Logger) -> io::Result<()> {
+    async fn flush_resp(&self, logger: &LogFilter) -> io::Result<()> {
         let writer = self.get_stream_mut();
         if let Err(e) = io_with_timeout!(IO, self.config.write_timeout, writer.flush()) {
             logger_warn!(logger, "{:?}: flush err: {}", self, e);
@@ -223,8 +224,8 @@ impl<IO: AsyncIO> ServerTransport<IO> for TcpServer<IO> {
     }
 
     #[inline]
-    async fn close_conn<F: ServerFacts>(&self, logger: &F::Logger) {
-        if self.flush_resp::<F>(logger).await.is_ok() {
+    async fn close_conn(&self, logger: &LogFilter) {
+        if self.flush_resp(logger).await.is_ok() {
             let writer = self.get_stream_mut();
             let _ = writer.get_inner().shutdown_write().await;
         }

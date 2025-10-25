@@ -13,39 +13,21 @@ use dispatch::ReqDispatch;
 pub use occams_rpc_core::ServerConfig;
 
 use crate::proto::RpcAction;
-use captains_log::filter::Filter;
+use captains_log::filter::LogFilter;
 use io_buffer::Buffer;
 use occams_rpc_core::{Codec, error::*, io::*, runtime::AsyncIO};
 use std::{fmt, future::Future, io, sync::Arc};
 
 /// A central hub defined by the user for the server-side, to define the customizable plugin.
-pub trait ServerFacts: Sync + Send + 'static + Sized {
-    /// A [captains-log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/index.html) implementation.
-    /// The type that new_logger returns.
-    ///
-    /// maybe a `Arc<LogFilter> or KeyFilter<Arc<LogFilter>>`
-    type Logger: Filter + Send + Sync + 'static;
-
-    /// Define the adaptor of async runtime
-    ///
-    /// Refers to [occams_rpc_core::runtime::AsyncIO](https://docs.rs/occams-rpc-core/latest/occams_rpc_core/runtime/index.html)
-    type IO: AsyncIO;
-
+///
+/// We recommend your implementation to Deref<Target=AsyncIO> (either TokioRT or SmolRT),
+/// then the blanket trait in `occams-rpc-core` will automatically impl AsyncIO on your ClientFacts type.
+pub trait ServerFacts: AsyncIO + Sync + Send + 'static + Sized {
     /// You should keep ServerConfig inside, get_config() will return the reference.
     fn get_config(&self) -> &ServerConfig;
 
     /// Construct a [captains_log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/trait.Filter.html) to oganize log of a client
-    ///
-    /// maybe a `Arc<LogFilter>` or `KeyFilter<Arc<LogFilter>>`
-    fn new_logger(&self) -> Self::Logger;
-
-    /// Define how the async runtime spawn a task
-    ///
-    /// You may spawn with globally runtime, or to a owned runtime executor
-    fn spawn_detach<F, R>(&self, f: F)
-    where
-        F: Future<Output = R> + Send + 'static,
-        R: Send + 'static;
+    fn new_logger(&self) -> Arc<LogFilter>;
 
     type RespTask: ServerTaskResp;
 
@@ -60,7 +42,8 @@ pub trait ServerFacts: Sync + Send + 'static + Sized {
 /// The implementation can be found on:
 ///
 /// - [occams-rpc-tcp](https://docs.rs/occams-rpc-tcp): For TCP and Unix socket
-pub trait ServerTransport<IO: AsyncIO>: Send + Sync + Sized + 'static + fmt::Debug {
+pub trait ServerTransport: Send + Sync + Sized + 'static + fmt::Debug {
+    type IO: AsyncIO;
     type Listener: AsyncListener;
 
     /// The implementation is expected to store the conn_count until dropped
@@ -69,27 +52,25 @@ pub trait ServerTransport<IO: AsyncIO>: Send + Sync + Sized + 'static + fmt::Deb
     ) -> Self;
 
     /// Read a request from the socket
-    fn read_req<'a, F: ServerFacts>(
-        &'a self, logger: &F::Logger, close_ch: &crossfire::MAsyncRx<()>,
+    fn read_req<'a>(
+        &'a self, logger: &LogFilter, close_ch: &crossfire::MAsyncRx<()>,
     ) -> impl Future<Output = Result<RpcSvrReq<'a>, RpcIntErr>> + Send;
 
     /// Write our user task response
-    fn write_resp<F: ServerFacts, T: ServerTaskEncode>(
-        &self, logger: &F::Logger, codec: &impl Codec, task: T,
+    fn write_resp<T: ServerTaskEncode>(
+        &self, logger: &LogFilter, codec: &impl Codec, task: T,
     ) -> impl Future<Output = io::Result<()>> + Send;
 
     /// Write out ping resp or error
-    fn write_resp_internal<F: ServerFacts>(
-        &self, logger: &F::Logger, seq: u64, err: Option<RpcIntErr>,
+    fn write_resp_internal(
+        &self, logger: &LogFilter, seq: u64, err: Option<RpcIntErr>,
     ) -> impl Future<Output = io::Result<()>> + Send;
 
     /// Flush the response for the socket writer, if the transport has buffering logic
-    fn flush_resp<F: ServerFacts>(
-        &self, logger: &F::Logger,
-    ) -> impl Future<Output = io::Result<()>> + Send;
+    fn flush_resp(&self, logger: &LogFilter) -> impl Future<Output = io::Result<()>> + Send;
 
     /// Shutdown the write direction of the connection
-    fn close_conn<F: ServerFacts>(&self, logger: &F::Logger) -> impl Future<Output = ()> + Send;
+    fn close_conn(&self, logger: &LogFilter) -> impl Future<Output = ()> + Send;
 }
 
 /// A temporary struct to hold data buffer return by ServerTransport

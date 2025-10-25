@@ -1,32 +1,21 @@
-use captains_log::filter::LogFilter;
 use crossfire::*;
 use io_buffer::Buffer;
 use nix::errno::Errno;
 use occams_rpc_codec::MsgpCodec;
 use occams_rpc_core::error::RpcError;
 #[cfg(not(feature = "tokio"))]
-use occams_rpc_smol::SmolRT;
+use occams_rpc_smol::{ClientDefault, SmolRT};
 use occams_rpc_stream::client::stream::ClientStream;
 use occams_rpc_stream::client::task::*;
 use occams_rpc_stream::client::*;
 use occams_rpc_stream::error::RpcIntErr;
 use occams_rpc_tcp::TcpClient;
 #[cfg(feature = "tokio")]
-use occams_rpc_tokio::TokioRT;
+use occams_rpc_tokio::{ClientDefault, TokioRT};
 use serde_derive::{Deserialize, Serialize};
 use std::sync::{Arc, atomic::AtomicU64};
 
-pub struct FileClient {
-    config: ClientConfig,
-    logger: Arc<LogFilter>,
-    rt: crate::RT,
-}
-
-impl FileClient {
-    pub fn new(config: ClientConfig, rt: crate::RT) -> Self {
-        Self { config, logger: Arc::new(LogFilter::new()), rt }
-    }
-}
+pub type FileClient = ClientDefault<FileClientTask, MsgpCodec>;
 
 pub async fn init_client(
     config: ClientConfig, addr: &str, last_resp_ts: Option<Arc<AtomicU64>>,
@@ -35,37 +24,8 @@ pub async fn init_client(
     let rt = TokioRT::new(tokio::runtime::Handle::current());
     #[cfg(not(feature = "tokio"))]
     let rt = SmolRT::new_global();
-    let facts = Arc::new(FileClient::new(config, rt));
+    let facts = FileClient::new(config, rt);
     ClientStream::connect(facts, addr, &format!("to {}", addr), last_resp_ts).await
-}
-
-impl ClientFacts for FileClient {
-    type Codec = MsgpCodec;
-
-    type Task = FileClientTask;
-
-    type Logger = Arc<LogFilter>;
-
-    type IO = crate::RT;
-
-    #[inline]
-    fn spawn_detach<F, R>(&self, f: F)
-    where
-        F: Future<Output = R> + Send + 'static,
-        R: Send + 'static,
-    {
-        self.rt.spawn_detach(f);
-    }
-
-    #[inline]
-    fn new_logger(&self, _conn_id: &str) -> Self::Logger {
-        self.logger.clone()
-    }
-
-    #[inline]
-    fn get_config(&self) -> &ClientConfig {
-        &self.config
-    }
 }
 
 #[derive(PartialEq, Debug)]

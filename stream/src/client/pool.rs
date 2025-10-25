@@ -2,6 +2,7 @@ use crate::client::stream::ClientStream;
 use crate::client::{
     ClientCaller, ClientCallerBlocking, ClientFacts, ClientTransport, task::ClientTaskDone,
 };
+use captains_log::filter::LogFilter;
 use crossfire::{MAsyncRx, MAsyncTx, MTx, mpmc};
 use occams_rpc_core::{error::RpcIntErr, runtime::AsyncIO};
 use std::fmt;
@@ -22,21 +23,21 @@ use std::time::Duration;
 /// - The task incoming might never stop until faulty pool remove from pools collection
 /// - If ping mixed with task with real business, might blocked due to throttler of in-flight
 /// message in the stream.
-pub struct ClientPool<F: ClientFacts, P: ClientTransport<F::IO>> {
+pub struct ClientPool<F: ClientFacts, P: ClientTransport> {
     tx_async: MAsyncTx<F::Task>,
     tx: MTx<F::Task>,
     inner: Arc<ClientPoolInner<F, P>>,
 }
 
-impl<F: ClientFacts, P: ClientTransport<F::IO>> Clone for ClientPool<F, P> {
+impl<F: ClientFacts, P: ClientTransport> Clone for ClientPool<F, P> {
     fn clone(&self) -> Self {
         Self { tx_async: self.tx_async.clone(), tx: self.tx.clone(), inner: self.inner.clone() }
     }
 }
 
-struct ClientPoolInner<F: ClientFacts, P: ClientTransport<F::IO>> {
+struct ClientPoolInner<F: ClientFacts, P: ClientTransport> {
     facts: Arc<F>,
-    logger: F::Logger,
+    logger: Arc<LogFilter>,
     rx: MAsyncRx<F::Task>,
     addr: String,
     conn_id: String,
@@ -53,7 +54,7 @@ struct ClientPoolInner<F: ClientFacts, P: ClientTransport<F::IO>> {
 
 const ONE_SEC: Duration = Duration::from_secs(1);
 
-impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientPool<F, P> {
+impl<F: ClientFacts, P: ClientTransport> ClientPool<F, P> {
     pub fn new(facts: Arc<F>, addr: &str, mut channel_size: usize) -> Self {
         let config = facts.get_config();
         if config.thresholds > 0 {
@@ -67,7 +68,7 @@ impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientPool<F, P> {
         let tx = tx_async.clone().into();
         let conn_id = format!("to {}", addr);
         let inner = Arc::new(ClientPoolInner {
-            logger: facts.new_logger(&conn_id),
+            logger: facts.new_logger(),
             facts: facts.clone(),
             rx,
             addr: addr.to_string(),
@@ -109,13 +110,13 @@ impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientPool<F, P> {
     }
 }
 
-impl<F: ClientFacts, P: ClientTransport<F::IO>> Drop for ClientPool<F, P> {
+impl<F: ClientFacts, P: ClientTransport> Drop for ClientPool<F, P> {
     fn drop(&mut self) {
         self.inner.cleanup();
     }
 }
 
-impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientCaller for ClientPool<F, P> {
+impl<F: ClientFacts, P: ClientTransport> ClientCaller for ClientPool<F, P> {
     type Facts = F;
     #[inline]
     async fn send_req(&self, task: F::Task) {
@@ -123,7 +124,7 @@ impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientCaller for ClientPool<F, P
     }
 }
 
-impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientCallerBlocking for ClientPool<F, P> {
+impl<F: ClientFacts, P: ClientTransport> ClientCallerBlocking for ClientPool<F, P> {
     type Facts = F;
     #[inline]
     fn send_req_blocking(&self, task: F::Task) {
@@ -131,14 +132,14 @@ impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientCallerBlocking for ClientP
     }
 }
 
-impl<F: ClientFacts, P: ClientTransport<F::IO>> fmt::Display for ClientPoolInner<F, P> {
+impl<F: ClientFacts, P: ClientTransport> fmt::Display for ClientPoolInner<F, P> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ConnPool {:?}", self.conn_id)
     }
 }
 
-impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientPoolInner<F, P> {
+impl<F: ClientFacts, P: ClientTransport> ClientPoolInner<F, P> {
     fn spawn_worker(self: Arc<Self>, worker_id: usize) {
         let facts = self.facts.clone();
         facts.spawn_detach(async move {
@@ -200,14 +201,14 @@ impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientPoolInner<F, P> {
                         // act as monitor
                         'MONITOR: loop {
                             if self.get_workers() > 1 {
-                                F::IO::sleep(ONE_SEC).await;
+                                F::sleep(ONE_SEC).await;
                                 if stream.ping().await.is_err() {
                                     self.set_err();
                                     // don't cleanup the channel unless only one worker left
                                     continue 'CONN_LOOP;
                                 }
                             } else {
-                                match self.rx.recv_with_timer(F::IO::sleep(ONE_SEC)).await {
+                                match self.rx.recv_with_timer(F::sleep(ONE_SEC)).await {
                                     Err(_) => {
                                         // sleep passed
                                         if stream.ping().await.is_err() {
@@ -235,7 +236,7 @@ impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientPoolInner<F, P> {
                                             self.set_err();
                                             if worker_id == 0 {
                                                 self.cleanup();
-                                                F::IO::sleep(ONE_SEC).await;
+                                                F::sleep(ONE_SEC).await;
                                                 continue 'CONN_LOOP;
                                             } else {
                                                 return;
@@ -262,7 +263,7 @@ impl<F: ClientFacts, P: ClientTransport<F::IO>> ClientPoolInner<F, P> {
                     self.set_err();
                     error!("connect failed to {}: {}", self.addr, e);
                     self.cleanup();
-                    F::IO::sleep(ONE_SEC).await;
+                    F::sleep(ONE_SEC).await;
                 }
             }
         }

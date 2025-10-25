@@ -1,7 +1,7 @@
-#[cfg(any(feature = "tokio", feature = "smol"))]
-mod facts;
-#[cfg(any(feature = "tokio", feature = "smol"))]
-pub use facts::*;
+#[cfg(feature = "tokio")]
+pub type APIClientDefault<C: Codec> = occams_rpc_tokio::ClientDefault<C, APIClientReq>;
+#[cfg(all(not(feature = "tokio"), feature = "smol"))]
+pub type APIClientDefault<C: Codec> = occams_rpc_smol::ClientDefault<C, APIClientReq>;
 
 mod task;
 pub use task::APIClientReq;
@@ -17,14 +17,16 @@ use occams_rpc_stream::client::{
 use std::fmt;
 use std::sync::Arc;
 
+pub type ClientDefault<IO, C> = occams_rpc_stream::client::ClientDefault<APIClientReq, IO, C>;
+
 pub trait APIClientFacts: ClientFacts<Task = APIClientReq> {
-    fn create_endpoint_async<T: ClientTransport<<Self as ClientFacts>::IO>>(
+    fn create_endpoint_async<T: ClientTransport>(
         self: Arc<Self>, addr: &str,
     ) -> AsyncEndpoint<ClientPool<Self, T>> {
         return AsyncEndpoint::new(ClientPool::new(self.clone(), addr, 0));
     }
 
-    fn create_endpoint_async_failover<T: ClientTransport<<Self as ClientFacts>::IO>>(
+    fn create_endpoint_async_failover<T: ClientTransport>(
         self: Arc<Self>, addrs: Vec<String>, round_robin: bool, retry_limit: usize,
     ) -> AsyncEndpoint<Arc<FailoverPool<Self, T>>> {
         return AsyncEndpoint::new(Arc::new(FailoverPool::new(
@@ -36,13 +38,13 @@ pub trait APIClientFacts: ClientFacts<Task = APIClientReq> {
         )));
     }
 
-    fn create_endpoint_blocking<T: ClientTransport<<Self as ClientFacts>::IO>>(
+    fn create_endpoint_blocking<T: ClientTransport>(
         self: Arc<Self>, addr: &str,
     ) -> BlockingEndpoint<ClientPool<Self, T>> {
         return BlockingEndpoint::new(ClientPool::new(self.clone(), addr, 0));
     }
 
-    fn create_endpoint_blocking_failover<T: ClientTransport<<Self as ClientFacts>::IO>>(
+    fn create_endpoint_blocking_failover<T: ClientTransport>(
         self: Arc<Self>, addrs: Vec<String>, round_robin: bool, retry_limit: usize,
     ) -> BlockingEndpoint<Arc<FailoverPool<Self, T>>> {
         return BlockingEndpoint::new(Arc::new(FailoverPool::new(

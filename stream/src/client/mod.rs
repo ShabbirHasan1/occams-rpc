@@ -16,7 +16,7 @@ pub use failover::FailoverPool;
 
 mod throttler;
 
-use captains_log::filter::Filter;
+use captains_log::filter::LogFilter;
 use crossfire::MAsyncRx;
 use occams_rpc_core::{Codec, error::RpcIntErr, runtime::AsyncIO};
 use std::future::Future;
@@ -24,13 +24,10 @@ use std::sync::Arc;
 use std::{fmt, io};
 
 /// A trait implemented by the user for the client-side, to define the customizable plugin.
-pub trait ClientFacts: Send + Sync + Sized + 'static {
-    /// A [captains-log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/index.html) implementation
-    /// The type that new_logger returns.
-    ///
-    /// maybe a `Arc<LogFilter> or KeyFilter<Arc<LogFilter>>, or DummyFilter`
-    type Logger: Filter + Send + Sync + 'static;
-
+///
+/// We recommend your implementation to Deref<Target=AsyncIO> (either TokioRT or SmolRT),
+/// then the blanket trait in `occams-rpc-core` will automatically impl AsyncIO on your ClientFacts type.
+pub trait ClientFacts: AsyncIO + Send + Sync + Sized + 'static {
     /// Define the codec to serialization and deserialization
     ///
     /// Refers to [occams_rpc_core::Codec](https://docs.rs/occams-rpc-core/latest/occams_rpc_core/trait.Codec.html)
@@ -44,30 +41,16 @@ pub trait ClientFacts: Send + Sync + Sized + 'static {
     /// You can use macro [client_task_enum](crate::client::task::client_task_enum) and [client_task](crate::client::task::client_task) on task type
     type Task: ClientTask;
 
-    /// Define the adaptor of async runtime
-    ///
-    /// Refers to [occams_rpc_core::runtime::AsyncIO](https://docs.rs/occams-rpc-core/latest/occams_rpc_core/runtime/index.html)
-    type IO: AsyncIO;
-
-    /// Define how the async runtime spawn a task
-    ///
-    /// You may spawn with globally runtime, or to a owned runtime executor
-    fn spawn_detach<F, R>(&self, f: F)
-    where
-        F: Future<Output = R> + Send + 'static,
-        R: Send + 'static;
-
     /// You should keep ClientConfig inside, get_config() will return the reference.
     fn get_config(&self) -> &ClientConfig;
 
     /// Construct a [captains_log::filter::Filter](https://docs.rs/captains-log/latest/captains_log/filter/trait.Filter.html) to oganize log of a client
-    ///
-    fn new_logger(&self, conn_id: &str) -> Self::Logger;
+    fn new_logger(&self) -> Arc<LogFilter>;
     /// TODO Fix the logger interface
 
     /// How to deal with error
     ///
-    /// You can overwrite this to implement retry logic
+    /// The FailoverPool will overwrite this to implement retry logic
     #[inline(always)]
     fn error_handle(&self, task: Self::Task) {
         task.done();
@@ -116,7 +99,9 @@ impl<C: ClientCallerBlocking + Send + Sync> ClientCallerBlocking for Arc<C> {
 ///
 /// NOTE: we use IO in generic param instead of ClientFacts to break cycle dep.
 /// because FailoverPool will rewrap the facts into its own.
-pub trait ClientTransport<IO: AsyncIO>: fmt::Debug + Send + Sized + 'static {
+pub trait ClientTransport: fmt::Debug + Send + Sized + 'static {
+    type IO: AsyncIO;
+
     /// How to establish an async connection.
     ///
     /// conn_id: used for log fmt, can by the same of addr.
@@ -125,21 +110,62 @@ pub trait ClientTransport<IO: AsyncIO>: fmt::Debug + Send + Sized + 'static {
     ) -> impl Future<Output = Result<Self, RpcIntErr>> + Send;
 
     /// Shutdown the write direction of the connection
-    fn close_conn<F: ClientFacts>(&self, logger: &F::Logger) -> impl Future<Output = ()> + Send;
+    fn close_conn<F: ClientFacts>(&self, logger: &LogFilter) -> impl Future<Output = ()> + Send;
 
     /// Flush the request for the socket writer, if the transport has buffering logic
     fn flush_req<F: ClientFacts>(
-        &self, logger: &F::Logger,
+        &self, logger: &LogFilter,
     ) -> impl Future<Output = io::Result<()>> + Send;
 
     /// Write out the encoded request task
     fn write_req<'a, F: ClientFacts>(
-        &'a self, logger: &F::Logger, buf: &'a [u8], blob: Option<&'a [u8]>, need_flush: bool,
+        &'a self, logger: &LogFilter, buf: &'a [u8], blob: Option<&'a [u8]>, need_flush: bool,
     ) -> impl Future<Output = io::Result<()>> + Send;
 
     /// Read the response and decode it from the socket, find and notify the registered ClientTask
     fn read_resp<F: ClientFacts>(
-        &self, facts: &F, logger: &F::Logger, codec: &F::Codec, close_ch: Option<&MAsyncRx<()>>,
+        &self, facts: &F, logger: &LogFilter, codec: &F::Codec, close_ch: Option<&MAsyncRx<()>>,
         task_reg: &mut ClientTaskTimer<F>,
     ) -> impl std::future::Future<Output = Result<bool, RpcIntErr>> + Send;
+}
+
+/// An example ClientFacts for API Clients
+pub struct ClientDefault<T: ClientTask, IO: AsyncIO, C: Codec> {
+    pub logger: Arc<LogFilter>,
+    config: ClientConfig,
+    rt: IO,
+    _phan: std::marker::PhantomData<fn(&C, &T)>,
+}
+
+impl<T: ClientTask, IO: AsyncIO, C: Codec> ClientDefault<T, IO, C> {
+    pub fn new(config: ClientConfig, rt: IO) -> Arc<Self> {
+        Arc::new(Self { logger: Arc::new(LogFilter::new()), config, rt, _phan: Default::default() })
+    }
+
+    #[inline]
+    pub fn set_log_level(&self, level: log::Level) {
+        self.logger.set_level(level);
+    }
+}
+
+impl<T: ClientTask, IO: AsyncIO, C: Codec> std::ops::Deref for ClientDefault<T, IO, C> {
+    type Target = IO;
+    fn deref(&self) -> &Self::Target {
+        &self.rt
+    }
+}
+
+impl<T: ClientTask, IO: AsyncIO, C: Codec> ClientFacts for ClientDefault<T, IO, C> {
+    type Codec = C;
+    type Task = T;
+
+    #[inline]
+    fn new_logger(&self) -> Arc<LogFilter> {
+        self.logger.clone()
+    }
+
+    #[inline]
+    fn get_config(&self) -> &ClientConfig {
+        &self.config
+    }
 }

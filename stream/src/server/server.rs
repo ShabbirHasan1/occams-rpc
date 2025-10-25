@@ -1,8 +1,10 @@
 use crate::proto::RpcAction;
 use crate::server::*;
+use captains_log::filter::LogFilter;
 use futures::future::{AbortHandle, Abortable};
 use occams_rpc_core::{error::*, io::AsyncListener, runtime::AsyncIO};
 use std::io;
+use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -12,7 +14,7 @@ where
     F: ServerFacts,
 {
     listeners_abort: Vec<(AbortHandle, String)>,
-    logger: F::Logger,
+    logger: Arc<LogFilter>,
     facts: Arc<F>,
     conn_ref_count: Arc<()>,
     server_close_tx: Mutex<Option<crossfire::MTx<()>>>,
@@ -35,7 +37,7 @@ where
         }
     }
 
-    pub fn listen<T: ServerTransport<F::IO>>(&mut self, addr: &str) -> io::Result<String> {
+    pub fn listen<T: ServerTransport>(&mut self, addr: &str) -> io::Result<String> {
         match <T::Listener as AsyncListener>::bind(addr) {
             Err(e) => {
                 error!("bind addr {:?} err: {}", addr, e);
@@ -88,7 +90,7 @@ where
         }
     }
 
-    fn server_conn<T: ServerTransport<F::IO>>(
+    fn server_conn<T: ServerTransport>(
         conn: T, facts: &F, server_close_rx: crossfire::MAsyncRx<()>,
     ) {
         let conn = Arc::new(conn);
@@ -97,25 +99,19 @@ where
         let (done_tx, done_rx) = crossfire::mpsc::unbounded_async();
 
         let noti = RespNoti(done_tx);
-        struct Reader<
-            T: ServerTransport<F::IO>,
-            F: ServerFacts,
-            D: ReqDispatch<R>,
-            R: ServerTaskResp,
-        > {
+        struct Reader<T: ServerTransport, IO: AsyncIO, D: ReqDispatch<R>, R: ServerTaskResp> {
             noti: RespNoti<R>,
             conn: Arc<T>,
             server_close_rx: crossfire::MAsyncRx<()>,
             dispatch: Arc<D>,
-            logger: F::Logger,
+            logger: Arc<LogFilter>,
+            _phan: PhantomData<fn(&IO)>,
         }
 
-        impl<T: ServerTransport<F::IO>, F: ServerFacts, D: ReqDispatch<R>, R: ServerTaskResp>
-            Reader<T, F, D, R>
-        {
+        impl<T: ServerTransport, IO: AsyncIO, D: ReqDispatch<R>, R: ServerTaskResp> Reader<T, IO, D, R> {
             async fn run(self) -> Result<(), ()> {
                 loop {
-                    match self.conn.read_req::<F>(&self.logger, &self.server_close_rx).await {
+                    match self.conn.read_req(&self.logger, &self.server_close_rx).await {
                         Ok(req) => {
                             if req.action == RpcAction::Num(0) && req.msg.len() == 0 {
                                 // ping request
@@ -151,24 +147,19 @@ where
             server_close_rx,
             dispatch: dispatch.clone(),
             logger: facts.new_logger(),
+            _phan: Default::default(),
         };
-        facts.spawn_detach(async move { reader.run().await });
+        AsyncIO::spawn_detach(facts, async move { reader.run().await });
 
-        struct Writer<
-            T: ServerTransport<F::IO>,
-            F: ServerFacts,
-            D: ReqDispatch<R>,
-            R: ServerTaskResp,
-        > {
+        struct Writer<T: ServerTransport, IO: AsyncIO, D: ReqDispatch<R>, R: ServerTaskResp> {
             dispatch: Arc<D>,
             done_rx: crossfire::AsyncRx<Result<R, (u64, Option<RpcIntErr>)>>,
             conn: Arc<T>,
-            logger: F::Logger,
+            logger: Arc<LogFilter>,
+            _phan: PhantomData<fn(&IO)>,
         }
 
-        impl<T: ServerTransport<F::IO>, F: ServerFacts, D: ReqDispatch<R>, R: ServerTaskResp>
-            Writer<T, F, D, R>
-        {
+        impl<T: ServerTransport, IO: AsyncIO, D: ReqDispatch<R>, R: ServerTaskResp> Writer<T, IO, D, R> {
             async fn run(self) -> Result<(), io::Error> {
                 macro_rules! process {
                     ($task: expr) => {{
@@ -176,15 +167,11 @@ where
                             Ok(_task) => {
                                 logger_trace!(self.logger, "write_resp {:?}", _task);
                                 self.conn
-                                    .write_resp::<F, R>(
-                                        &self.logger,
-                                        self.dispatch.get_codec(),
-                                        _task,
-                                    )
+                                    .write_resp::<R>(&self.logger, self.dispatch.get_codec(), _task)
                                     .await?;
                             }
                             Err((seq, err)) => {
-                                self.conn.write_resp_internal::<F>(&self.logger, seq, err).await?;
+                                self.conn.write_resp_internal(&self.logger, seq, err).await?;
                             }
                         }
                     }};
@@ -194,15 +181,21 @@ where
                     while let Ok(task) = self.done_rx.try_recv() {
                         process!(task);
                     }
-                    self.conn.flush_resp::<F>(&self.logger).await?;
+                    self.conn.flush_resp(&self.logger).await?;
                 }
                 logger_trace!(self.logger, "{:?} writer exits", self.conn);
-                self.conn.close_conn::<F>(&self.logger).await;
+                self.conn.close_conn(&self.logger).await;
                 Ok(())
             }
         }
-        let writer = Writer::<T, F, _, _> { done_rx, conn, dispatch, logger: facts.new_logger() };
-        facts.spawn_detach(async move { writer.run().await });
+        let writer = Writer::<T, F, _, _> {
+            done_rx,
+            conn,
+            dispatch,
+            logger: facts.new_logger(),
+            _phan: Default::default(),
+        };
+        AsyncIO::spawn_detach(facts, async move { writer.run().await });
     }
 
     #[inline]
@@ -232,7 +225,7 @@ where
         let start_ts = Instant::now();
         let config = self.facts.get_config();
         while exists_count > 0 {
-            <F::IO as AsyncIO>::sleep(Duration::from_secs(1)).await;
+            F::sleep(Duration::from_secs(1)).await;
             exists_count = self.get_alive_conn();
             if Instant::now().duration_since(start_ts) > config.server_close_wait {
                 logger_warn!(

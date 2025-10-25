@@ -2,8 +2,8 @@ use crate::client::task::*;
 use crate::client::{ClientCaller, ClientCallerBlocking, ClientFacts, ClientPool, ClientTransport};
 use crate::proto::RpcAction;
 use arc_swap::ArcSwapOption;
+use captains_log::filter::LogFilter;
 use crossfire::*;
-use futures::Future;
 use occams_rpc_core::{
     ClientConfig, Codec,
     error::{EncodedErr, RpcIntErr},
@@ -24,12 +24,12 @@ use std::sync::{
 pub struct FailoverPool<F, P>(Arc<FailoverPoolInner<F, P>>)
 where
     F: ClientFacts,
-    P: ClientTransport<F::IO>;
+    P: ClientTransport;
 
 struct FailoverPoolInner<F, P>
 where
     F: ClientFacts,
-    P: ClientTransport<F::IO>,
+    P: ClientTransport,
 {
     pools: ArcSwapOption<ClusterConfig<F, P>>,
     round_robin: bool,
@@ -44,7 +44,7 @@ where
 struct ClusterConfig<F, P>
 where
     F: ClientFacts,
-    P: ClientTransport<F::IO>,
+    P: ClientTransport,
 {
     pools: Vec<ClientPool<FailoverPoolInner<F, P>, P>>,
     ver: u64,
@@ -53,7 +53,7 @@ where
 impl<F, P> FailoverPool<F, P>
 where
     F: ClientFacts,
-    P: ClientTransport<F::IO>,
+    P: ClientTransport,
 {
     pub fn new(
         facts: Arc<F>, addrs: Vec<String>, round_robin: bool, retry_limit: usize,
@@ -78,7 +78,7 @@ where
         }
         inner.pools.store(Some(Arc::new(ClusterConfig { ver: 0, pools })));
 
-        let retry_logger = facts.new_logger("");
+        let retry_logger = facts.new_logger();
         let weak_self = Arc::downgrade(&inner);
         facts.spawn_detach(async move {
             FailoverPoolInner::retry_worker(weak_self, retry_logger, retry_rx).await;
@@ -117,7 +117,7 @@ where
 impl<F, P> ClusterConfig<F, P>
 where
     F: ClientFacts,
-    P: ClientTransport<F::IO>,
+    P: ClientTransport,
 {
     #[inline]
     fn select(
@@ -147,10 +147,10 @@ where
 impl<F, P> FailoverPoolInner<F, P>
 where
     F: ClientFacts,
-    P: ClientTransport<F::IO>,
+    P: ClientTransport,
 {
     async fn retry_worker(
-        weak_self: Weak<Self>, logger: F::Logger, retry_rx: AsyncRx<FailoverTask<F::Task>>,
+        weak_self: Weak<Self>, logger: Arc<LogFilter>, retry_rx: AsyncRx<FailoverTask<F::Task>>,
     ) {
         while let Ok(mut task) = retry_rx.recv().await {
             if let Some(inner) = weak_self.upgrade() {
@@ -186,7 +186,7 @@ where
 impl<F, P> Drop for FailoverPool<F, P>
 where
     F: ClientFacts,
-    P: ClientTransport<F::IO>,
+    P: ClientTransport,
 {
     fn drop(&mut self) {
         // Remove cycle reference before drop
@@ -194,31 +194,30 @@ where
     }
 }
 
+impl<F, P> std::ops::Deref for FailoverPoolInner<F, P>
+where
+    F: ClientFacts,
+    P: ClientTransport,
+{
+    type Target = F;
+
+    fn deref(&self) -> &Self::Target {
+        &self.facts
+    }
+}
+
 impl<F, P> ClientFacts for FailoverPoolInner<F, P>
 where
     F: ClientFacts,
-    P: ClientTransport<F::IO>,
+    P: ClientTransport,
 {
-    type Logger = F::Logger;
-
     type Codec = F::Codec;
 
     type Task = FailoverTask<F::Task>;
 
-    type IO = F::IO;
-
     #[inline]
-    fn spawn_detach<FR, R>(&self, f: FR)
-    where
-        FR: Future<Output = R> + Send + 'static,
-        R: Send + 'static,
-    {
-        self.facts.spawn_detach(f);
-    }
-
-    #[inline]
-    fn new_logger(&self, _conn_id: &str) -> F::Logger {
-        self.facts.new_logger(_conn_id)
+    fn new_logger(&self) -> Arc<LogFilter> {
+        self.facts.new_logger()
     }
 
     #[inline]
@@ -243,7 +242,7 @@ where
 impl<F, P> ClientCaller for FailoverPool<F, P>
 where
     F: ClientFacts,
-    P: ClientTransport<F::IO>,
+    P: ClientTransport,
 {
     type Facts = F;
 
@@ -274,7 +273,7 @@ where
 impl<F, P> ClientCallerBlocking for FailoverPool<F, P>
 where
     F: ClientFacts,
-    P: ClientTransport<F::IO>,
+    P: ClientTransport,
 {
     type Facts = F;
     fn send_req_blocking(&self, mut task: F::Task) {
