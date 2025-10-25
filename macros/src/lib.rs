@@ -60,8 +60,9 @@ pub fn service_mux_struct(_attr: TokenStream, item: TokenStream) -> TokenStream 
 /// ```
 ///
 /// This will generate a `DemoClient` struct that implements the `DemoService` trait,
-/// providing async methods that call the RPC endpoint. The DemoClient type will have a generate param
-/// `<C: ClientCaller<Factory: ClientFact<Task = APIClientReq>>>`,
+/// providing async methods that call the RPC endpoint.
+///
+/// The DemoClient type will have a generate param `<C: ClientCaller<Factory: ClientFact<Task = APIClientReq>>>`,
 /// you can initialize it with `DemoClient::new(client_caller)`
 #[proc_macro_attribute]
 pub fn endpoint_async(attr: TokenStream, item: TokenStream) -> TokenStream {

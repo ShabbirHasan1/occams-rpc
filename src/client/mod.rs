@@ -1,17 +1,17 @@
-#[cfg(feature = "tokio")]
-pub type APIClientDefault<C: Codec> = occams_rpc_tokio::ClientDefault<C, APIClientReq>;
-#[cfg(all(not(feature = "tokio"), feature = "smol"))]
-pub type APIClientDefault<C: Codec> = occams_rpc_smol::ClientDefault<C, APIClientReq>;
+pub mod task;
+pub use task::*;
 
-mod task;
-pub use task::APIClientReq;
+#[cfg(feature = "tokio")]
+pub type APIClientDefault<C> = occams_rpc_tokio::ClientDefault<APIClientReq, C>;
+#[cfg(all(not(feature = "tokio"), feature = "smol"))]
+pub type APIClientDefault<C> = occams_rpc_smol::ClientDefault<APIClientReq, C>;
 
 pub use occams_rpc_api_macros::endpoint_async;
 pub use occams_rpc_stream::client::ClientCaller;
 
 use occams_rpc_core::Codec;
 use occams_rpc_core::error::{EncodedErr, RpcErrCodec, RpcError, RpcIntErr};
-use occams_rpc_stream::client::{
+pub use occams_rpc_stream::client::{
     ClientCallerBlocking, ClientFacts, ClientPool, ClientTransport, FailoverPool,
 };
 use std::fmt;
@@ -20,42 +20,18 @@ use std::sync::Arc;
 pub type ClientDefault<IO, C> = occams_rpc_stream::client::ClientDefault<APIClientReq, IO, C>;
 
 pub trait APIClientFacts: ClientFacts<Task = APIClientReq> {
-    fn create_endpoint_async<T: ClientTransport>(
-        self: Arc<Self>, addr: &str,
-    ) -> AsyncEndpoint<ClientPool<Self, T>> {
-        return AsyncEndpoint::new(ClientPool::new(self.clone(), addr, 0));
+    fn create_pool_async<T: ClientTransport>(self: Arc<Self>, addr: &str) -> ClientPool<Self, T> {
+        return ClientPool::new(self.clone(), addr, 0);
     }
 
-    fn create_endpoint_async_failover<T: ClientTransport>(
+    fn create_failover_async<T: ClientTransport>(
         self: Arc<Self>, addrs: Vec<String>, round_robin: bool, retry_limit: usize,
-    ) -> AsyncEndpoint<Arc<FailoverPool<Self, T>>> {
-        return AsyncEndpoint::new(Arc::new(FailoverPool::new(
-            self.clone(),
-            addrs,
-            round_robin,
-            retry_limit,
-            0,
-        )));
-    }
-
-    fn create_endpoint_blocking<T: ClientTransport>(
-        self: Arc<Self>, addr: &str,
-    ) -> BlockingEndpoint<ClientPool<Self, T>> {
-        return BlockingEndpoint::new(ClientPool::new(self.clone(), addr, 0));
-    }
-
-    fn create_endpoint_blocking_failover<T: ClientTransport>(
-        self: Arc<Self>, addrs: Vec<String>, round_robin: bool, retry_limit: usize,
-    ) -> BlockingEndpoint<Arc<FailoverPool<Self, T>>> {
-        return BlockingEndpoint::new(Arc::new(FailoverPool::new(
-            self.clone(),
-            addrs,
-            round_robin,
-            retry_limit,
-            0,
-        )));
+    ) -> Arc<FailoverPool<Self, T>> {
+        return Arc::new(FailoverPool::new(self.clone(), addrs, round_robin, retry_limit, 0));
     }
 }
+
+impl<F: ClientFacts<Task = APIClientReq>> APIClientFacts for F {}
 
 pub struct AsyncEndpoint<C>
 where
