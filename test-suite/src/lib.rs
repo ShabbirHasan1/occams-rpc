@@ -25,11 +25,39 @@ macro_rules! async_spawn {
     ($f: expr) => {{
         #[cfg(feature = "tokio")]
         {
+            tokio::spawn($f)
+        }
+        #[cfg(not(feature = "tokio"))]
+        {
+            smol::spawn($f)
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! async_spawn_detach {
+    ($f: expr) => {{
+        #[cfg(feature = "tokio")]
+        {
             let _ = tokio::spawn($f);
         }
         #[cfg(not(feature = "tokio"))]
         {
             let _ = smol::spawn($f).detach();
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! async_join_result {
+    ($th: expr) => {{
+        #[cfg(feature = "smol")]
+        {
+            $th.await
+        }
+        #[cfg(not(feature = "smol"))]
+        {
+            $th.await.expect("join")
         }
     }};
 }

@@ -92,7 +92,7 @@ fn test_throughput(runner: TestRunner, #[case] is_tcp: bool) {
         println!("req_size: {}", req_size);
 
         let start = Instant::now();
-        async_spawn!(async move {
+        crate::RT::spawn_detach(async move {
             for _ in 0..100000 {
                 let write_task = FileClientTaskWrite::new(tx.clone(), 1, 0, write_data.clone());
                 client.send_task(write_task.into(), false).await.expect("send write task");

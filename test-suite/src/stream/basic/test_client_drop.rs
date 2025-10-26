@@ -26,7 +26,7 @@ fn test_client_drop(runner: TestRunner, #[case] is_tcp: bool) {
                         open_task.set_result(Ok(()));
                     }
                     FileServerTask::IO(mut io_task) => {
-                        async_spawn!(async move {
+                        async_spawn_detach!(async move {
                             // delay 2 secs to response IO
                             RT::sleep(Duration::from_secs(2)).await;
                             info!("Server processing request {} {:?}", count, io_task);

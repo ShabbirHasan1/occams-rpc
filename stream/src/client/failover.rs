@@ -41,6 +41,7 @@ where
     ver: AtomicU64,
     rr_counter: AtomicUsize,
     pool_channel_size: usize,
+    logger: Arc<LogFilter>,
 }
 
 struct ClusterConfig<F, P>
@@ -72,6 +73,7 @@ where
             ver: AtomicU64::new(1),
             rr_counter: AtomicUsize::new(0),
             pool_channel_size,
+            logger: facts.new_logger(),
         });
         let mut pools = Vec::with_capacity(addrs.len());
         for addr in addrs.iter() {
@@ -177,11 +179,11 @@ where
                 logger_debug!(logger, "FailoverPool: no next hoop for {:?}", task.inner);
                 task.done();
             } else {
-                logger_debug!(logger, "FailoverPool: skip {:?} due to drop", task.inner);
+                logger_trace!(logger, "FailoverPool: skip {:?} due to drop", task.inner);
                 task.done();
             }
         }
-        logger_debug!(logger, "FailoverPool retry worker exit");
+        logger_trace!(logger, "FailoverPool retry worker exit");
     }
 }
 
@@ -193,6 +195,16 @@ where
     fn drop(&mut self) {
         // Remove cycle reference before drop
         self.0.pools.store(None);
+    }
+}
+
+impl<F, P> Drop for FailoverPoolInner<F, P>
+where
+    F: ClientFacts,
+    P: ClientTransport,
+{
+    fn drop(&mut self) {
+        logger_trace!(self.logger, "FailoverPool dropped");
     }
 }
 
