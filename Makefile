@@ -38,7 +38,7 @@ test-api-macros: init
 # make test-stream "test_normal --F tokio"
 # make test-stream "test_normal --F smol"
 # make test-stream - "--features smol"
-.PHONY: test-basic
+.PHONY: test
 test: init
 	@echo "Run integration tests"
 	cargo test -p occams-rpc-test ${ARGS} -- --nocapture --test-threads=1

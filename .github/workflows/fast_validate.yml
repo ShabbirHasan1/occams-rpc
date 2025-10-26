@@ -1,0 +1,37 @@
+name: fast-validate
+permissions:
+  contents: read
+  pull-requests: write
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_and_test:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: test core
+      run: make test-core
+
+    - name: test codec
+      run: make test-codec
+
+    - name: test stream macros
+      run: make test-stream-macros
+
+    - name: test api macros
+      run: make test-api-macros
+
+    - name: test smol
+      run: make test "basic -F smol"
+
+    - name: test tokio
+      run: make test "basic -F tokio"
