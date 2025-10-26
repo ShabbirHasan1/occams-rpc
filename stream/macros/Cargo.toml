@@ -30,7 +30,6 @@ occams-rpc-core = { path="../../core", version="0" }
 occams-rpc-codec = { path="../../codec", version="0", features=["msgpack"] }
 serde = "1"
 serde_derive = "1"
-rmp-serde = "1.1"
 io-buffer = "1"
 crossfire = "2.1.4"
 log = "0.4.14"
