@@ -54,7 +54,7 @@ mod server_task_enum;
 /// ### Example of Automatic `ClientTaskDone`
 ///
 /// ```rust
-/// use occams_rpc_core::error::RpcError;
+/// use occams_rpc_stream::RpcError;
 /// use nix::errno::Errno;
 /// use occams_rpc_stream_macros::client_task;
 /// use serde_derive::{Deserialize, Serialize};
@@ -122,6 +122,8 @@ pub fn client_task(
 /// from a specific task struct to the enum. It also delegates methods from `ClientTask`,
 /// `ClientTaskEncode`, and `ClientTaskDecode` to the inner task.
 ///
+/// `client_task_enum` also require `error` flag, specified the custom error type for [RpcError<E: RpcErrCodec>](crate::RpcError)
+///
 /// ### `#[action]` on enum variants
 ///
 /// As an alternative to defining the action inside the subtype, you can specify a static action
@@ -135,7 +137,7 @@ pub fn client_task(
 ///
 /// ```rust
 /// use occams_rpc_stream::client::task::{ClientTask, ClientTaskCommon, ClientTaskAction, ClientTaskDone};
-/// use occams_rpc_core::error::RpcError;
+/// use occams_rpc_stream::RpcError;
 /// use nix::errno::Errno;
 /// use occams_rpc_stream_macros::{client_task, client_task_enum};
 /// use serde_derive::{Deserialize, Serialize};
@@ -178,7 +180,7 @@ pub fn client_task(
 ///     noti: Option<MTx<FileTask>>,
 /// }
 ///
-/// #[client_task_enum(error = Errno)]
+/// #[client_task_enum(error=Errno)]
 /// #[derive(Debug)]
 /// pub enum FileTask {
 ///     #[action(FileAction::Open)]
@@ -238,11 +240,14 @@ pub fn client_task_enum(
 ///
 /// ### Macro Arguments:
 ///
-/// The `server_task_enum` can accept either or both of "req" and "resp" flags.
+/// The `server_task_enum` can accept either or both of "req" and "resp" flags, with the following
+/// rules:
 /// - If `req` is specified, the enum is request task, the macro will impl [ServerTaskDecode](crate::server::task::ServerTaskDecode), [ServerTaskAction](crate::server::task::ServerTaskAction). each variant must have an `#[action(...)]` attribute.
 /// - If "resp" is specified, the enum is response task. The macro will impl [ServerTaskEncode](crate::server::task::ServerTaskEncode), [ServerTaskDone](crate::server::task::ServerTaskDone)
 /// - If both `req` and `resp` is specified, the response type for `ServerTaskDecode<R>` and `ServerTaskDone<R>` is implicitly `Self` (the enum itself). `resp_type` can be omitted.
 /// - If only "req" is specified (and "resp" is not), then `resp_type` must be provided. This `resp_type` specifies the type `<R>` for parameters of `ServerTaskDecode<R>` and `ServerTaskDone<R>`.
+///
+/// `server_task_enum` also requires `error` flag, specified the custom error type for [RpcError<E: RpcErrCodec>](crate::RpcError)
 ///
 /// ### Variant Attributes:
 ///
