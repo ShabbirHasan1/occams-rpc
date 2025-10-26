@@ -1,13 +1,7 @@
 pub mod task;
-pub use task::*;
-
-#[cfg(feature = "tokio")]
-pub type APIClientDefault<C> = occams_rpc_tokio::ClientDefault<APIClientReq, C>;
-#[cfg(all(not(feature = "tokio"), feature = "smol"))]
-pub type APIClientDefault<C> = occams_rpc_smol::ClientDefault<APIClientReq, C>;
-
 pub use occams_rpc_api_macros::endpoint_async;
 pub use occams_rpc_stream::client::ClientCaller;
+pub use task::*;
 
 use occams_rpc_core::Codec;
 use occams_rpc_core::error::{EncodedErr, RpcErrCodec, RpcError, RpcIntErr};
@@ -17,7 +11,7 @@ pub use occams_rpc_stream::client::{
 use std::fmt;
 use std::sync::Arc;
 
-pub type ClientDefault<IO, C> = occams_rpc_stream::client::ClientDefault<APIClientReq, IO, C>;
+pub type APIClientDefault<IO, C> = occams_rpc_stream::client::ClientDefault<APIClientReq, IO, C>;
 
 pub trait APIClientFacts: ClientFacts<Task = APIClientReq> {
     fn create_pool_async<T: ClientTransport>(self: Arc<Self>, addr: &str) -> ClientPool<Self, T> {
