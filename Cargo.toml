@@ -23,7 +23,6 @@ captains-log = ">=0.15"
 io-buffer = "1"
 serde = "1"
 occams-rpc-core = {path="core/", version=">=0.2"}
-occams-rpc-codec = {path="codec/", version=">=0.2", features=["msgpack"]}
 occams-rpc-stream = {path="stream/", version=">=0.2"}
 occams-rpc-api-macros = { path = "macros", version = ">=0.2" }
 async-trait = "0"
