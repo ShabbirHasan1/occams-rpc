@@ -3,7 +3,7 @@ use crate::client::{
     ClientCaller, ClientCallerBlocking, ClientFacts, ClientTransport, task::ClientTaskDone,
 };
 use captains_log::filter::LogFilter;
-use crossfire::{MAsyncRx, MAsyncTx, MTx, mpmc};
+use crossfire::{MAsyncRx, MAsyncTx, MTx, RecvTimeoutError, mpmc};
 use occams_rpc_core::{error::RpcIntErr, runtime::AsyncIO};
 use std::fmt;
 use std::marker::PhantomData;
@@ -110,9 +110,10 @@ impl<F: ClientFacts, P: ClientTransport> ClientPool<F, P> {
     }
 }
 
-impl<F: ClientFacts, P: ClientTransport> Drop for ClientPool<F, P> {
+impl<F: ClientFacts, P: ClientTransport> Drop for ClientPoolInner<F, P> {
     fn drop(&mut self) {
-        self.inner.cleanup();
+        self.cleanup();
+        logger_trace!(self.logger, "{} dropped", self);
     }
 }
 
@@ -135,7 +136,7 @@ impl<F: ClientFacts, P: ClientTransport> ClientCallerBlocking for ClientPool<F, 
 impl<F: ClientFacts, P: ClientTransport> fmt::Display for ClientPoolInner<F, P> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ConnPool {:?}", self.conn_id)
+        write!(f, "ConnPool {}", self.conn_id)
     }
 }
 
@@ -175,12 +176,19 @@ impl<F: ClientFacts, P: ClientTransport> ClientPoolInner<F, P> {
         &self, _worker_id: usize, stream: &mut ClientStream<F, P>,
     ) -> Result<(), RpcIntErr> {
         loop {
-            let task = self.rx.recv().await.unwrap();
-            stream.send_task(task, false).await?;
-            while let Ok(task) = self.rx.try_recv() {
-                stream.send_task(task, false).await?;
+            match self.rx.recv().await {
+                Ok(task) => {
+                    stream.send_task(task, false).await?;
+                    while let Ok(task) = self.rx.try_recv() {
+                        stream.send_task(task, false).await?;
+                    }
+                    stream.flush_req().await?;
+                }
+                Err(_) => {
+                    stream.flush_req().await?;
+                    return Ok(());
+                }
             }
-            stream.flush_req().await?;
         }
     }
 
@@ -189,6 +197,7 @@ impl<F: ClientFacts, P: ClientTransport> ClientPoolInner<F, P> {
     ) -> Result<(), RpcIntErr> {
         self.connected_worker_count.fetch_add(1, Acquire);
         let r = self._run_worker(worker_id, stream).await;
+        logger_trace!(self.logger, "{} worker {} exit: {}", self, worker_id, r.is_ok());
         self.connected_worker_count.fetch_add(1, Release);
         r
     }
@@ -197,6 +206,7 @@ impl<F: ClientFacts, P: ClientTransport> ClientPoolInner<F, P> {
         'CONN_LOOP: loop {
             match self.connect().await {
                 Ok(mut stream) => {
+                    logger_trace!(self.logger, "{} worker={} connected", self, worker_id);
                     if worker_id == 0 {
                         // act as monitor
                         'MONITOR: loop {
@@ -209,8 +219,10 @@ impl<F: ClientFacts, P: ClientTransport> ClientPoolInner<F, P> {
                                 }
                             } else {
                                 match self.rx.recv_with_timer(F::sleep(ONE_SEC)).await {
-                                    Err(_) => {
-                                        // sleep passed
+                                    Err(RecvTimeoutError::Disconnected) => {
+                                        return;
+                                    }
+                                    Err(RecvTimeoutError::Timeout) => {
                                         if stream.ping().await.is_err() {
                                             self.set_err();
                                             self.cleanup();
@@ -242,6 +254,12 @@ impl<F: ClientFacts, P: ClientTransport> ClientPoolInner<F, P> {
                                                 return;
                                             }
                                         } else if worker_id > 0 {
+                                            logger_trace!(
+                                                self.logger,
+                                                "{} worker={} break monitor",
+                                                self,
+                                                worker_id
+                                            );
                                             // taken over as run_worker.
                                             break 'MONITOR;
                                         }
@@ -272,6 +290,7 @@ impl<F: ClientFacts, P: ClientTransport> ClientPoolInner<F, P> {
     fn cleanup(&self) {
         while let Ok(mut task) = self.rx.try_recv() {
             task.set_rpc_error(RpcIntErr::Unreachable);
+            logger_trace!(self.logger, "{} set task err due not not healthy", self);
             self.facts.error_handle(task);
         }
     }
