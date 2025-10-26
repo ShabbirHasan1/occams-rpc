@@ -7,7 +7,7 @@ mod service_mux_struct;
 
 /// The `#[service]` macro is applied to an `impl` block to automatically generate the `ServiceTrait` implementation for the type.
 ///
-/// - When applied to an inherent `impl` block, methods intended as service methods should be marked with `#[method]`.
+/// - When applied to an inherent `impl` block (without `impl Trait`), methods intended as service methods should be marked with `#[method]`.
 /// - When applied to a trait `impl` block, all methods defined in the trait will be registered as service methods.
 /// - All service methods must return `Result<T, RpcError<E>>`, where `E` is a user-defined error type that implements `RpcErrCodec`.
 ///
@@ -16,6 +16,77 @@ mod service_mux_struct;
 /// - `async fn`
 /// - `impl Future`
 /// - trait methods wrapped by `async_trait`
+///
+/// # Usage
+///
+/// Without `impl Trait` (inherent implementation):
+///
+/// ```rust
+/// use occams_rpc::server::{service, method};
+/// use occams_rpc_core::error::RpcError;
+/// use serde::{Deserialize, Serialize};
+/// use occams_rpc::server::ServiceStatic;
+/// use occams_rpc_codec::MsgpCodec;
+///
+/// #[derive(Debug, Deserialize, Serialize)]
+/// pub struct AddArgs {
+///     a: i32,
+///     b: i32,
+/// }
+///
+/// #[derive(Debug, Deserialize, Serialize)]
+/// pub struct AddResp {
+///     result: i32,
+/// }
+///
+/// pub struct CalculatorService;
+///
+/// #[service]
+/// impl CalculatorService {
+///     #[method]
+///     async fn add(&self, args: AddArgs) -> Result<AddResp, RpcError<()>> {
+///         Ok(AddResp { result: args.a + args.b })
+///     }
+/// }
+///
+/// // This will generate a ServiceStatic implementation that can be used as:
+/// // let service = CalculatorService;
+/// // service.serve(request).await;
+/// ```
+///
+/// With trait implementation using `impl Future`:
+///
+/// ```rust
+/// use occams_rpc::server::service;
+/// use occams_rpc_core::error::RpcError;
+/// use serde::{Deserialize, Serialize};
+/// use std::future::Future;
+///
+/// #[derive(Debug, Deserialize, Serialize)]
+/// pub struct EchoArgs {
+///     message: String,
+/// }
+///
+/// #[derive(Debug, Deserialize, Serialize)]
+/// pub struct EchoResp {
+///     echoed: String,
+/// }
+///
+/// pub trait EchoService: Send + Sync {
+///     fn echo(&self, args: EchoArgs) -> impl Future<Output = Result<EchoResp, RpcError<()>>> + Send;
+/// }
+///
+/// pub struct EchoServiceImpl;
+///
+/// #[service]
+/// impl EchoService for EchoServiceImpl {
+///     fn echo(&self, args: EchoArgs) -> impl Future<Output = Result<EchoResp, RpcError<()>>> + Send {
+///         async move {
+///             Ok(EchoResp { echoed: args.message })
+///         }
+///     }
+/// }
+/// ```
 #[proc_macro_attribute]
 pub fn service(_attr: TokenStream, item: TokenStream) -> TokenStream {
     service::service(_attr, item)
@@ -33,6 +104,58 @@ pub fn method(_attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// Each field in the struct must hold a service that implements `ServiceTrait` (e.g., wrapped in an `Arc`).
 /// The macro generates a `serve` implementation that matches `req.service` against the field names of the struct.
+///
+/// # Usage
+///
+/// ```rust
+/// use occams_rpc::server::{service, service_mux_struct, method};
+/// use occams_rpc_core::error::RpcError;
+/// use serde::{Deserialize, Serialize};
+/// use std::sync::Arc;
+///
+/// // Define request/response types
+/// #[derive(Debug, Deserialize, Serialize)]
+/// pub struct MathArgs {
+///     value: i32,
+/// }
+///
+/// #[derive(Debug, Deserialize, Serialize)]
+/// pub struct MathResp {
+///     result: i32,
+/// }
+///
+/// // Define services
+/// pub struct AddService;
+/// #[service]
+/// impl AddService {
+///     #[method]
+///     async fn add(&self, args: MathArgs) -> Result<MathResp, RpcError<()>> {
+///         Ok(MathResp { result: args.value + 1 })
+///     }
+/// }
+///
+/// pub struct MultiplyService;
+/// #[service]
+/// impl MultiplyService {
+///     #[method]
+///     async fn multiply(&self, args: MathArgs) -> Result<MathResp, RpcError<()>> {
+///         Ok(MathResp { result: args.value * 2 })
+///     }
+/// }
+///
+/// // Create a service multiplexer
+/// #[service_mux_struct]
+/// pub struct ServiceMux {
+///     pub add: Arc<AddService>,
+///     pub multiply: Arc<MultiplyService>,
+/// }
+///
+/// // Usage:
+/// // let mux = ServiceMux {
+/// //     add: Arc::new(AddService),
+/// //     multiply: Arc::new(MultiplyService),
+/// // };
+/// ```
 #[proc_macro_attribute]
 pub fn service_mux_struct(_attr: TokenStream, item: TokenStream) -> TokenStream {
     service_mux_struct::service_mux_struct(_attr, item)
@@ -48,22 +171,39 @@ pub fn service_mux_struct(_attr: TokenStream, item: TokenStream) -> TokenStream 
 ///     - If trait is not async_trait, then the method should use the signature `impl Future + Send`
 ///     - No fn is allowed.
 ///     - All method should have one and only argument, and return type should be `Result<Resp, RpcError<E>>`, where E impls [RpcErrCodec]
-/// Usage:
+///
+/// # Usage
+///
+/// Define a service trait with the `#[endpoint_async]` attribute:
+///
 /// ```rust
-/// use occams_rpc_api_macros::endpoint_async;
+/// use occams_rpc::client::endpoint_async;
 /// use occams_rpc_core::error::RpcError;
-/// use nix::errno::Errno;
-/// #[endpoint_async(DemoClient)]
-/// pub trait DemoService {
-///     async fn foo(&self, _empty: ()) -> Result<(), RpcError<Errno>>;
+/// use serde::{Deserialize, Serialize};
+/// use std::future::Future;
+///
+/// #[derive(Debug, Deserialize, Serialize)]
+/// pub struct AddArgs {
+///     pub a: i32,
+///     pub b: i32,
 /// }
+///
+/// #[derive(Debug, Deserialize, Serialize, Default)]
+/// pub struct AddResp {
+///     pub result: i32,
+/// }
+///
+/// #[endpoint_async(CalculatorClient)]
+/// pub trait CalculatorService {
+///     fn add(&self, args: AddArgs) -> impl Future<Output = Result<AddResp, RpcError<()>>> + Send;
+/// }
+///
+/// // This generates a CalculatorClient struct that can be used with a client caller:
+/// // let client = CalculatorClient::new(caller);
+/// // let result = client.add(AddArgs { a: 1, b: 2 }).await;
 /// ```
 ///
-/// This will generate a `DemoClient` struct that implements the `DemoService` trait,
-/// providing async methods that call the RPC endpoint.
-///
-/// The DemoClient type will have a generate param `<C: ClientCaller<Factory: ClientFact<Task = APIClientReq>>>`,
-/// you can initialize it with `DemoClient::new(client_caller)`
+/// The macro also supports `async fn` methods when used with `#[async_trait]` (though this is not recommended per the project guidelines).
 #[proc_macro_attribute]
 pub fn endpoint_async(attr: TokenStream, item: TokenStream) -> TokenStream {
     endpoint_async::endpoint_async(attr, item)
