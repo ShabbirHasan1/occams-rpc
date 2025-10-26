@@ -16,7 +16,7 @@ captains-log = "0"
 occams-rpc-core = { path = "../core", version="0" }
 occams-rpc-codec = { path = "../codec", version="0", features=["msgpack"] }
 occams-rpc-stream = { path = "../stream", version="0" }
-occams-rpc = { path = "../", version = "0", features = ["tokio"] }
+occams-rpc = { path = "../", version = "0"}
 serde = { version = "1.0", features = ["derive"] }
 rmp-serde = "0.15"
 crossfire = "2.1"

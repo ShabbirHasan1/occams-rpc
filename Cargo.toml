@@ -32,11 +32,6 @@ async-trait = "0"
 rustc-hash = "2"
 crossfire = "2.1"
 
-[features]
-default = []
-tokio = ["dep:occams-rpc-tokio"]
-smol = ["dep:occams-rpc-smol"]
-
 [dev-dependencies]
 serde_derive = "1"
 occams-rpc-smol = {path="runtime/smol/", version = "0", features=["global"]}

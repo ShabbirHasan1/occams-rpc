@@ -142,11 +142,6 @@
 //! }
 //! ```
 
-#[cfg(feature = "tokio")]
-pub type RT = occams_rpc_tokio::TokioRT;
-#[cfg(all(not(feature = "tokio"), feature = "smol"))]
-pub type RT = occams_rpc_smol::SmolRT;
-
 pub mod client;
 pub mod server;
 
