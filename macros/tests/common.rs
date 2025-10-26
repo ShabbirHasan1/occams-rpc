@@ -1,7 +1,7 @@
 use occams_rpc::server::task::{APIServerReq, APIServerResp};
 use occams_rpc_api_macros::{method, service, service_mux_struct};
 use occams_rpc_codec::MsgpCodec;
-use occams_rpc_core::{error::RpcError, Codec};
+use occams_rpc_core::{Codec, error::RpcError};
 use occams_rpc_stream::server::task::RespNoti;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

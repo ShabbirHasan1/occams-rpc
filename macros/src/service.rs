@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, FnArg, ImplItem, Item, ReturnType, Type};
+use syn::{FnArg, ImplItem, Item, ReturnType, Type, parse_macro_input};
 
 fn get_result_type_from_future(ty: &syn::Type) -> Option<&syn::Type> {
     if let syn::Type::ImplTrait(type_impl) = ty {

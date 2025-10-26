@@ -1,8 +1,9 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
+    FnArg, Ident, ItemTrait, Pat, PatType, Result, ReturnType, TraitItem,
     parse::{Parse, ParseStream},
-    parse_macro_input, FnArg, Ident, ItemTrait, Pat, PatType, Result, ReturnType, TraitItem,
+    parse_macro_input,
 };
 
 /// Parse macro arguments to get the struct name to generate
@@ -169,7 +170,10 @@ fn generate_trait_impl(
             // Parse method arguments
             let (arg_name, arg_type) = if method_sig.inputs.len() == 1 {
                 // Only &self argument - this is not allowed
-                panic!("Method `{}` has no parameters. Endpoint methods must have exactly one parameter besides &self.", method_name);
+                panic!(
+                    "Method `{}` has no parameters. Endpoint methods must have exactly one parameter besides &self.",
+                    method_name
+                );
             } else if method_sig.inputs.len() == 2 {
                 // &self + one argument
                 if let FnArg::Typed(PatType { pat, ty, .. }) = &method_sig.inputs[1] {
