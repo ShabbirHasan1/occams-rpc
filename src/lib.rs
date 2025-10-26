@@ -48,11 +48,9 @@
 //! ## Example
 //!
 //! ```
-//! use occams_rpc::client::{endpoint_async, APIClientReq};
-//! use occams_rpc::server::service;
-//! use occams_rpc_core::error::RpcError;
-//! use occams_rpc_core::{ClientConfig, Codec as CoreCodec};
-//! use occams_rpc_stream::server::ServerConfig;
+//! use occams_rpc::client::{endpoint_async, APIClientReq, ClientConfig};
+//! use occams_rpc::server::{service, ServerConfig};
+//! use occams_rpc::RpcError;
 //! use occams_rpc_tcp::{TcpClient, TcpServer};
 //! use nix::errno::Errno;
 //! use std::future::Future;

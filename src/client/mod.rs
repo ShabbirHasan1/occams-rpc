@@ -6,7 +6,7 @@ pub use task::*;
 use occams_rpc_core::Codec;
 use occams_rpc_core::error::{EncodedErr, RpcErrCodec, RpcError, RpcIntErr};
 pub use occams_rpc_stream::client::{
-    ClientCallerBlocking, ClientFacts, ClientPool, ClientTransport, FailoverPool,
+    ClientCallerBlocking, ClientConfig, ClientFacts, ClientPool, ClientTransport, FailoverPool,
 };
 use std::fmt;
 use std::sync::Arc;
