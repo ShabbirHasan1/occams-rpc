@@ -1,6 +1,7 @@
 use crate::Codec;
 use std::fmt;
 
+/// "rpc_" prefix is reserved for internal error, you should avoid conflict with it
 pub const RPC_ERR_PREFIX: &'static str = "rpc_";
 
 /// A error type defined by client-side user logic
@@ -103,9 +104,7 @@ impl<E: RpcErrCodec> From<RpcIntErr> for RpcError<E> {
 ///
 /// If you use other type as error, you can implement manually:
 ///
-/// # Example
-///
-/// with serde_derive
+/// # Example with serde_derive
 /// ```rust
 /// use serde_derive::{Serialize, Deserialize};
 /// use occams_rpc_core::{error::{RpcErrCodec, RpcIntErr, EncodedErr}, Codec};
@@ -133,6 +132,51 @@ impl<E: RpcErrCodec> From<RpcIntErr> for RpcError<E> {
 ///             Err(())
 ///         }
 ///     }
+///     #[inline(always)]
+///     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+///         std::fmt::Debug::fmt(self, f)
+///     }
+/// }
+/// ```
+///
+/// # Example with num_enum
+///
+/// ```rust
+/// use num_enum::TryFromPrimitive;
+/// use occams_rpc_core::{error::{RpcErrCodec, RpcIntErr, EncodedErr}, Codec};
+///
+/// // Define your error codes as a C-like enum with explicit values
+/// // You can use num_enum's TryFromPrimitive for safer deserialization
+/// #[derive(Debug, Clone, Copy, PartialEq, TryFromPrimitive)]
+/// #[repr(u32)]
+/// pub enum MyRpcErrorCode {
+///     /// Service is not available
+///     ServiceUnavailable = 1,
+///     /// Request timed out
+///     RequestTimeout = 2,
+///     /// Invalid parameter
+///     InvalidParameter = 3,
+///     /// Resource not found
+///     NotFound = 4,
+/// }
+///
+/// impl RpcErrCodec for MyRpcErrorCode {
+///     #[inline(always)]
+///     fn encode<C: Codec>(&self, _codec: &C) -> EncodedErr {
+///         // Manual conversion to u32 (no IntoPrimitive needed)
+///         let code: u32 = *self as u32;
+///         EncodedErr::Num(code)
+///     }
+///
+///     #[inline(always)]
+///     fn decode<C: Codec>(_codec: &C, buf: Result<u32, &[u8]>) -> Result<Self, ()> {
+///         if let Ok(code) = buf {
+///             // Using num_enum for safe deserialization (TryFromPrimitive)
+///             return MyRpcErrorCode::try_from(code).map_err(|_| ());
+///         }
+///         Err(())
+///     }
+///
 ///     #[inline(always)]
 ///     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 ///         std::fmt::Debug::fmt(self, f)
@@ -248,9 +292,12 @@ impl RpcErrCodec for String {
     }
 }
 
-/// "rpc_" prefix is reserved for internal error
+/// RpcIntErr represent internal error from the framework
 ///
-/// NOTE Retriable error: RpcIntErr as u8 < RpcIntErr::Method
+/// **NOTE**:
+/// - This error type is serialized in string, "rpc_" prefix is reserved for internal error, you
+/// should avoid conflict with it.
+/// - We pressume the variants less than RpcIntErr::Method is retriable errors
 #[derive(
     strum::Display,
     strum::EnumString,
