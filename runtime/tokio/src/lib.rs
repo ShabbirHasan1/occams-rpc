@@ -29,6 +29,7 @@ use tokio::runtime::Handle;
 pub struct TokioRT(Handle);
 
 impl TokioRT {
+    /// Capture a tokio runtime handle to ensure background task can spawn
     #[inline]
     pub fn new(handle: Handle) -> Self {
         Self(handle)
@@ -86,6 +87,7 @@ impl AsyncIO for TokioRT {
         Ok(TokioFD(io::unix::AsyncFd::with_interest(fd, Interest::READABLE | Interest::WRITABLE)?))
     }
 
+    /// spawn background coroutine with captured runtime handle
     #[inline]
     fn spawn_detach<F, R>(&self, f: F)
     where

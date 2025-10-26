@@ -31,12 +31,14 @@ use std::time::{Duration, Instant};
 pub struct SmolRT(Option<Arc<Executor<'static>>>);
 
 impl SmolRT {
+    /// spawn coroutine with smol::spawn, run globally
     #[cfg(feature = "global")]
     #[inline]
     pub fn new_global() -> Self {
         Self(None)
     }
 
+    /// spawn coroutine with specified Executor
     #[inline]
     pub fn new(executor: Arc<Executor<'static>>) -> Self {
         Self(Some(executor))
@@ -93,6 +95,7 @@ impl AsyncIO for SmolRT {
         Ok(SmolFD(Async::new(fd)?))
     }
 
+    /// Depends on how you initialize SmolRT, spawn with executor or globally
     #[inline]
     fn spawn_detach<F, R>(&self, f: F)
     where

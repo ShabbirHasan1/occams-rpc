@@ -1,6 +1,6 @@
 [package]
 name = "occams-rpc-smol"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 authors = ["plan <frostyplanet@gmail.com>"]
 categories = ["concurrency", "network-programming"]
@@ -17,8 +17,8 @@ with a low-level streaming interface, and high-level remote API call interface.
 
 [dependencies]
 futures = "0.3"
-occams-rpc-core = { path = "../../core/", version="0" }
-occams-rpc-stream = { path = "../../stream", version="0" }
+occams-rpc-core = { path = "../../core/", version=">=0.2" }
+occams-rpc-stream = { path = "../../stream", version=">=0.2" }
 async-io = "2.6"
 async-executor = "1"
 smol = {version="2", optional=true}

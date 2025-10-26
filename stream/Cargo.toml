@@ -1,6 +1,6 @@
 [package]
 name = "occams-rpc-stream"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 authors = ["plan <frostyplanet@gmail.com>"]
 categories = ["concurrency", "network-programming"]
@@ -16,8 +16,8 @@ with a low-level streaming interface, and high-level remote API call interface.
 """
 
 [dependencies]
-occams-rpc-core = {path="../core/", version="0"}
-occams-rpc-stream-macros = {path="macros", version="0"}
+occams-rpc-core = {path="../core/", version=">=0.2"}
+occams-rpc-stream-macros = {path="macros", version=">=0.2"}
 log = { version = "0.4", features = ["std", "kv_unstable"] }
 captains-log = ">=0.15"
 futures = "0.3"
