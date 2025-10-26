@@ -31,14 +31,16 @@
 //! We utilize the [crossfire](https://docs.rs/crossfire) channel for parallelizing the work with
 //! coroutines.
 //!
-//! With an [ClientStream](crate::client::stream::ClientStream), the user sends packets in sequence,
-//! with a throttler controlling the IO depth of in-flight packets.
+//! With an [ClientStream](crate::client::stream::ClientStream), the request packets sent in sequence,
+//! and wait with a slicing window throttler controlling the number of in-flight packets.
 //! An internal timer then registers the request through a channel, and when the response
 //! is received, it can optionally notify the user through a user-defined channel or another mechanism.
 //!
+//! [ClientPool](crate::client::ClientPool) and [FailoverPool](crate::client::FailoverPool) are provided on top of `ClientStream` for user.
+//!
 //! In an [RpcServer](crate::server::RpcServer), for each connection, there is one coroutine to read requests and one
 //! coroutine to write responses. Requests can be dispatched with a user-defined
-//! [ReqDispatch](crate::server::dispatch::ReqDispatch) trait implementation.
+//! [Dispatch](crate::server::dispatch::Dispatch) trait implementation.
 //!
 //! Responses are received through a channel wrapped in [RespNoti](crate::server::task::RespNoti).
 //!
@@ -59,11 +61,8 @@
 //!
 //! ## Usage
 //!
-//! You can refer to the test case for example:
+//! You can refer to the [test case](https://github.com/NaturalIO/occams-rpc/blob/master/test-suite/src/stream/) for example.
 //!
-//! - client: <https://github.com/NaturalIO/occams-rpc/blob/master/stream/test/src/client.rs>
-//! - server: <https://github.com/NaturalIO/occams-rpc/blob/master/stream/test/src/server.rs>
-//! - task handling: <https://github.com/NaturalIO/occams-rpc/blob/master/stream/test/src/tests/test_normal.rs>
 
 #[macro_use]
 extern crate captains_log;

@@ -1,3 +1,5 @@
+//! The dispatch layer for API server
+
 use super::service::ServiceStatic;
 use super::task::{APIServerReq, APIServerResp};
 use captains_log::*;
@@ -9,6 +11,7 @@ use occams_rpc_stream::{
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+/// Interface for all dispatch for API Server
 pub trait APIDispatchTrait: Send + Sync + 'static + Clone {
     type Codec: Codec;
 
@@ -17,6 +20,9 @@ pub trait APIDispatchTrait: Send + Sync + 'static + Clone {
     ) -> impl Future<Output = Result<(), ()>> + Send;
 }
 
+/// A container for everything impl APIDispatchTrait
+///
+/// Because rust orphan rule forbid blanet impl non-local trait
 #[derive(Clone)]
 pub struct APIDispatch<D: APIDispatchTrait>(D);
 
@@ -51,6 +57,9 @@ impl<D: APIDispatchTrait> Dispatch for APIDispatch<D> {
 
 pub type DispatchInline<C, S> = APIDispatch<Inline<C, S>>;
 
+/// APIDispatch for inline process in connection coroutine, only for demo
+///
+/// It will block the next request if your async method blocks.
 pub struct Inline<C: Codec, S: ServiceStatic<C> + Clone> {
     service: S,
     _phan: PhantomData<fn(&C)>,

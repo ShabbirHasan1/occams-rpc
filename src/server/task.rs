@@ -1,3 +1,6 @@
+//! task for server internal use, only need to known when you are writing
+//! [Dispatch](crate::server::dispatch)
+
 use occams_rpc_core::{
     Codec,
     error::{EncodedErr, RpcErrCodec, RpcError, RpcIntErr},

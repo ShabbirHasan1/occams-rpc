@@ -14,7 +14,9 @@ use std::sync::{
     atomic::{AtomicU64, AtomicUsize, Ordering},
 };
 
-/// A connection pool supports failover to multiple address with optional round_robin strategy
+/// A pool supports failover to multiple address with optional round_robin strategy
+///
+/// Supports async and blocking context.
 ///
 /// Only retry RpcIntErr that less than RpcIntErr::Method,
 /// currently ignore custom error due to complexity of generic.

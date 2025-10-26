@@ -297,7 +297,7 @@ impl RpcErrCodec for String {
 /// **NOTE**:
 /// - This error type is serialized in string, "rpc_" prefix is reserved for internal error, you
 /// should avoid conflict with it.
-/// - We pressume the variants less than RpcIntErr::Method is retriable errors
+/// - We presume the variants less than RpcIntErr::Method is retriable errors
 #[derive(
     strum::Display,
     strum::EnumString,

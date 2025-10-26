@@ -14,12 +14,21 @@ use std::sync::atomic::{
 };
 use std::time::Duration;
 
-/// The ClientPool is a connection pool to the same server address
+/// Connection pool to the one server address (supports async and blocking context)
 ///
-/// There should be a connection:
-/// - serves as ping monitoring
-/// - cleanup the task in channel with error_handle when the address is unhealthy,
-/// because:
+/// There's a worker accepting task post in bounded channel.
+///
+/// Even when the server address is not reachable, the worker coroutine will not exit,
+/// until ClientPool is dropped.
+///
+/// The background coroutine will:
+/// - monitor the address with ping task (action 0)
+/// - cleanup the task in channel with error_handle when the address is unhealthy
+///
+/// If the connection is healthy and there's incoming, the worker will spawn another coroutine for
+/// monitor purpose.
+///
+/// considering:
 /// - The task incoming might never stop until faulty pool remove from pools collection
 /// - If ping mixed with task with real business, might blocked due to throttler of in-flight
 /// message in the stream.

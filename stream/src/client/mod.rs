@@ -63,12 +63,16 @@ pub trait ClientFacts: AsyncIO + Send + Sync + Sized + 'static {
     }
 }
 
+/// A trait to support sending request task in async text, for all router and connection pool
+/// implementations
 pub trait ClientCaller: Send {
     type Facts: ClientFacts;
     fn send_req(&self, task: <Self::Facts as ClientFacts>::Task)
     -> impl Future<Output = ()> + Send;
 }
 
+/// A trait to support sending request task in blocking text, for all router and connection pool
+/// implementations
 pub trait ClientCallerBlocking: Send {
     type Facts: ClientFacts;
     fn send_req_blocking(&self, task: <Self::Facts as ClientFacts>::Task);

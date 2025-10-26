@@ -94,6 +94,8 @@ pub fn service(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// A marker attribute for methods in an inherent `impl` block that should be exposed as RPC methods.
 /// This is not needed when using a trait-based implementation.
+///
+/// Refer to document of attr macro `#[service]`
 #[proc_macro_attribute]
 pub fn method(_attr: TokenStream, item: TokenStream) -> TokenStream {
     item
@@ -170,7 +172,7 @@ pub fn service_mux_struct(_attr: TokenStream, item: TokenStream) -> TokenStream 
 ///     - trait can be wrapped async_trait, optionally.
 ///     - If trait is not async_trait, then the method should use the signature `impl Future + Send`
 ///     - No fn is allowed.
-///     - All method should have one and only argument, and return type should be `Result<Resp, RpcError<E>>`, where E impls [RpcErrCodec]
+///     - All method should have one and only argument, and return type should be `Result<Resp, RpcError<E>>`, where `E: RpcErrCodec`
 ///
 /// # Usage
 ///
