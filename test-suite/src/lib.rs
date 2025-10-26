@@ -43,6 +43,7 @@ macro_rules! async_spawn_detach {
         }
         #[cfg(not(feature = "tokio"))]
         {
+            // smol feature is enabled by default
             let _ = smol::spawn($f).detach();
         }
     }};
@@ -51,13 +52,14 @@ macro_rules! async_spawn_detach {
 #[macro_export]
 macro_rules! async_join_result {
     ($th: expr) => {{
-        #[cfg(feature = "smol")]
-        {
-            $th.await
-        }
-        #[cfg(not(feature = "smol"))]
+        #[cfg(feature = "tokio")]
         {
             $th.await.expect("join")
+        }
+        #[cfg(not(feature = "tokio"))]
+        {
+            // smol feature is enabled by default
+            $th.await
         }
     }};
 }

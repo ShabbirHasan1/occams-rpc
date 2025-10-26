@@ -170,6 +170,15 @@ where
                     if let Some((index, pool)) =
                         cluster.select(inner.round_robin, &inner.rr_counter, last_index)
                     {
+                        if let Some(last) = last_index {
+                            logger_trace!(
+                                logger,
+                                "FailoverPool: task {:?} retry {}->{}",
+                                task.inner,
+                                last,
+                                index
+                            );
+                        }
                         task.last_index = index;
                         pool.send_req(task).await; // retry is async
                         continue;

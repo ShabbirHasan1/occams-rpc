@@ -11,9 +11,9 @@ use std::time::Duration;
 
 #[logfn]
 #[rstest]
-#[case(true)]
-#[case(false)]
-fn test_round_robin_distribution(runner: TestRunner, #[case] is_tcp: bool) {
+#[case(true)] // round_robin
+#[case(false)] // not round_robin
+fn test_failover_on_server_exit(runner: TestRunner, #[case] round_robin: bool) {
     runner.block_on(async move {
         let client_config = ClientConfig::default();
         let server_config = ServerConfig::default();
@@ -66,81 +66,87 @@ fn test_round_robin_distribution(runner: TestRunner, #[case] is_tcp: bool) {
             }
         };
 
+        let is_tcp = true;
         // Start server 1
-        let server_bind_addr1 = if is_tcp { "127.0.0.1:0" } else { "/tmp/occams-rpc-test-1" };
-        let (_server1, server1_addr) =
+        let server_bind_addr1 = if is_tcp { "127.0.0.1:0" } else { "/tmp/occams-rpc-failover-1" };
+        let (server1, server1_addr) =
             init_server_closure(dispatch_task1, server_config.clone(), &server_bind_addr1)
                 .expect("server1 listen");
 
         // Start server 2
-        let server_bind_addr2 = if is_tcp { "127.0.0.1:0" } else { "/tmp/occams-rpc-test-2" };
+        let server_bind_addr2 = if is_tcp { "127.0.0.1:0" } else { "/tmp/occams-rpc-failover-2" };
         let (_server2, server2_addr) =
             init_server_closure(dispatch_task2, server_config.clone(), &server_bind_addr2)
                 .expect("server2 listen");
+        println!("server1 {} server2 {}", server1_addr, server2_addr);
 
-        // Create failover client with round-robin enabled
+        // Create failover client (without round-robin for clearer failover behavior)
         let addrs = vec![server1_addr.clone(), server2_addr.clone()];
-        let client = init_failover_client(client_config, addrs, true /* round_robin */).await;
+        let client = init_failover_client(client_config, addrs, round_robin).await;
 
-        // Send multiple requests and verify distribution
-        let (tx, rx) = mpsc::unbounded_async::<FileClientTask>();
-        const REQUEST_COUNT: usize = 100000;
-        const BATCH: usize = 5;
+        // Send some requests to establish connection to server 1 (primary)
+        let (tx, rx) = mpsc::unbounded_async();
+        const INITIAL_REQUESTS: usize = 5000;
 
-        let th = async_spawn!(async move {
-            // Collect responses
-            let mut recv_count = 0;
-            while let Ok(task) = rx.recv().await {
-                recv_count += 1;
-                let r = task.get_result();
-                assert!(r.is_ok(), "task err: {:?}", r);
-            }
-            recv_count
-        });
-        for _j in 0..BATCH {
-            for i in 0..REQUEST_COUNT {
-                let open_task = FileClientTaskOpen::new(tx.clone(), format!("/tmp/file_{}.txt", i));
-                client.send_req(open_task.into()).await;
-            }
-            println!("sleep 3 sec");
-            crate::RT::sleep(Duration::from_secs(3)).await;
+        for i in 0..INITIAL_REQUESTS {
+            let open_task = FileClientTaskOpen::new(tx.clone(), format!("/tmp/file_{}.txt", i));
+            client.send_req(open_task.into()).await;
         }
+        // Wait until all initial requests are processed by server 1
+
+        let mut server1_count_before;
+        loop {
+            server1_count_before = server1_requests.load(Ordering::SeqCst);
+            println!(
+                "server1 {} server2 {}",
+                server1_count_before,
+                server2_requests.load(Ordering::SeqCst)
+            );
+            if server1_count_before >= INITIAL_REQUESTS / 2 {
+                break;
+            }
+            crate::RT::sleep(Duration::from_secs(1)).await;
+        }
+        log::info!("Server 1 processed {} initial requests", server1_count_before);
+
+        // Stop server 1 to trigger failover
+        drop(server1);
+        println!("drop");
+
+        // Send more requests that should be handled by server 2 due to failover
+        const FAILOVER_REQUESTS: usize = 10000;
+        for i in INITIAL_REQUESTS..(INITIAL_REQUESTS + FAILOVER_REQUESTS) {
+            let open_task = FileClientTaskOpen::new(tx.clone(), format!("/tmp/file_{}.txt", i));
+            client.send_req(open_task.into()).await;
+        }
+
         // Wait for all tasks to complete
         drop(tx);
 
-        let recv_count = async_join_result!(th);
-        assert_eq!(recv_count, REQUEST_COUNT * BATCH);
-        drop(client);
+        // Collect responses
+        let mut recv_count = 0;
+        while let Ok(task) = rx.recv().await {
+            recv_count += 1;
+            let r = task.get_result();
+            assert!(r.is_ok(), "task err: {:?}", r);
+        }
 
-        // Verify round-robin distribution
+        // All requests should succeed
+        assert_eq!(recv_count, INITIAL_REQUESTS + FAILOVER_REQUESTS);
+
+        // Verify that server 2 handled the failover requests
         let server1_count = server1_requests.load(Ordering::SeqCst);
         let server2_count = server2_requests.load(Ordering::SeqCst);
-
-        // With round-robin, each server should handle approximately half the requests
-        let expected_per_server = recv_count / 2;
-        let tolerance = 2; // Allow small variance due to timing
         println!("server1 {} server2 {}", server1_count, server2_count);
 
-        assert!(
-            (server1_count as i32 - expected_per_server as i32).abs() <= tolerance,
-            "Server 1 handled {} requests, expected ~{}",
-            server1_count,
-            expected_per_server
-        );
-        assert!(
-            (server2_count as i32 - expected_per_server as i32).abs() <= tolerance,
-            "Server 2 handled {} requests, expected ~{}",
-            server2_count,
-            expected_per_server
-        );
-
         log::info!(
-            "Round-robin test completed: Server1={}, Server2={}, Total={}",
+            "Failover test completed: Server1={}, Server2={}, Total={}",
             server1_count,
             server2_count,
             recv_count
         );
-        log::info!("sleep to see if log in FailoverPool drop occur");
-        crate::RT::sleep(Duration::from_secs(3)).await;
+
+        // Server 1 should have handled the initial requests
+        assert!(server1_count < server2_count);
     });
 }

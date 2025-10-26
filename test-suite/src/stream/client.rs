@@ -162,20 +162,18 @@ impl FileClientTaskWrite {
 
 pub async fn init_failover_client(
     config: ClientConfig, addrs: Vec<String>, round_robin: bool,
-) -> Result<FailoverPool<FileClient, TcpClient<crate::RT>>, RpcIntErr> {
+) -> FailoverPool<FileClient, TcpClient<crate::RT>> {
     #[cfg(feature = "tokio")]
     let rt = TokioRT::new(tokio::runtime::Handle::current());
     #[cfg(not(feature = "tokio"))]
     let rt = SmolRT::new_global();
 
     let facts = FileClient::new(config, rt);
-    let failover = FailoverPool::new(
+    FailoverPool::new(
         facts,
         addrs,
         round_robin,
         3,   // retry_limit
         100, // pool_channel_size
-    );
-
-    Ok(failover)
+    )
 }
