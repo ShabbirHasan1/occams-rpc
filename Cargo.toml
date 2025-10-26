@@ -3,7 +3,7 @@ members = ["core", "codec", "macros", "runtime/tokio", "runtime/smol", "stream",
 
 [package]
 name = "occams-rpc"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 authors = ["plan <frostyplanet@gmail.com>"]
 categories = ["concurrency", "network-programming"]
