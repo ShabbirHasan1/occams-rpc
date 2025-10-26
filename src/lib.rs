@@ -16,7 +16,7 @@
 //! - Support latest `impl Future` definition of rust since 1.75, also support legacy `async_trait`
 //! wrapper
 //! - Each method can have different custom error type (requires the type implements [RpcErrCodec])
-//! - based on [occams-rpc-stream](https://docs.rs/occams-rpc-stream): Full duplex in each connection, with slicing window threshold, allow maximizing throughput and lower cpu usage.
+//! - based on [occams-rpc-stream](https://docs.rs/occams-rpc-stream): Full duplex in each connection, with sliding window threshold, allow maximizing throughput and lower cpu usage.
 //!
 //! (Warning: The API and feature is still evolving, might changed in the future)
 //!
@@ -47,7 +47,7 @@
 //!
 //! ## Example
 //!
-//! ```
+//! ```rust
 //! use occams_rpc::client::{endpoint_async, APIClientReq, ClientConfig};
 //! use occams_rpc::server::{service, ServerConfig};
 //! use occams_rpc::RpcError;

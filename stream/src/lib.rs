@@ -32,7 +32,7 @@
 //! coroutines.
 //!
 //! With an [ClientStream](crate::client::stream::ClientStream), the request packets sent in sequence,
-//! and wait with a slicing window throttler controlling the number of in-flight packets.
+//! and wait with a sliding window throttler controlling the number of in-flight packets.
 //! An internal timer then registers the request through a channel, and when the response
 //! is received, it can optionally notify the user through a user-defined channel or another mechanism.
 //!
